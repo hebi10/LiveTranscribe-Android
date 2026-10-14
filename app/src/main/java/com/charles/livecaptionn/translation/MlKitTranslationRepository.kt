@@ -6,6 +6,8 @@ import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -59,11 +61,13 @@ class MlKitTranslationRepository : TranslationRepository {
         return try {
             val translator = translatorFor(src, dst)
             // Models must have been prepared explicitly by the user.
-            val translated = translateBlocking(translator, clean).trim()
+            val translated = withTimeout(4_000L) { translateBlocking(translator, clean) }.trim()
             translated
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
-            Log.w(TAG, "ML Kit translation failed for $sourceCode→$targetCode", t)
-            ""
+            Log.w(TAG, "Local translation failed")
+            throw IllegalStateException("기기 내 번역에 실패했습니다. 번역 모델을 확인한 뒤 다시 시작해 주세요.", t)
         }
     }
 
@@ -128,3 +132,4 @@ class MlKitTranslationRepository : TranslationRepository {
         private const val TAG = "MlKitTranslator"
     }
 }
+

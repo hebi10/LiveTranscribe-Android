@@ -21,8 +21,8 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
             CaptionSettings(
                 sourceLanguageCode = p[SOURCE] ?: defaults.sourceLanguageCode,
                 targetLanguageCode = p[TARGET] ?: defaults.targetLanguageCode,
-                textSizeSp = p[TEXT_SIZE] ?: defaults.textSizeSp,
-                overlayOpacity = p[OPACITY] ?: defaults.overlayOpacity,
+                textSizeSp = (p[TEXT_SIZE] ?: defaults.textSizeSp).coerceIn(14f, 40f),
+                overlayOpacity = (p[OPACITY] ?: defaults.overlayOpacity).coerceIn(0.2f, 1f),
                 showOriginal = p[SHOW_ORIGINAL] ?: defaults.showOriginal,
                 overlayX = p[OVERLAY_X] ?: defaults.overlayX,
                 overlayY = p[OVERLAY_Y] ?: defaults.overlayY,
@@ -89,3 +89,4 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
         val SAVE_HISTORY = booleanPreferencesKey("save_history")
     }
 }
+

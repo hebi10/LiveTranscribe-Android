@@ -32,3 +32,18 @@ class CaptionRuntimeStore {
         mutable.update(transform)
     }
 }
+
+
+internal fun completedCaptionSession(
+    previousFailure: String?,
+    terminalFailure: String?,
+    drained: Boolean,
+    completionMessage: String? = null
+): CaptionRuntimeState {
+    val error = terminalFailure ?: previousFailure ?: if (!drained)
+        "번역 종료 시간이 초과되어 마지막 일부 문장이 저장되지 않았습니다." else null
+    return CaptionRuntimeState(
+        status = if (error == null) RecognitionStatus.IDLE else RecognitionStatus.ERROR,
+        lastError = error ?: completionMessage
+    )
+}

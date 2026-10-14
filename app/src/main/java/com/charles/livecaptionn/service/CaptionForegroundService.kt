@@ -20,7 +20,12 @@ import android.util.Log
 import android.widget.Toast
 import com.charles.livecaptionn.speech.LanguageRecommendationTracker
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.BufferOverflow
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.charles.livecaptionn.LiveCaptionApp
@@ -40,22 +45,16 @@ import com.charles.livecaptionn.speech.StreamingSttEngine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.ConcurrentLinkedQueue
 
-@OptIn(FlowPreview::class)
 class CaptionForegroundService : Service() {
     private var serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var app: LiveCaptionApp
@@ -68,21 +67,12 @@ class CaptionForegroundService : Service() {
     private var speechEngine: SpeechEngine? = null
     private var overlayController: OverlayController? = null
     private var paused = false
-    private var failureMessage: String? = null
-    private var bufferedText = ""
+    @Volatile private var failureMessage: String? = null
     private val lineIdCounter = java.util.concurrent.atomic.AtomicLong(0)
-    @Volatile
-    private var bufferedLineId: Long = NO_LINE_ID
-    @Volatile
-    private var historyOnNextTranslate = false
-    private val pendingFinalTranslations = ConcurrentLinkedQueue<TranslationRequest>()
-
-    /** Mic partials arrive faster than 400ms; cancel+restart jobs never finish. Debounce coalesces to one translate. */
-    private val translateRequests = MutableSharedFlow<Unit>(
-        replay = 0,
-        extraBufferCapacity = 1,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST
-    )
+    private var translationQueue: CaptionTranslationQueue<TranslationRequest>? = null
+    private var setupJob: Job? = null
+    private var stopping = false
+    private var sessionSourceCode = "en"
 
     private var currentAudioSource = AudioSource.SYSTEM
     private var languageSamples: Channel<ByteArray>? = null
@@ -129,7 +119,7 @@ class CaptionForegroundService : Service() {
             ACTION_PAUSE_RESUME -> togglePause()
             ACTION_TOGGLE_MINIMIZE -> toggleMinimized()
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun enterForeground(audioSource: AudioSource): Boolean {
@@ -158,26 +148,29 @@ class CaptionForegroundService : Service() {
                 startForeground(NOTIF_ID, buildNotification())
             }
             if (wantsMicrophone && !hasMicPermission) {
-                failAndStop("Microphone permission not granted. Allow microphone access and try again.")
+                failAndStop("음성 녹음 권한을 허용한 뒤 다시 시작해 주세요.")
                 false
             } else true
         } catch (t: Throwable) {
             Log.e("CaptionService", "Unable to enter foreground", t)
-            failAndStop("Captioning could not start: ${t.message ?: "foreground service permission denied"}")
+            failAndStop("자막 서비스를 시작하지 못했습니다. 권한을 확인한 뒤 다시 시도해 주세요.")
             false
         }
     }
 
     private fun startFlow() {
-        if (!captionSessionActive.compareAndSet(false, true)) return
+        if (stopping || !captionSessionActive.compareAndSet(false, true)) return
         failureMessage = null
+        app.container.runtimeStore.update {
+            it.copy(running = true, paused = false, status = RecognitionStatus.PROCESSING, lastError = null)
+        }
         if (!Settings.canDrawOverlays(this)) {
             Log.e("CaptionService", "Overlay permission missing.")
-            failAndStop("Overlay permission is required. Enable it in system settings and try again.")
+            failAndStop("다른 앱 위에 표시 권한을 허용한 뒤 다시 시작해 주세요.")
             return
         }
 
-        serviceScope.launch {
+        setupJob = serviceScope.launch {
             // Always start a fresh session un-minimized; stale overlayMinimized=true from a
             // prior run was hiding the caption body entirely.
             app.container.settingsRepository.update { it.copy(overlayMinimized = false) }
@@ -191,6 +184,7 @@ class CaptionForegroundService : Service() {
                 if (!enterForeground(currentAudioSource)) return@launch
             }
             val sttLanguageCode = settings.sourceLanguageCode.ifBlank { "en" }
+            sessionSourceCode = sttLanguageCode
 
             val model = app.container.voskRegistry.installedModelFor(sttLanguageCode)
             if (model == null) {
@@ -199,7 +193,7 @@ class CaptionForegroundService : Service() {
             }
 
             app.container.runtimeStore.update {
-                it.copy(running = true, paused = false, status = RecognitionStatus.LISTENING)
+                it.copy(running = true, paused = false, status = RecognitionStatus.PROCESSING)
             }
 
             if (!app.container.translationModels.isReady(sttLanguageCode)) {
@@ -226,21 +220,20 @@ class CaptionForegroundService : Service() {
                 }
             }
 
-            launch(Dispatchers.IO) {
-                translateRequests
-                    .debounce(TRANSLATE_DEBOUNCE_MS)
-                    .collect {
-                        while (true) {
-                            val final = pendingFinalTranslations.poll() ?: break
-                            translateSnapshot(final)
-                        }
-                        val partial = synchronized(this@CaptionForegroundService) {
-                            TranslationRequest(bufferedText, bufferedLineId, historyOnNextTranslate)
-                                .also { historyOnNextTranslate = false }
-                        }
-                        if (partial.text.isNotBlank()) translateSnapshot(partial)
+            translationQueue = CaptionTranslationQueue(
+                CoroutineScope(serviceScope.coroutineContext + Dispatchers.IO),
+                translate = { request ->
+                    try {
+                        translateSnapshot(request)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        val message = "번역 기록 처리에 실패했습니다. 저장 공간을 확인해 주세요."
+                        failureMessage = failureMessage ?: message
+                        app.container.runtimeStore.update { it.copy(lastError = message) }
                     }
-            }
+                }
+            )
 
             val onSpeechResult = { result: SpeechResult ->
                 val transcript = result.text.trim()
@@ -270,7 +263,7 @@ class CaptionForegroundService : Service() {
                 val data = MediaProjectionHolder.data
                 if (data == null) {
                     Log.e("CaptionService", "MediaProjection data missing.")
-                    failAndStop("System-audio capture permission is missing. Start again and allow capture.")
+                    failAndStop("동영상 음성 캡처 권한이 없습니다. 번역 시작을 다시 눌러 주세요.")
                     return@launch
                 }
                 try {
@@ -325,7 +318,13 @@ class CaptionForegroundService : Service() {
     private fun observeEngineStatus(statusFlow: StateFlow<RecognitionStatus>) {
         serviceScope.launch {
             statusFlow.collectLatest { status ->
-                app.container.runtimeStore.update { it.copy(status = status) }
+                if (!stopping) {
+                    app.container.runtimeStore.update { it.copy(status = status) }
+                    if (status == RecognitionStatus.ERROR) {
+                        failAndStop(app.container.runtimeStore.state.value.lastError
+                            ?: "음성 인식을 시작하지 못했습니다. 권한과 음성 모델을 확인해 주세요.")
+                    }
+                }
             }
         }
     }
@@ -368,28 +367,34 @@ class CaptionForegroundService : Service() {
     )
 
     private fun queueTranslation(text: String, lineId: Long, isFinal: Boolean = false) {
-        synchronized(this) {
-            bufferedText = text
-            bufferedLineId = lineId
-            if (isFinal) {
-                pendingFinalTranslations.add(TranslationRequest(text, lineId, true))
-                // Finals are retained in the queue; do not translate the same
-                // immutable snapshot again through the mutable partial slot.
-                bufferedText = ""
-                historyOnNextTranslate = false
-            }
-        }
-        translateRequests.tryEmit(Unit)
+        if (text.isBlank()) return
+        val request = TranslationRequest(text, lineId, isFinal)
+        if (isFinal) translationQueue?.submitFinal(request)
+        else translationQueue?.submitPartial(request)
     }
 
     private suspend fun translateSnapshot(request: TranslationRequest) {
         val captionSettings = app.container.settingsRepository.settingsFlow.first()
-        val translated = app.container.translationRepository.translate(
-            text = request.text,
-            sourceCode = captionSettings.sourceLanguageCode,
-            targetCode = captionSettings.targetLanguageCode,
-            autoDetect = false
-        )
+        val translated = try {
+            app.container.translationRepository.translate(
+                text = request.text,
+                sourceCode = sessionSourceCode,
+                targetCode = "ko",
+                autoDetect = false
+            )
+        } catch (_: TimeoutCancellationException) {
+            val message = "번역 시간이 초과되어 일부 문장을 번역하거나 저장하지 못했습니다."
+            if (request.saveHistory) failureMessage = failureMessage ?: message
+            app.container.runtimeStore.update { it.copy(lastError = message) }
+            return
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            val message = "일부 문장을 번역하거나 저장하지 못했습니다. 번역 모델을 확인해 주세요."
+            if (request.saveHistory) failureMessage = failureMessage ?: message
+            app.container.runtimeStore.update { it.copy(lastError = message) }
+            return
+        }
         if (translated.isBlank()) return
         val translatedWithGlossary = applyGlossary(translated, app.container.glossary.list())
         app.container.runtimeStore.update {
@@ -405,8 +410,8 @@ class CaptionForegroundService : Service() {
                 TranscriptEntry(
                     originalText = request.text,
                     translatedText = translatedWithGlossary,
-                    sourceLanguage = if (currentAudioSource == AudioSource.SYSTEM) "auto" else captionSettings.sourceLanguageCode,
-                    targetLanguage = captionSettings.targetLanguageCode
+                    sourceLanguage = sessionSourceCode,
+                    targetLanguage = "ko"
                 )
             )
         }
@@ -418,18 +423,23 @@ class CaptionForegroundService : Service() {
         if (overlayController != null) return
         serviceScope.launch {
             val settings = app.container.settingsRepository.settingsFlow.first()
-            overlayController = OverlayController(
-                context = this@CaptionForegroundService,
-                scope = serviceScope,
-                settingsRepository = app.container.settingsRepository,
-                onPauseResume = { togglePause() },
-                onClose = { stopFlow() },
-                onToggleMinimize = { toggleMinimized() },
-                onAcceptLanguageSuggestion = ::acceptLanguageSuggestion,
-                onDismissLanguageSuggestion = ::dismissLanguageSuggestion,
-                uiStrings = { KoreanUiStrings.values }
-            ).apply {
-                show(settings.overlayX, settings.overlayY, settings.overlayWidthDp, settings.overlayHeightDp)
+            try {
+                overlayController = OverlayController(
+                    context = this@CaptionForegroundService,
+                    scope = serviceScope,
+                    settingsRepository = app.container.settingsRepository,
+                    onPauseResume = { togglePause() },
+                    onClose = { stopFlow() },
+                    onToggleMinimize = { toggleMinimized() },
+                    onAcceptLanguageSuggestion = ::acceptLanguageSuggestion,
+                    onDismissLanguageSuggestion = ::dismissLanguageSuggestion,
+                    uiStrings = { KoreanUiStrings.values }
+                ).apply {
+                    show(settings.overlayX, settings.overlayY, settings.overlayWidthDp, settings.overlayHeightDp)
+                }
+            } catch (_: RuntimeException) {
+                failAndStop("자막 창을 표시할 수 없습니다. 다른 앱 위에 표시 권한을 확인해 주세요.")
+                return@launch
             }
             val runtime = app.container.runtimeStore.state.value
             overlayController?.update(buildOverlayUi(runtime, settings))
@@ -467,13 +477,7 @@ class CaptionForegroundService : Service() {
         serviceScope.launch {
             app.container.settingsRepository.update { it.copy(sourceLanguageCode = code) }
             val label = LanguageRecommendationTracker.label(code)
-            stopFlow()
-            app.container.runtimeStore.update {
-                it.copy(
-                    status = RecognitionStatus.IDLE,
-                    lastError = "$label 음성으로 변경했습니다. 앱에서 번역 시작을 다시 눌러 주세요."
-                )
-            }
+            stopFlow(completionMessage = "$label 음성으로 변경했습니다. 앱에서 번역 시작을 다시 눌러 주세요.")
             Toast.makeText(
                 this@CaptionForegroundService,
                 "$label 음성으로 변경했습니다. 앱에서 다시 시작해 주세요.",
@@ -482,51 +486,66 @@ class CaptionForegroundService : Service() {
         }
     }
 
-    private fun stopFlow() {
-        captionSessionActive.set(false)
-        languageSamples?.close()
-        languageSamples = null
-        languageTracker = null
-        try { speechEngine?.stop() } catch (_: Throwable) {}
-        speechEngine = null
-        overlayController?.hide()
-        overlayController = null
-        overlayReady.value = 0
-        MediaProjectionHolder.clear()
-        val error = failureMessage
-        failureMessage = null
-        app.container.runtimeStore.update {
-            if (error == null) CaptionRuntimeState()
-            else CaptionRuntimeState(status = RecognitionStatus.ERROR, lastError = error)
-        }
-        serviceScope.cancel()
-        serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+    private fun stopFlow(completionMessage: String? = null) {
+        finishSession(completionMessage = completionMessage)
     }
 
     private fun failAndStop(message: String) {
+        finishSession(error = message)
+    }
+
+    private fun finishSession(error: String? = null, completionMessage: String? = null) {
+        if (stopping) return
+        stopping = true
+        if (error != null) failureMessage = error
         captionSessionActive.set(false)
-        languageSamples?.close()
-        languageSamples = null
-        languageTracker = null
-        failureMessage = message
-        try { speechEngine?.stop() } catch (_: Throwable) {}
-        speechEngine = null
-        overlayController?.hide()
-        overlayController = null
-        MediaProjectionHolder.clear()
-        app.container.runtimeStore.update {
-            it.copy(running = false, paused = false, status = RecognitionStatus.ERROR, lastError = message)
+        serviceScope.launch {
+            setupJob?.cancelAndJoin()
+            setupJob = null
+            languageSamples?.close()
+            languageSamples = null
+            languageTracker = null
+            try {
+                speechEngine?.stop()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                failureMessage = failureMessage ?: "음성 인식 종료 중 오류가 발생했습니다."
+            }
+            speechEngine = null
+            val drained = translationQueue?.finish() ?: true
+            translationQueue = null
+            overlayController?.hide()
+            overlayController = null
+            overlayReady.value = 0
+            MediaProjectionHolder.clear()
+            app.container.runtimeStore.update {
+                completedCaptionSession(failureMessage, error, drained, completionMessage)
+            }
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
         }
-        serviceScope.cancel()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
     }
 
     override fun onDestroy() {
+        captionSessionActive.set(false)
+        languageSamples?.close()
+        languageSamples = null
+        translationQueue?.cancel()
+        translationQueue = null
+        overlayController?.hide()
+        overlayController = null
+        val engine = speechEngine
+        speechEngine = null
+        if (engine != null) {
+            serviceScope.launch(NonCancellable) { engine.stop() }
+        }
+        serviceScope.cancel()
+        MediaProjectionHolder.clear()
+        app.container.runtimeStore.update {
+            if (it.running) it.copy(running = false, paused = false, status = RecognitionStatus.IDLE) else it
+        }
         super.onDestroy()
-        try { stopFlow() } catch (_: Throwable) {}
     }
 
     private fun buildNotification(): Notification {
@@ -581,7 +600,6 @@ class CaptionForegroundService : Service() {
 
         private const val CHANNEL_ID = "caption_channel"
         private const val NOTIF_ID = 2001
-        private const val TRANSLATE_DEBOUNCE_MS = 300L
-        private const val NO_LINE_ID = -1L
-    }
+                    }
 }
+

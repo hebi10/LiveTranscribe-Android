@@ -1,7 +1,10 @@
 package com.charles.livecaptionn.speech
 
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -25,25 +28,38 @@ import org.vosk.Recognizer
  * to prevent races between concurrent openSession/transcribe calls.
  */
 class LocalVoskSttClient(private val registry: VoskModelRegistry) {
-    private var cachedLanguageCode: String? = null
-    private var cachedModel: Model? = null
+    // App-lifetime models stay alive while any recognizer can still reference them.
+    // The bundled catalog bounds this cache to the supported input languages.
+    private val cachedModels = mutableMapOf<String, Model>()
     private val modelMutex = Mutex()
 
     /** Open a streaming session for [languageCode] at [sampleRate]. Returns null if no model. */
     suspend fun openSession(
         languageCode: String,
         sampleRate: Int
-    ): VoskStreamingSession? = withContext(Dispatchers.IO) {
-        val model = modelFor(languageCode) ?: return@withContext null
+    ): VoskStreamingSession? {
+        var created: VoskStreamingSession? = null
         try {
-            val recognizer = Recognizer(model, sampleRate.toFloat()).apply {
-                setWords(false)
-                setMaxAlternatives(0)
+            return withContext(Dispatchers.IO) {
+                val model = modelFor(languageCode) ?: return@withContext null
+                currentCoroutineContext().ensureActive()
+                val recognizer = Recognizer(model, sampleRate.toFloat())
+                try {
+                    recognizer.setWords(false)
+                    recognizer.setMaxAlternatives(0)
+                    VoskStreamingSession(recognizer).also { created = it }
+                } catch (t: Throwable) {
+                    recognizer.close()
+                    throw t
+                }
             }
-            VoskStreamingSession(recognizer)
         } catch (t: Throwable) {
+            // withContext may discard a successfully created native session when the
+            // caller is cancelled before dispatching the return value back to it.
+            created?.close()
+            if (t is CancellationException) throw t
             Log.w("LocalVoskSttClient", "openSession failed for $languageCode", t)
-            null
+            return null
         }
     }
 
@@ -70,24 +86,17 @@ class LocalVoskSttClient(private val registry: VoskModelRegistry) {
                 TranscribeOutcome(text)
             }
         } catch (t: Throwable) {
+            if (t is CancellationException) throw t
             Log.w("LocalVoskSttClient", "Local transcription failed", t)
             TranscribeOutcome("", localFailureMessage(languageCode, t))
         }
     }
 
     private suspend fun modelFor(languageCode: String): Model? = modelMutex.withLock {
-        val cached = cachedModel
-        if (cached != null && cachedLanguageCode.equals(languageCode, ignoreCase = true)) return cached
-
-        cachedModel?.close()
-        cachedModel = null
-        cachedLanguageCode = null
-
+        val key = languageCode.lowercase(java.util.Locale.ROOT)
+        cachedModels[key]?.let { return@withLock it }
         val modelDir = registry.resolveModelDir(languageCode) ?: return@withLock null
-        return Model(modelDir.absolutePath).also {
-            cachedLanguageCode = languageCode
-            cachedModel = it
-        }
+        Model(modelDir.absolutePath).also { cachedModels[key] = it }
     }
 
     private fun localFailureMessage(languageCode: String, t: Throwable): String {
@@ -111,13 +120,13 @@ class LocalVoskSttClient(private val registry: VoskModelRegistry) {
 
 /**
  * Live streaming Vosk session. Feed PCM chunks as they arrive; pull
- * partial/final text after each feed. Not thread-safe — call from a single
- * worker coroutine.
+ * partial/final text after each feed. Native feed, finalization and close are
+ * serialized; finalization is terminal and each resource closes once.
  */
 class VoskStreamingSession internal constructor(
-    private val recognizer: Recognizer
+    recognizer: Recognizer
 ) {
-    @Volatile private var closed = false
+    private val owner = NativeSessionOwner(recognizer)
 
     /**
      * Feed a chunk of 16-bit LE PCM. Returns [FeedResult] indicating whether a
@@ -125,26 +134,19 @@ class VoskStreamingSession internal constructor(
      * silence/segment boundary) plus the current text — if `accepted`, [text]
      * is the finalized segment; otherwise it's the latest partial.
      */
-    fun feed(pcm: ByteArray, length: Int = pcm.size): FeedResult {
-        if (closed) return FeedResult("", accepted = false)
-        val accepted = try {
-            recognizer.acceptWaveForm(pcm, length)
-        } catch (t: Throwable) {
-            Log.w("VoskStreamingSession", "acceptWaveForm failed", t)
-            return FeedResult("", accepted = false)
+    fun feed(pcm: ByteArray, length: Int = pcm.size): FeedResult =
+        owner.feed(FeedResult("", accepted = false)) { recognizer ->
+            // Let native feed failures reach the capture owner as terminal errors.
+            val accepted = recognizer.acceptWaveForm(pcm, length)
+            val text = LocalVoskSttClient.extractText(
+                if (accepted) recognizer.result else recognizer.partialResult
+            )
+            FeedResult(text, accepted)
         }
-        val text = if (accepted) {
-            LocalVoskSttClient.extractText(recognizer.result)
-        } else {
-            LocalVoskSttClient.extractText(recognizer.partialResult)
-        }
-        return FeedResult(text, accepted)
-    }
 
-    /** Flushes any buffered audio and returns the final remaining text. */
-    fun finish(): String {
-        if (closed) return ""
-        return try {
+    /** Flush buffered audio exactly once; no feed is accepted after this call. */
+    fun finish(): String = owner.finish("") { recognizer ->
+        try {
             LocalVoskSttClient.extractText(recognizer.finalResult)
         } catch (t: Throwable) {
             Log.w("VoskStreamingSession", "finalResult failed", t)
@@ -152,9 +154,7 @@ class VoskStreamingSession internal constructor(
         }
     }
 
-    fun close() {
-        if (closed) return
-        closed = true
+    fun close() = owner.close { recognizer ->
         try { recognizer.close() } catch (_: Throwable) {}
     }
 
@@ -165,3 +165,4 @@ class VoskStreamingSession internal constructor(
         val accepted: Boolean
     )
 }
+

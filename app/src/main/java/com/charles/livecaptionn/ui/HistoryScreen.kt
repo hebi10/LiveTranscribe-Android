@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import com.charles.livecaptionn.data.TranscriptEntry
 import com.charles.livecaptionn.data.TranscriptHistoryStore
 import com.charles.livecaptionn.ui.l10n.LocalUiStrings
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -63,11 +65,12 @@ fun HistoryScreen(
     val scope = rememberCoroutineScope()
     val t = LocalUiStrings.current
     var entries by remember { mutableStateOf<List<TranscriptEntry>>(emptyList()) }
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<TranscriptEntry?>(null) }
 
-    LaunchedEffect(Unit) {
-        entries = historyStore.getAll()
+    var confirmClear by remember { mutableStateOf(false) }
+    LaunchedEffect(historyStore) {
+        historyStore.revisions.collect { entries = historyStore.getAll() }
     }
 
     val filteredEntries = remember(entries, searchQuery) {
@@ -105,6 +108,23 @@ fun HistoryScreen(
         )
     }
 
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("전체 기록 삭제") },
+            text = { Text("저장된 번역 기록을 모두 삭제하시겠습니까? 삭제한 기록은 복구할 수 없습니다.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClear = false
+                    scope.launch { historyStore.clear() }
+                }) { Text("전체 삭제") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = false }) { Text("취소") }
+            }
+        )
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -118,10 +138,7 @@ fun HistoryScreen(
                 actions = {
                     if (entries.isNotEmpty()) {
                         TextButton(onClick = {
-                            scope.launch {
-                                historyStore.clear()
-                                entries = emptyList()
-                            }
+                            confirmClear = true
                         }) {
                             Icon(Icons.Filled.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
@@ -141,7 +158,7 @@ fun HistoryScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (entries.isNotEmpty()) {
+            if (entries.isNotEmpty() || searchQuery.isNotBlank()) {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -171,14 +188,14 @@ fun HistoryScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        if (searchQuery.isNotBlank()) t["No matching transcripts"]
+                        if (entries.isNotEmpty() && searchQuery.isNotBlank()) t["No matching transcripts"]
                         else t["No transcripts yet"],
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        if (searchQuery.isNotBlank()) t["Try a different search term."]
+                        if (entries.isNotEmpty() && searchQuery.isNotBlank()) t["Try a different search term."]
                         else t["Transcripts will appear here as you use captioning."],
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
@@ -211,7 +228,7 @@ private fun TranscriptCard(
 ) {
     val t = LocalUiStrings.current
     val timeStr = remember(entry.timestamp) {
-        val fmt = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+        val fmt = SimpleDateFormat("M월 d일 a h:mm", Locale.KOREAN)
         fmt.format(Date(entry.timestamp))
     }
 
@@ -232,14 +249,14 @@ private fun TranscriptCard(
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "${entry.sourceLanguage.uppercase()} \u2192 ${entry.targetLanguage.uppercase()}",
+                        text = "${historyLanguageLabel(entry.sourceLanguage)} → ${historyLanguageLabel(entry.targetLanguage)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Medium
                     )
                     IconButton(
                         onClick = onDelete,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             Icons.Filled.Delete,
@@ -272,4 +289,13 @@ private fun TranscriptCard(
             )
         }
     }
+}
+
+
+internal fun historyLanguageLabel(code: String): String = when (code.lowercase()) {
+    "en" -> "영어"
+    "ja" -> "일본어"
+    "ko" -> "한국어"
+    "auto" -> "자동 감지"
+    else -> "알 수 없음"
 }

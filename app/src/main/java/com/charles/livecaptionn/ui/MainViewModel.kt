@@ -73,7 +73,9 @@ class MainViewModel(
         if (code !in setOf("en", "ja")) return
         if (container.runtimeStore.state.value.running) return
         viewModelScope.launch {
-            container.settingsRepository.update { it.copy(sourceLanguageCode = code) }
+            container.settingsRepository.update {
+                if (container.runtimeStore.state.value.running) it else it.copy(sourceLanguageCode = code)
+            }
         }
     }
 
@@ -85,8 +87,22 @@ class MainViewModel(
     }
 
     fun selectAudioSource(source: AudioSource) {
+        if (container.runtimeStore.state.value.running) return
         viewModelScope.launch {
-            container.settingsRepository.update { it.copy(audioSource = source) }
+            container.settingsRepository.update {
+                if (container.runtimeStore.state.value.running) it else it.copy(audioSource = source)
+            }
+        }
+    }
+
+    fun resetOverlayPosition() {
+        viewModelScope.launch {
+            val defaults = com.charles.livecaptionn.settings.CaptionSettings()
+            container.settingsRepository.update {
+                it.copy(overlayX = defaults.overlayX, overlayY = defaults.overlayY,
+                    overlayWidthDp = defaults.overlayWidthDp,
+                    overlayHeightDp = defaults.overlayHeightDp, overlayMinimized = false)
+            }
         }
     }
 
@@ -112,3 +128,4 @@ class MainViewModel(
         )
     }
 }
+

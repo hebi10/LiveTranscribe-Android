@@ -1,15 +1,19 @@
 package com.charles.livecaptionn.overlay
 
+import android.content.ComponentCallbacks
+import android.content.res.Configuration
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.os.Build
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -20,7 +24,9 @@ import com.charles.livecaptionn.data.SettingsRepository
 import com.charles.livecaptionn.settings.CaptionSettings
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.ui.l10n.UiStrings
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -53,6 +59,13 @@ class OverlayController(
     private var suggestionLabel: TextView? = null
     private var suggestionCode: String? = null
     private var params: WindowManager.LayoutParams? = null
+    private var geometryJob: Job? = null
+    private val configurationCallbacks = object : ComponentCallbacks {
+        override fun onConfigurationChanged(newConfig: Configuration) {
+            root?.post { clampWindow(); persistGeometry() }
+        }
+        override fun onLowMemory() = Unit
+    }
 
     fun show(initialX: Int, initialY: Int, widthDp: Int, heightDp: Int) {
         if (root != null) return
@@ -72,7 +85,7 @@ class OverlayController(
                 @Suppress("DEPRECATION")
                 WindowManager.LayoutParams.TYPE_PHONE
             },
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -80,6 +93,7 @@ class OverlayController(
             y = initialY
         }
         params = p
+        applyClampedGeometry(p)
 
         // Root is a FrameLayout so we can place resize handle on top
         val frame = FrameLayout(context)
@@ -111,7 +125,7 @@ class OverlayController(
         }
 
         statusText = TextView(context).apply {
-            text = "Status: Idle"
+            text = "상태: 대기"
             setTextColor(Color.WHITE)
             textSize = 11f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -249,17 +263,18 @@ class OverlayController(
         frame.addView(container)
 
         // Resize handle at bottom-right corner
-        val handleSize = dp(22)
+        val handleSize = dp(44)
         val resizeHandle = View(context).apply {
             val bg = GradientDrawable().apply {
                 cornerRadius = dp(4).toFloat()
                 setColor(Color.parseColor("#88FFFFFF"))
             }
-            background = bg
+            background = InsetDrawable(bg, dp(10))
             layoutParams = FrameLayout.LayoutParams(handleSize, handleSize).apply {
                 gravity = Gravity.BOTTOM or Gravity.END
                 setMargins(0, 0, dp(4), dp(4))
             }
+            contentDescription = "자막 창 크기 조절"
             setOnTouchListener(ResizeTouchListener())
         }
         frame.addView(resizeHandle)
@@ -267,6 +282,17 @@ class OverlayController(
         root = frame
         try {
             wm.addView(frame, p)
+            context.registerComponentCallbacks(configurationCallbacks)
+            geometryJob = scope.launch {
+                settingsRepository.settingsFlow.collect { settings ->
+                    val lp = params ?: return@collect
+                    lp.x = settings.overlayX
+                    lp.y = settings.overlayY
+                    lp.width = dp(settings.overlayWidthDp)
+                    lp.height = dp(settings.overlayHeightDp)
+                    clampWindow()
+                }
+            }
         } catch (t: Throwable) {
             root = null
             params = null
@@ -280,8 +306,7 @@ class OverlayController(
         val theme = OverlayThemeCatalog.find(ui.themeId)
         val font = OverlayFontCatalog.find(ui.fontId)
         val s = uiStrings()
-        // Enforce minimum 0.5 opacity for WCAG AA contrast (text on dark bg)
-        val effectiveOpacity = ui.opacity.coerceIn(0.5f, 1.0f)
+        val effectiveOpacity = ui.opacity.coerceIn(0.2f, 1.0f)
         (container.background as? GradientDrawable)?.setColor(
             Color.argb((effectiveOpacity * 255).roundToInt(), Color.red(theme.backgroundRgb), Color.green(theme.backgroundRgb), Color.blue(theme.backgroundRgb))
         )
@@ -344,6 +369,9 @@ class OverlayController(
     }
 
     fun hide() {
+        geometryJob?.cancel()
+        geometryJob = null
+        if (root != null) context.unregisterComponentCallbacks(configurationCallbacks)
         root?.let { view ->
             try { wm.removeViewImmediate(view) } catch (_: Throwable) { }
         }
@@ -373,12 +401,67 @@ class OverlayController(
 
     private fun dp(value: Int): Int = (value * density).roundToInt()
 
+    private fun usableBounds(): OverlayBounds {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val metrics = wm.maximumWindowMetrics
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+            )
+            val bounds = metrics.bounds
+            return OverlayBounds(insets.left, insets.top,
+                bounds.width() - insets.right, bounds.height() - insets.bottom)
+        }
+        val metrics = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.getRealMetrics(metrics)
+        fun systemDimension(name: String): Int {
+            val id = context.resources.getIdentifier(name, "dimen", "android")
+            return if (id != 0) context.resources.getDimensionPixelSize(id) else 0
+        }
+        // Android 10 has no WindowMetrics; reserve both possible navigation-bar edges.
+        val navigation = systemDimension("navigation_bar_height")
+        return OverlayBounds(0, systemDimension("status_bar_height"),
+            metrics.widthPixels - if (metrics.widthPixels > metrics.heightPixels) navigation else 0,
+            metrics.heightPixels - navigation)
+    }
+
+    private fun applyClampedGeometry(lp: WindowManager.LayoutParams) {
+        val clamped = clampOverlayGeometry(
+            OverlayGeometry(lp.x, lp.y, lp.width, lp.height), usableBounds(),
+            dp(maxOf(CaptionSettings.MIN_OVERLAY_WIDTH_DP, 220)),
+            dp(maxOf(CaptionSettings.MIN_OVERLAY_HEIGHT_DP, 108))
+        )
+        lp.x = clamped.x
+        lp.y = clamped.y
+        lp.width = clamped.width
+        lp.height = clamped.height
+    }
+
+    private fun clampWindow() {
+        val view = root ?: return
+        val lp = params ?: return
+        applyClampedGeometry(lp)
+        try { wm.updateViewLayout(view, lp) } catch (_: IllegalArgumentException) { }
+    }
+
+    private fun persistGeometry() {
+        val lp = params ?: return
+        val geometry = OverlayGeometry(lp.x, lp.y, lp.width, lp.height)
+        scope.launch {
+            settingsRepository.update {
+                it.copy(overlayX = geometry.x, overlayY = geometry.y,
+                    overlayWidthDp = (geometry.width / density).roundToInt(),
+                    overlayHeightDp = (geometry.height / density).roundToInt())
+            }
+        }
+    }
+
     private fun makeButton(resId: Int, contentDesc: String, onClick: () -> Unit) = ImageButton(context).apply {
         setImageResource(resId)
         contentDescription = contentDesc
         setBackgroundColor(Color.TRANSPARENT)
         setColorFilter(Color.WHITE)
-        val size = dp(32)
+        val size = dp(44)
         layoutParams = LinearLayout.LayoutParams(size, size).apply {
             setMargins(dp(2), 0, dp(2), 0)
         }
@@ -400,16 +483,14 @@ class OverlayController(
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val view = root ?: return false
+                    if (root == null) return false
                     lp.x = startX + (event.rawX - touchX).roundToInt()
                     lp.y = startY + (event.rawY - touchY).roundToInt()
-                    try { wm.updateViewLayout(view, lp) } catch (_: IllegalArgumentException) { return false }
+                    clampWindow()
                     return true
                 }
                 MotionEvent.ACTION_UP -> {
-                    scope.launch {
-                        settingsRepository.update { it.copy(overlayX = lp.x, overlayY = lp.y) }
-                    }
+                    persistGeometry()
                     return true
                 }
             }
@@ -432,22 +513,16 @@ class OverlayController(
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val view = root ?: return false
+                    if (root == null) return false
                     val minW = (CaptionSettings.MIN_OVERLAY_WIDTH_DP * density).roundToInt()
                     val minH = (CaptionSettings.MIN_OVERLAY_HEIGHT_DP * density).roundToInt()
                     lp.width = (startW + (event.rawX - touchX).roundToInt()).coerceAtLeast(minW)
                     lp.height = (startH + (event.rawY - touchY).roundToInt()).coerceAtLeast(minH)
-                    try { wm.updateViewLayout(view, lp) } catch (_: IllegalArgumentException) { return false }
+                    clampWindow()
                     return true
                 }
                 MotionEvent.ACTION_UP -> {
-                    val wDp = (lp.width / density).roundToInt()
-                    val hDp = (lp.height / density).roundToInt()
-                    scope.launch {
-                        settingsRepository.update {
-                            it.copy(overlayWidthDp = wDp, overlayHeightDp = hDp)
-                        }
-                    }
+                    persistGeometry()
                     return true
                 }
             }
@@ -455,3 +530,4 @@ class OverlayController(
         }
     }
 }
+

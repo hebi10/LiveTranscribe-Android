@@ -1,5 +1,7 @@
 package com.charles.livecaptionn.ui
 
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +32,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -49,9 +53,11 @@ fun MainScreen(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onHistory: () -> Unit,
+    startPending: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val ui by viewModel.state.collectAsStateWithLifecycle()
+    val sessionBusy = ui.runtime.running || startPending
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -95,6 +101,7 @@ fun MainScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     val statusText = when {
+                        startPending -> "권한 확인 및 시작 준비 중"
                         ui.runtime.running && ui.runtime.paused -> "일시정지"
                         ui.runtime.running -> "실시간 자막 실행 중"
                         ui.runtime.status == RecognitionStatus.ERROR -> "실행 오류"
@@ -106,9 +113,9 @@ fun MainScreen(
                         Text(it, color = MaterialTheme.colorScheme.error)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onStart, enabled = !ui.runtime.running && ui.canStart,
+                        Button(onClick = onStart, enabled = !sessionBusy && ui.canStart,
                             modifier = Modifier.weight(1f)) { Text("번역 시작") }
-                        OutlinedButton(onClick = onStop, enabled = ui.runtime.running,
+                        OutlinedButton(onClick = onStop, enabled = sessionBusy,
                             modifier = Modifier.weight(1f)) { Text("중지") }
                     }
                 }
@@ -120,13 +127,13 @@ fun MainScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         val system = ui.settings.audioSource == AudioSource.SYSTEM
                         if (system) Button(onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
-                            modifier = Modifier.weight(1f)) { Text("동영상 음성") }
+                            enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text("동영상 음성") }
                         else OutlinedButton(onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
-                            modifier = Modifier.weight(1f)) { Text("동영상 음성") }
+                            enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text("동영상 음성") }
                         if (!system) Button(onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
-                            modifier = Modifier.weight(1f)) { Text("마이크") }
+                            enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text("마이크") }
                         else OutlinedButton(onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
-                            modifier = Modifier.weight(1f)) { Text("마이크") }
+                            enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text("마이크") }
                     }
                     Text("번역 시작 시 Android에서 화면 캡처 권한을 요청합니다.",
                         style = MaterialTheme.typography.bodySmall,
@@ -142,9 +149,9 @@ fun MainScreen(
                         for ((code, label) in listOf("en" to "영어", "ja" to "일본어")) {
                             val selected = ui.settings.sourceLanguageCode == code
                             if (selected) Button(onClick = { viewModel.selectSourceLanguage(code) },
-                                modifier = Modifier.weight(1f)) { Text(label) }
+                                enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text(label) }
                             else OutlinedButton(onClick = { viewModel.selectSourceLanguage(code) },
-                                modifier = Modifier.weight(1f)) { Text(label) }
+                                enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text(label) }
                         }
                     }
                     Text("번역 결과: 한국어", fontWeight = FontWeight.Medium)
@@ -173,7 +180,7 @@ fun MainScreen(
                         preparation.sourceCode == ui.settings.sourceLanguageCode
                     ) {
                         FilledTonalButton(onClick = viewModel::prepareSelectedTranslationModel,
-                            enabled = !ui.runtime.running) {
+                            enabled = !sessionBusy) {
                             Text("번역 모델 준비 (Wi-Fi)")
                         }
                     }
@@ -204,6 +211,7 @@ fun MainScreen(
                         valueRange = 0.2f..1f)
                     SettingToggle("원문도 함께 표시", ui.settings.showOriginal,
                         viewModel::updateShowOriginal)
+                    OutlinedButton(onClick = viewModel::resetOverlayPosition) { Text("자막 위치·크기 초기화") }
                     Text("영상 위 자막 창은 드래그로 이동하고 크기를 조절할 수 있습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -226,7 +234,7 @@ fun MainScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        FilledTonalButton(onClick = onRequestAudioPermission) {
+                        FilledTonalButton(onClick = onRequestAudioPermission, enabled = !sessionBusy) {
                             Text("음성 캡처 권한 허용")
                         }
                     }
@@ -248,8 +256,14 @@ fun MainScreen(
 
 @Composable
 private fun SettingToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
+
