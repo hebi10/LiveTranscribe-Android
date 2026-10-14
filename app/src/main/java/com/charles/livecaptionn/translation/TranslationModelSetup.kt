@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -43,9 +44,10 @@ class TranslationModelSetup(private val translator: MlKitTranslationRepository) 
         }
         mutable.value = TranslationModelState(sourceCode, ModelSetupStage.CHECKING)
         try {
-            val sourceReady = isDownloaded(sourceCode)
-            val targetReady = isDownloaded("ko")
-            if (sourceReady && targetReady) {
+            val downloaded = withTimeoutOrNull(6_000L) {
+                isDownloaded(sourceCode) && isDownloaded("ko")
+            } ?: false
+            if (downloaded) {
                 prepared.add(sourceCode)
                 mutable.value = TranslationModelState(sourceCode, ModelSetupStage.READY)
             } else {
