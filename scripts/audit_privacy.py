@@ -17,10 +17,16 @@ for item in blocked_dependencies:
 android = "{http://schemas.android.com/apk/res/android}"
 tools = "{http://schemas.android.com/tools}"
 manifest_xml = ET.fromstring(manifest)
-internet = [node for node in manifest_xml if node.tag.startswith("uses-permission")
-            and node.get(android + "name") == "android.permission.INTERNET"]
-if not internet or any(node.get(tools + "node") != "remove" for node in internet):
-    raise SystemExit("The app must explicitly remove merged INTERNET permissions")
+# Downloads are explicitly requested by the user and may use Wi-Fi or mobile data.
+# Network permissions do not restrict SDK traffic to downloads; audit direct app
+# upload/sharing paths separately below and disclose SDK diagnostics in the UI.
+for permission in ("INTERNET", "ACCESS_NETWORK_STATE"):
+    nodes = [node for node in manifest_xml if node.tag.startswith("uses-permission")
+             and node.get(android + "name") == f"android.permission.{permission}"]
+    if (len(nodes) != 1 or nodes[0].tag != "uses-permission"
+            or nodes[0].get(tools + "node") == "remove"
+            or nodes[0].get(android + "maxSdkVersion") is not None):
+        raise SystemExit(f"Model downloads require one unrestricted {permission} declaration")
 application = manifest_xml.find("application")
 if application is None or application.get(android + "allowBackup") != "false":
     raise SystemExit("App backups must be disabled")
@@ -67,6 +73,6 @@ assert (root / "scripts/prepare_language_id.py").exists(), "Language ID model in
 assert (root / "app/src/main/java/com/charles/livecaptionn/speech/OfflineSpokenLanguageIdentifier.kt").exists()
 assert (root / "app/src/main/java/com/charles/livecaptionn/translation/TranslationModelSetup.kt").exists()
 assert (root / "app/src/main/java/com/charles/livecaptionn/speech/LanguageRecommendationTracker.kt").exists()
-print("OK: source manifest removes INTERNET; known app network/sharing paths blocked; backup domains excluded")
+print("OK: model download network permissions declared; known direct app upload/sharing patterns blocked; backup domains excluded")
 print("Static source audit only: SDK internals/telemetry, merged manifest and device traffic unverified")
 

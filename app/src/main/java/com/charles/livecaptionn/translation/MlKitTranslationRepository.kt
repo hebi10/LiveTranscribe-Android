@@ -18,9 +18,9 @@ import kotlin.coroutines.resumeWithException
  * On-device translation powered by Google ML Kit.
  *
  * ML Kit ships pre-trained Google Translate models that run entirely on the
- * phone once downloaded. First use of a given language pair triggers a
- * one-time ~30 MB download (handled transparently). After that the pipeline
- * is fully offline — no LibreTranslate server required.
+ * phone once downloaded. The user explicitly prepares the required models
+ * (~30 MB per language) over Wi-Fi or mobile data before starting captions.
+ * Translation runs on-device after preparation; SDK diagnostics may use the network.
  *
  * Supported languages are whatever `TranslateLanguage.getAllLanguages()`
  * exposes — at the time of writing roughly 59 codes (`en`, `vi`, `es`, `fr`,
@@ -75,7 +75,7 @@ class MlKitTranslationRepository : TranslationRepository {
      * Runs only after the user explicitly opts in to model download.
      * Does not upload the text that will later be translated.
      */
-    suspend fun requireModel(sourceCode: String, targetCode: String, wifiOnly: Boolean = true) {
+    suspend fun requireModel(sourceCode: String, targetCode: String, wifiOnly: Boolean = false) {
         val src = TranslateLanguage.fromLanguageTag(sourceCode.lowercase())
             ?: throw IllegalArgumentException("Unsupported source language")
         val dst = TranslateLanguage.fromLanguageTag(targetCode.lowercase())
