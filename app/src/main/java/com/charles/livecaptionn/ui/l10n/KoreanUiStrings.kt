@@ -32,6 +32,7 @@ object KoreanUiStrings {
         "Paused" to "일시정지",
         "Idle" to "대기",
         "Processing" to "처리 중",
-        "Status" to "상태"
+        "Status" to "상태",
+        "Error" to "오류"
     ))
 }

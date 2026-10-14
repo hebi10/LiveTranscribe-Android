@@ -1,7 +1,5 @@
 package com.charles.livecaptionn.ui
 
-import android.content.Context
-import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,7 +15,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Search
@@ -43,14 +40,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.charles.livecaptionn.data.TranscriptEntry
-import com.charles.livecaptionn.data.TranscriptExport
 import com.charles.livecaptionn.data.TranscriptHistoryStore
 import com.charles.livecaptionn.ui.l10n.LocalUiStrings
 import kotlinx.coroutines.launch
@@ -66,7 +61,6 @@ fun HistoryScreen(
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val t = LocalUiStrings.current
     var entries by remember { mutableStateOf<List<TranscriptEntry>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
@@ -215,7 +209,6 @@ private fun TranscriptCard(
     entry: TranscriptEntry,
     onDelete: () -> Unit
 ) {
-    val context = LocalContext.current
     val t = LocalUiStrings.current
     val timeStr = remember(entry.timestamp) {
         val fmt = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())

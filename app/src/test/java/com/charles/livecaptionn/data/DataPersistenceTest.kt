@@ -24,9 +24,4 @@ class DataPersistenceTest {
         assertEquals("Use api", applyGlossary("Use api", listOf(entry.copy(caseSensitive = true))))
     }
 
-    @Test fun export_containsStableIdentityAndText() {
-        val entry = TranscriptEntry(id = "entry-1", originalText = "Hello", translatedText = "Xin chao", sourceLanguage = "en", targetLanguage = "vi")
-        val export = TranscriptExport(listOf(entry))
-        assertTrue(export.asText().contains("Hello"))
-    }
 }
