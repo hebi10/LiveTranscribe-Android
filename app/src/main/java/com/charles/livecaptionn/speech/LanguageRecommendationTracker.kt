@@ -18,8 +18,8 @@ class LanguageRecommendationTracker(
     }
 
     fun observe(detectedCode: String?): String? {
-        val code = detectedCode?.lowercase()
-        if (code !in SUPPORTED || code == selectedCode || code in suppressed) {
+        val code = detectedCode?.lowercase()?.takeIf { it in SUPPORTED }
+        if (code == null || code == selectedCode || code in suppressed) {
             lastCode = null
             matchingIntervals = 0
             return null

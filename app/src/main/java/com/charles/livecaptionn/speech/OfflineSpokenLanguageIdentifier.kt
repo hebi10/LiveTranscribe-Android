@@ -37,7 +37,7 @@ class OfflineSpokenLanguageIdentifier(context: Context) {
             val stream = instance.createStream()
             try {
                 stream.acceptWaveform(samples, SAMPLE_RATE)
-                instance.compute(stream).lowercase().substringBefore("-").trim().ifBlank { null }
+                instance.compute(stream).lowercase().substringBefore("-").trim().takeIf { it.isNotBlank() }
             } finally {
                 stream.release()
             }
