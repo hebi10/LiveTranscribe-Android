@@ -17,6 +17,10 @@ import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
+import com.charles.livecaptionn.speech.LanguageRecommendationTracker
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.charles.livecaptionn.LiveCaptionApp
@@ -81,6 +85,8 @@ class CaptionForegroundService : Service() {
     )
 
     private var currentAudioSource = AudioSource.SYSTEM
+    private var languageSamples: Channel<ByteArray>? = null
+    private var languageTracker: LanguageRecommendationTracker? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -196,15 +202,27 @@ class CaptionForegroundService : Service() {
                 it.copy(running = true, paused = false, status = RecognitionStatus.LISTENING)
             }
 
-            // Prewarm the active translation backend so the first spoken
-            // word doesn't stall waiting on a 30 MB ML Kit model download.
-            launch(Dispatchers.IO) {
-                val s = app.container.settingsRepository.settingsFlow.first()
-                runCatching {
-                    app.container.translationRepository.prewarm(
-                        s.sourceLanguageCode,
-                        s.targetLanguageCode
-                    )
+            if (!app.container.translationModels.isReady(sttLanguageCode)) {
+                failAndStop("한국어 번역 모델을 먼저 준비해 주세요.")
+                return@launch
+            }
+
+            val samples = Channel<ByteArray>(
+                capacity = 2,
+                onBufferOverflow = BufferOverflow.DROP_OLDEST
+            )
+            languageSamples = samples
+            languageTracker = LanguageRecommendationTracker(sttLanguageCode)
+            serviceScope.launch(Dispatchers.Default) {
+                for (audio in samples) {
+                    if (!captionSessionActive.get()) break
+                    val detected = app.container.languageIdentifier.detect(audio)
+                    val suggestion = languageTracker?.observe(detected)
+                    if (suggestion != null && captionSessionActive.get()) {
+                        app.container.runtimeStore.update {
+                            it.copy(suggestedLanguageCode = suggestion)
+                        }
+                    }
                 }
             }
 
@@ -292,7 +310,8 @@ class CaptionForegroundService : Service() {
                 localSttClient = app.container.localVoskClient,
                 scope = serviceScope,
                 onResult = onSpeechResult,
-                onError = errorSink
+                onError = errorSink,
+                onUtteranceAudio = { audio -> languageSamples?.trySend(audio) }
             )
             speechEngine = engine
             observeEngineStatus(engine.status)
@@ -343,6 +362,7 @@ class CaptionForegroundService : Service() {
         opacity = settings.overlayOpacity,
         showOriginal = settings.showOriginal,
         minimized = settings.overlayMinimized,
+        suggestedLanguageCode = runtime.suggestedLanguageCode,
         themeId = settings.overlayThemeId,
         fontId = settings.overlayFontId
     )
@@ -405,6 +425,8 @@ class CaptionForegroundService : Service() {
                 onPauseResume = { togglePause() },
                 onClose = { stopFlow() },
                 onToggleMinimize = { toggleMinimized() },
+                onAcceptLanguageSuggestion = ::acceptLanguageSuggestion,
+                onDismissLanguageSuggestion = ::dismissLanguageSuggestion,
                 uiStrings = { KoreanUiStrings.values }
             ).apply {
                 show(settings.overlayX, settings.overlayY, settings.overlayWidthDp, settings.overlayHeightDp)
@@ -432,8 +454,39 @@ class CaptionForegroundService : Service() {
         }
     }
 
+    private fun dismissLanguageSuggestion(code: String) {
+        languageTracker?.dismiss(code)
+        app.container.runtimeStore.update {
+            if (it.suggestedLanguageCode == code) it.copy(suggestedLanguageCode = null) else it
+        }
+    }
+
+    private fun acceptLanguageSuggestion(code: String) {
+        if (code !in LanguageRecommendationTracker.SUPPORTED) return
+        if (app.container.runtimeStore.state.value.suggestedLanguageCode != code) return
+        serviceScope.launch {
+            app.container.settingsRepository.update { it.copy(sourceLanguageCode = code) }
+            val label = LanguageRecommendationTracker.label(code)
+            stopFlow()
+            app.container.runtimeStore.update {
+                it.copy(
+                    status = RecognitionStatus.IDLE,
+                    lastError = "$label 음성으로 변경했습니다. 앱에서 번역 시작을 다시 눌러 주세요."
+                )
+            }
+            Toast.makeText(
+                this@CaptionForegroundService,
+                "$label 음성으로 변경했습니다. 앱에서 다시 시작해 주세요.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     private fun stopFlow() {
         captionSessionActive.set(false)
+        languageSamples?.close()
+        languageSamples = null
+        languageTracker = null
         try { speechEngine?.stop() } catch (_: Throwable) {}
         speechEngine = null
         overlayController?.hide()
@@ -454,6 +507,9 @@ class CaptionForegroundService : Service() {
 
     private fun failAndStop(message: String) {
         captionSessionActive.set(false)
+        languageSamples?.close()
+        languageSamples = null
+        languageTracker = null
         failureMessage = message
         try { speechEngine?.stop() } catch (_: Throwable) {}
         speechEngine = null
