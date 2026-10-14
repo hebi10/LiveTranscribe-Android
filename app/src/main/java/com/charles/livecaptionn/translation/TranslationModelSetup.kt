@@ -69,12 +69,12 @@ class TranslationModelSetup(private val translator: MlKitTranslationRepository) 
         }
         mutable.value = TranslationModelState(sourceCode, ModelSetupStage.DOWNLOADING)
         try {
-            withTimeout(90_000L) { translator.requireModel(sourceCode, "ko", wifiOnly = true) }
+            withTimeout(90_000L) { translator.requireModel(sourceCode, "ko", wifiOnly = false) }
             prepared.add(sourceCode)
             mutable.value = TranslationModelState(sourceCode, ModelSetupStage.READY)
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
             mutable.value = TranslationModelState(sourceCode, ModelSetupStage.ERROR,
-                "모델 준비 시간이 초과되었습니다. 이 앱은 인터넷 권한이 없어 최초 다운로드가 제한될 수 있습니다. 다시 시도해 주세요.")
+                "모델 준비 시간이 초과되었습니다. Wi-Fi 또는 모바일 데이터 연결을 확인한 뒤 다시 시도해 주세요.")
         } catch (e: CancellationException) {
             mutable.value = TranslationModelState(sourceCode, ModelSetupStage.NOT_DOWNLOADED)
             throw e
@@ -82,7 +82,7 @@ class TranslationModelSetup(private val translator: MlKitTranslationRepository) 
             mutable.value = TranslationModelState(
                 sourceCode,
                 ModelSetupStage.ERROR,
-                "모델 준비에 실패했습니다. Wi-Fi를 확인해 주세요. 이 앱은 인터넷 권한이 없어 최초 모델 다운로드가 제한될 수 있습니다."
+                "모델 준비에 실패했습니다. Wi-Fi 또는 모바일 데이터 연결과 저장 공간을 확인한 뒤 다시 시도해 주세요."
             )
         }
     }

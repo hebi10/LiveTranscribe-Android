@@ -52,6 +52,35 @@ class PrivacyAuditTest(unittest.TestCase):
         self.assertIn("SDK internals/telemetry", result.stdout)
         self.assertIn("unverified", result.stdout)
 
+    def test_removed_internet_permission_is_rejected(self):
+        path = self.root / "app/src/main/AndroidManifest.xml"
+        contents = path.read_text()
+        if 'xmlns:tools=' not in contents:
+            contents = contents.replace('xmlns:android=',
+                'xmlns:tools="http://schemas.android.com/tools" xmlns:android=', 1)
+        contents = contents.replace('android:name="android.permission.INTERNET" />',
+            'android:name="android.permission.INTERNET" tools:node="remove" />')
+        path.write_text(contents)
+        result = self.audit()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("INTERNET", result.stderr)
+
+    def test_missing_network_state_permission_is_rejected(self):
+        path = self.root / "app/src/main/AndroidManifest.xml"
+        contents = path.read_text()
+        path.write_text("\n".join(line for line in contents.splitlines()
+            if "android.permission.ACCESS_NETWORK_STATE" not in line))
+        result = self.audit()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("ACCESS_NETWORK_STATE", result.stderr)
+
+    def test_direct_app_network_code_is_still_rejected(self):
+        path = self.root / "app/src/main/java/com/charles/livecaptionn/Upload.kt"
+        path.write_text("import java.net.HttpURLConnection\n")
+        result = self.audit()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Forbidden behavior", result.stderr)
+
     def test_device_transfer_shared_preferences_exclusion_is_required(self):
         path = self.root / "app/src/main/res/xml/data_extraction_rules.xml"
         contents = path.read_text()

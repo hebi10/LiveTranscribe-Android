@@ -168,7 +168,7 @@ fun MainScreen(
                     } else when (preparation.stage) {
                         ModelSetupStage.CHECKING -> "번역 모델 확인 중"
                         ModelSetupStage.NOT_DOWNLOADED -> "번역 모델 준비 필요"
-                        ModelSetupStage.DOWNLOADING -> "Wi-Fi에서 번역 모델 준비 중"
+                        ModelSetupStage.DOWNLOADING -> "번역 모델 다운로드 중"
                         ModelSetupStage.READY -> "한국어 번역 모델 준비 완료"
                         ModelSetupStage.ERROR -> preparation.message ?: "번역 모델 오류"
                     }
@@ -181,11 +181,12 @@ fun MainScreen(
                     ) {
                         FilledTonalButton(onClick = viewModel::prepareSelectedTranslationModel,
                             enabled = !sessionBusy) {
-                            Text("번역 모델 준비 (Wi-Fi)")
+                            Text("번역 모델 준비")
                         }
                     }
                     Text(
-                        "버튼을 누르면 Google ML Kit이 번역 모델을 내려받습니다. " +
+                        "버튼을 누르면 Google ML Kit이 Wi-Fi 또는 모바일 데이터로 번역 모델을 내려받습니다. " +
+                            "모바일 데이터 사용 시 요금이 발생할 수 있습니다. " +
                             "음성과 번역 문장은 외부 서버에 전송하지 않지만 " +
                             "Google SDK에서 기기·앱·언어 등의 진단 데이터를 수집할 수 있습니다.",
                         style = MaterialTheme.typography.bodySmall,

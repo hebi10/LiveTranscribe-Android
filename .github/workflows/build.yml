@@ -52,7 +52,7 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
-      - name: Assert debug APK has no app Internet permission
+      - name: Assert debug APK has model download network permissions
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -f "$APK"
@@ -62,10 +62,12 @@ jobs:
           fi
           "$AAPT" dump permissions "$APK" > /tmp/apk-permissions.txt
           cat /tmp/apk-permissions.txt
-          if grep -q 'android.permission.INTERNET' /tmp/apk-permissions.txt; then
-            echo "INTERNET permission unexpectedly present"
-            exit 1
-          fi
+          for permission in INTERNET ACCESS_NETWORK_STATE; do
+            if ! grep -Fq "android.permission.$permission'" /tmp/apk-permissions.txt; then
+              echo "$permission permission required for model downloads is missing"
+              exit 1
+            fi
+          done
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
