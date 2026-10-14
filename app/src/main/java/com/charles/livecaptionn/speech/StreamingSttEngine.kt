@@ -30,7 +30,7 @@ import kotlin.math.abs
  * [VoskStreamingSession]. Reads 16kHz mono PCM from either the mic or
  * MediaProjection system-audio capture and feeds ~100ms chunks straight into
  * Vosk, emitting partial results as they evolve and final segments on
- * silence boundaries.
+ * silence boundaries or after six seconds of uninterrupted audio.
  *
  * This replaces the old batch SystemAudioEngine, which accumulated 2-6s
  * windows and created a fresh Recognizer per chunk, throwing away streaming
@@ -121,7 +121,7 @@ class StreamingSttEngine(
             owner.clearInterrupt()
             try {
                 if (captureStarted) {
-                    localSession?.finish()?.takeIf { it.isNotBlank() }?.let {
+                    localSession?.finish()?.let {
                         onResult(SpeechResult(it, isFinal = true))
                     }
                 }
@@ -140,7 +140,7 @@ class StreamingSttEngine(
     private suspend fun captureLoop(record: AudioRecord, localSession: VoskStreamingSession) {
         val buffer = ByteArray(CHUNK_BYTES)
         var silentChunkStreak = 0
-        var lastEmittedPartial = ""
+        val resultEmitter = StreamingSpeechResultEmitter(onResult)
         var sawAnyAudioEver = false
         val intervalPcm = ByteArrayOutputStream()
         var voicedChunks = 0
@@ -193,16 +193,7 @@ class StreamingSttEngine(
 
             val result = localSession.feed(buffer, read)
 
-            if (result.accepted) {
-                // The selected ASR may produce no text for a different spoken language.
-                if (result.text.isNotBlank()) {
-                    onResult(SpeechResult(result.text, isFinal = true))
-                    lastEmittedPartial = ""
-                }
-            } else if (result.text.isNotBlank() && result.text != lastEmittedPartial) {
-                onResult(SpeechResult(result.text, isFinal = false))
-                lastEmittedPartial = result.text
-            }
+            resultEmitter.emit(result)
 
             // Independently end acoustic intervals on silence, even when the
             // currently selected Vosk model cannot recognize the language.

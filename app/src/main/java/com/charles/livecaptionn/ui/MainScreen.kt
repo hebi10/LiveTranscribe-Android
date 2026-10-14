@@ -226,9 +226,9 @@ fun MainScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    SettingToggle("확정된 문장만 표시 (움직임 줄이기)", ui.settings.stableCaptions,
+                    SettingToggle("확정된 자막만 표시 (움직임 줄이기)", ui.settings.stableCaptions,
                         viewModel::updateStableCaptions)
-                    Text("이 설정을 끄면 인식 중인 문장도 표시합니다. 확정 문장은 발화가 끝난 뒤 번역되어 약간 늦게 나타날 수 있습니다.",
+                    Text("이 설정을 끄면 인식 중인 자막도 표시합니다. 자연스러운 멈춤이나 약 6초의 음성 구간마다 확정해 번역합니다. 번역이 밀리면 일부 대기 자막을 생략하고 안내합니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("글자 크기: " + ui.settings.textSizeSp.toInt() + "sp")

@@ -5,6 +5,7 @@ import com.charles.livecaptionn.overlay.MAX_OVERLAY_MESSAGES
 import com.charles.livecaptionn.overlay.OverlayUiState
 import com.charles.livecaptionn.overlay.overlayCaptionMessages
 import com.charles.livecaptionn.settings.CaptionSettings
+import com.charles.livecaptionn.speech.RecognitionStatus
 
 /**
  * Pure functions extracted from [CaptionForegroundService] for testability.
@@ -32,15 +33,15 @@ private fun trimTranscriptLines(lines: List<CaptionRuntimeLine>): List<CaptionRu
 /**
  * Record a new STT result into the transcript line list.
  *
- * Open/closed state is driven solely by [isFinal] (Vosk's own segment
- * boundary), never by whether a translation has landed yet — a translation
+ * Open/closed state is driven solely by [isFinal] (a natural or bounded speech
+ * segment boundary), never by whether a translation has landed yet — a translation
  * can land mid-sentence (e.g. during a natural speech pause that triggers
  * the translate debounce but not Vosk's finalizer), and must not cause the
  * next partial of the same utterance to be appended as a duplicate line.
  *
  * @param lines        Current transcript lines (scroll-back buffer).
  * @param originalText The latest recognized text from STT.
- * @param isFinal      Whether this result is Vosk's finalized segment.
+ * @param isFinal      Whether this result is a finalized speech segment.
  * @param newLineId    Id to assign if this text starts/becomes a new version.
  * @return The updated line list, trimmed to [MAX_TRANSCRIPT_LINES].
  */
@@ -50,7 +51,7 @@ internal fun recordTranscriptResult(
     isFinal: Boolean,
     newLineId: Long
 ): List<CaptionRuntimeLine> {
-    if (originalText.isBlank()) return lines
+    if (originalText.isBlank()) return if (isFinal) lines.filter { it.isFinal } else lines
     val last = lines.lastOrNull()
     val lastIsOpen = last != null && !last.isFinal
 
@@ -143,6 +144,7 @@ internal fun buildOverlayUiState(runtime: CaptionRuntimeState, settings: Caption
         controlsExpanded = settings.overlayControlsExpanded,
         status = runtime.status,
         statusDetail = runtime.lastError,
+        skippedTranslations = runtime.skippedTranslations,
         textSizeSp = settings.textSizeSp,
         opacity = settings.overlayOpacity,
         showOriginal = settings.showOriginal,
@@ -153,3 +155,24 @@ internal fun buildOverlayUiState(runtime: CaptionRuntimeState, settings: Caption
     )
 }
 
+
+/** Record speech and keep legacy values paired with the retained snapshots. */
+internal fun applyTranscriptResult(
+    runtime: CaptionRuntimeState,
+    text: String,
+    isFinal: Boolean,
+    newLineId: Long
+): CaptionRuntimeState {
+    val lines = recordTranscriptResult(runtime.transcriptLines, text, isFinal, newLineId)
+    val recorded = runtime.copy(
+        originalText = if (text.isBlank()) lines.lastOrNull()?.originalText.orEmpty() else text,
+        translatedText = lines.lastOrNull { it.translatedText.isNotBlank() }?.translatedText.orEmpty(),
+        transcriptLines = lines
+    )
+    // Empty boundaries only remove previews. A terminal tail must not erase
+    // the capture failure that the engine reported immediately before it.
+    // Error text arrives before Main observes ERROR; only the capture error sink
+    // may clear that text after capture resumes successfully.
+    if (text.isBlank() || runtime.status == RecognitionStatus.ERROR) return recorded
+    return withRuntimeError(recorded.copy(status = RecognitionStatus.PROCESSING), runtime.lastError)
+}

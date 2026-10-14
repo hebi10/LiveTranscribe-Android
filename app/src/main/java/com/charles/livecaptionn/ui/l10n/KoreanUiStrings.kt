@@ -29,7 +29,7 @@ object KoreanUiStrings {
         "Show original text" to "원문 표시",
         "Hide original text" to "원문 숨기기",
         "Latest captions" to "최신 자막으로 이동",
-        "Captions appear when a sentence ends" to "문장이 끝나면 자막이 표시됩니다.",
+        "Captions appear in short speech segments" to "음성을 인식하면 짧은 구간마다 자막이 표시됩니다.",
         "Move caption window" to "자막 창 이동",
         "Resize caption window" to "자막 창 크기 조절",
         "Enlarge caption window" to "자막 창 크게",

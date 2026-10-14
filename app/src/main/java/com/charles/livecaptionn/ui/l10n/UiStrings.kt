@@ -66,7 +66,7 @@ object UiStringCatalog {
         "Show original text",
         "Hide original text",
         "Latest captions",
-        "Captions appear when a sentence ends",
+        "Captions appear in short speech segments",
         "Move caption window",
         "Resize caption window",
         "Enlarge caption window",
