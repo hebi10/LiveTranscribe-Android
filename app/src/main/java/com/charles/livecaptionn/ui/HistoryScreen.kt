@@ -1,7 +1,5 @@
 package com.charles.livecaptionn.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
@@ -246,23 +244,6 @@ private fun TranscriptCard(
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Medium
                     )
-                    IconButton(
-                        onClick = {
-                            val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val data = ClipData.newPlainText(
-                                "transcript",
-                                "${entry.originalText}\n${entry.translatedText}"
-                            )
-                            clip.setPrimaryClip(data)
-                        },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Filled.ContentCopy,
-                            contentDescription = t["Copy"],
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
                     IconButton(
                         onClick = onDelete,
                         modifier = Modifier.size(32.dp)
