@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DEST = ROOT / "app" / "src" / "main" / "assets" / "models"
 MODELS = (
     "vosk-model-small-en-us-0.15",
-    "vosk-model-small-ja-0.22",
 )
 
 def prepare(name: str) -> None:
@@ -41,3 +40,4 @@ def prepare(name: str) -> None:
 if __name__ == "__main__":
     for model in MODELS:
         prepare(model)
+

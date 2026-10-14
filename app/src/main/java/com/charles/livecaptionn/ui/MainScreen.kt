@@ -159,7 +159,12 @@ fun MainScreen(
                     }
                     Text("번역 결과: 한국어", fontWeight = FontWeight.Medium)
                     Text(
-                        if (ui.modelReady) "음성 인식 모델 준비 완료"
+                        if (ui.modelReady) {
+                            val engine = ui.sourceModels.firstOrNull { it.languageCode == ui.settings.sourceLanguageCode }?.engine
+                            if (engine == com.charles.livecaptionn.speech.SpeechModelEngine.REAZON)
+                                "일본어 ReazonSpeech 음성 모델 준비 완료"
+                            else "영어 Vosk 음성 모델 준비 완료"
+                        }
                         else "선택한 음성 모델이 없습니다. 모델 포함 APK가 필요합니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (ui.modelReady) MaterialTheme.colorScheme.onSurfaceVariant
@@ -226,9 +231,13 @@ fun MainScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    SettingToggle("확정된 자막만 표시 (움직임 줄이기)", ui.settings.stableCaptions,
-                        viewModel::updateStableCaptions)
-                    Text("이 설정을 끄면 인식 중인 자막도 표시합니다. 자연스러운 멈춤이나 약 6초의 음성 구간마다 확정해 번역합니다. 번역이 밀리면 일부 대기 자막을 생략하고 안내합니다.",
+                    if (ui.settings.sourceLanguageCode != "ja") {
+                        SettingToggle("확정된 자막만 표시 (움직임 줄이기)", ui.settings.stableCaptions,
+                            viewModel::updateStableCaptions)
+                    }
+                    Text(if (ui.settings.sourceLanguageCode == "ja")
+                        "일본어는 말의 멈춤이나 최대 약 8초의 음성 구간마다 확정해 번역합니다. 인식 중인 미리보기는 제공하지 않습니다. 인식이나 번역이 밀리면 일부 대기 구간을 생략하고 안내합니다."
+                        else "이 설정을 끄면 인식 중인 자막도 표시합니다. 자연스러운 멈춤이나 약 6초의 음성 구간마다 확정해 번역합니다. 번역이 밀리면 일부 대기 자막을 생략하고 안내합니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("글자 크기: " + ui.settings.textSizeSp.toInt() + "sp")

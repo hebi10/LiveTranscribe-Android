@@ -1,0 +1,12 @@
+ReazonSpeech k2-v2 Japanese ASR model
+Author: Reazon Human Interaction Lab / reazon-research
+License: Apache License 2.0 (REAZON-APACHE-2.0.txt)
+Model: https://huggingface.co/reazon-research/reazonspeech-k2-v2
+Pinned revision: 291488c8151be24d7da4bf7af26e533fad96e407
+The model weight contents are unmodified; bundled filenames are shortened.
+
+Silero VAD
+Copyright (c) 2020-present Silero Team
+License: MIT (SILERO-MIT.txt)
+Source: https://github.com/snakers4/silero-vad
+Bundled model source: official k2-fsa/sherpa-onnx asr-models release.
