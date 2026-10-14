@@ -47,7 +47,7 @@ class LocalVoskSttClient(private val registry: VoskModelRegistry) {
                 try {
                     recognizer.setWords(false)
                     recognizer.setMaxAlternatives(0)
-                    VoskStreamingSession(recognizer).also { created = it }
+                    VoskStreamingSession(recognizer, sampleRate).also { created = it }
                 } catch (t: Throwable) {
                     recognizer.close()
                     throw t
@@ -120,28 +120,53 @@ class LocalVoskSttClient(private val registry: VoskModelRegistry) {
 
 /**
  * Live streaming Vosk session. Feed PCM chunks as they arrive; pull
- * partial/final text after each feed. Native feed, finalization and close are
- * serialized; finalization is terminal and each resource closes once.
+ * partial/final text after each feed. Native calls are serialized. Silence
+ * boundaries keep Vosk's normal endpoint settings; uninterrupted audio is
+ * finalized after six seconds so captions can be translated while speech
+ * continues. Only [finish] is terminal, and each resource closes once.
  */
 class VoskStreamingSession internal constructor(
-    recognizer: Recognizer
+    recognizer: StreamingRecognizer,
+    sampleRate: Int
 ) {
+    internal constructor(recognizer: Recognizer, sampleRate: Int) :
+        this(NativeVoskRecognizer(recognizer), sampleRate)
+
     private val owner = NativeSessionOwner(recognizer)
+    private val maxSegmentBytes = sampleRate.toLong() * PCM_BYTES_PER_SAMPLE * MAX_SEGMENT_SECONDS
+    private var segmentBytes = 0L
+
+    init {
+        require(sampleRate > 0) { "Sample rate must be positive" }
+    }
 
     /**
      * Feed a chunk of 16-bit LE PCM. Returns [FeedResult] indicating whether a
-     * final result is available (`accepted == true` means Vosk detected a
-     * silence/segment boundary) plus the current text — if `accepted`, [text]
-     * is the finalized segment; otherwise it's the latest partial.
+     * final result is available (`accepted == true` means a natural endpoint
+     * or the six-second PCM limit) plus the current text — if `accepted`,
+     * [text] is the finalized segment; otherwise it's the latest partial.
      */
     fun feed(pcm: ByteArray, length: Int = pcm.size): FeedResult =
         owner.feed(FeedResult("", accepted = false)) { recognizer ->
+            require(length in 0..pcm.size && length % PCM_BYTES_PER_SAMPLE == 0) {
+                "PCM length must fit the buffer and contain complete 16-bit samples"
+            }
+            if (length == 0) return@feed FeedResult("", accepted = false)
             // Let native feed failures reach the capture owner as terminal errors.
             val accepted = recognizer.acceptWaveForm(pcm, length)
+            segmentBytes += length
+            val boundary = accepted || segmentBytes >= maxSegmentBytes
             val text = LocalVoskSttClient.extractText(
-                if (accepted) recognizer.result else recognizer.partialResult
+                when {
+                    accepted -> recognizer.result
+                    // Vosk reinitializes its decoder on the next feed after a final
+                    // result. This flush must not make NativeSessionOwner terminal.
+                    boundary -> recognizer.finalResult
+                    else -> recognizer.partialResult
+                }
             )
-            FeedResult(text, accepted)
+            if (boundary) segmentBytes = 0L
+            FeedResult(text, boundary)
         }
 
     /** Flush buffered audio exactly once; no feed is accepted after this call. */
@@ -161,8 +186,30 @@ class VoskStreamingSession internal constructor(
     data class FeedResult(
         /** Current text — segment if [accepted], partial otherwise. */
         val text: String,
-        /** True when Vosk hit a silence boundary and emitted a finalized segment. */
+        /** True at a natural endpoint or a forced duration boundary, even without text. */
         val accepted: Boolean
     )
+
+    private companion object {
+        const val PCM_BYTES_PER_SAMPLE = 2
+        const val MAX_SEGMENT_SECONDS = 6
+    }
+}
+
+internal interface StreamingRecognizer {
+    fun acceptWaveForm(pcm: ByteArray, length: Int): Boolean
+    val result: String
+    val partialResult: String
+    val finalResult: String
+    fun close()
+}
+
+private class NativeVoskRecognizer(private val recognizer: Recognizer) : StreamingRecognizer {
+    override fun acceptWaveForm(pcm: ByteArray, length: Int): Boolean =
+        recognizer.acceptWaveForm(pcm, length)
+    override val result: String get() = recognizer.result
+    override val partialResult: String get() = recognizer.partialResult
+    override val finalResult: String get() = recognizer.finalResult
+    override fun close() = recognizer.close()
 }
 

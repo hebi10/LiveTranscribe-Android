@@ -23,6 +23,8 @@ data class CaptionRuntimeState(
     val running: Boolean = false,
     val paused: Boolean = false,
     val lastError: String? = null,
+    /** Number of pending translations skipped to keep up during this session. */
+    val skippedTranslations: Int = 0,
     val suggestedLanguageCode: String? = null
 )
 
@@ -49,3 +51,22 @@ internal fun completedCaptionSession(
         lastError = error ?: completionMessage
     )
 }
+
+internal fun translationBacklogMessage(skipped: Int): String? = if (skipped > 0)
+    "번역이 밀려 대기 중인 자막 ${skipped}개를 생략했습니다. 최신 음성부터 이어갑니다." else null
+
+internal fun recordDroppedTranslation(runtime: CaptionRuntimeState, lineId: Long): CaptionRuntimeState {
+    val pending = runtime.transcriptLines.firstOrNull { it.id == lineId }
+    if (pending == null || !pending.isFinal || pending.finalTranslationCommitted) return runtime
+    val skipped = (runtime.skippedTranslations.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    return runtime.copy(
+        transcriptLines = runtime.transcriptLines.filterNot { it.id == lineId },
+        skippedTranslations = skipped,
+        lastError = runtime.lastError?.takeUnless {
+            it == translationBacklogMessage(runtime.skippedTranslations)
+        } ?: translationBacklogMessage(skipped)
+    )
+}
+
+internal fun withRuntimeError(runtime: CaptionRuntimeState, message: String?): CaptionRuntimeState =
+    runtime.copy(lastError = message ?: translationBacklogMessage(runtime.skippedTranslations))

@@ -162,7 +162,8 @@ class CaptionForegroundService : Service() {
         if (stopping || !captionSessionActive.compareAndSet(false, true)) return
         failureMessage = null
         app.container.runtimeStore.update {
-            it.copy(running = true, paused = false, status = RecognitionStatus.PROCESSING, lastError = null)
+            it.copy(running = true, paused = false, status = RecognitionStatus.PROCESSING,
+                lastError = null, skippedTranslations = 0)
         }
         if (!Settings.canDrawOverlays(this)) {
             Log.e("CaptionService", "Overlay permission missing.")
@@ -223,6 +224,11 @@ class CaptionForegroundService : Service() {
 
             translationQueue = CaptionTranslationQueue(
                 CoroutineScope(serviceScope.coroutineContext + Dispatchers.IO),
+                onFinalDropped = { request ->
+                    app.container.runtimeStore.update { recordDroppedTranslation(it, request.lineId) }
+                    failureMessage = failureMessage ?: translationBacklogMessage(
+                        app.container.runtimeStore.state.value.skippedTranslations)
+                },
                 translate = { request ->
                     try {
                         translateSnapshot(request)
@@ -236,25 +242,16 @@ class CaptionForegroundService : Service() {
                 }
             )
 
-            val onSpeechResult = { result: SpeechResult ->
+            val onSpeechResult: (SpeechResult) -> Unit = onSpeechResult@{ result ->
                 val transcript = result.text.trim()
+                if (transcript.isBlank() && !result.isFinal) return@onSpeechResult
 
                 val candidateId = lineIdCounter.incrementAndGet()
                 var effectiveLineId = candidateId
                 app.container.runtimeStore.update {
-                    val updatedLines = recordTranscriptResult(
-                        lines = it.transcriptLines,
-                        originalText = transcript,
-                        isFinal = result.isFinal,
-                        newLineId = candidateId
-                    )
-                    effectiveLineId = updatedLines.lastOrNull()?.id ?: candidateId
-                    it.copy(
-                        originalText = transcript,
-                        transcriptLines = updatedLines,
-                        status = RecognitionStatus.PROCESSING,
-                        lastError = null
-                    )
+                    applyTranscriptResult(it, transcript, result.isFinal, candidateId).also { recorded ->
+                        effectiveLineId = recorded.transcriptLines.lastOrNull()?.id ?: candidateId
+                    }
                 }
                 queueTranslation(transcript, effectiveLineId, result.isFinal)
             }
@@ -293,7 +290,7 @@ class CaptionForegroundService : Service() {
             }, Handler(Looper.getMainLooper()))
 
             val errorSink: (String?) -> Unit = { msg ->
-                app.container.runtimeStore.update { it.copy(lastError = msg) }
+                app.container.runtimeStore.update { withRuntimeError(it, msg) }
             }
 
             val engine = StreamingSttEngine(

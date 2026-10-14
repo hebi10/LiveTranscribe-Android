@@ -22,6 +22,7 @@ data class OverlayUiState(
     val status: RecognitionStatus = RecognitionStatus.IDLE,
     /** Details for local capture, recognition, translation, or storage failures. */
     val statusDetail: String? = null,
+    val skippedTranslations: Int = 0,
     val textSizeSp: Float = 20f,
     val opacity: Float = 0.65f,
     val showOriginal: Boolean = true,

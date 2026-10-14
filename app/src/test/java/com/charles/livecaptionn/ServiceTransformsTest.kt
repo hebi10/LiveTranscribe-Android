@@ -1,5 +1,11 @@
 package com.charles.livecaptionn
 
+import com.charles.livecaptionn.service.applyTranscriptResult
+import com.charles.livecaptionn.speech.RecognitionStatus
+import com.charles.livecaptionn.service.recordDroppedTranslation
+import com.charles.livecaptionn.service.withRuntimeError
+import com.charles.livecaptionn.service.buildOverlayUiState
+import com.charles.livecaptionn.settings.CaptionSettings
 import com.charles.livecaptionn.service.CaptionRuntimeLine
 import com.charles.livecaptionn.service.CaptionRuntimeState
 import com.charles.livecaptionn.service.MAX_TRANSCRIPT_LINES
@@ -279,5 +285,80 @@ class ServiceTransformsTest {
         assertEquals(40, updated.count { it.finalTranslationCommitted })
         assertEquals("새 확정", updated.first { it.id == 41L }.translatedText)
         assertEquals(updated, updateTranscriptTranslation(updated, 1L, "evicted committed final", true))
+    }
+
+    @Test
+    fun emptyFinalBoundary_discardsOnlyUncommittedOpenPreview() {
+        val committed = CaptionRuntimeLine(1L, "hello", "안녕", isFinal = true)
+        val waiting = CaptionRuntimeLine(2L, "waiting", isFinal = true)
+        val open = CaptionRuntimeLine(3L, "ghost partial", "임시 번역")
+        val result = recordTranscriptResult(listOf(committed, waiting, open), "", true, 4L)
+        assertEquals(listOf(committed, waiting), result)
+        assertEquals(listOf(committed, waiting, open),
+            recordTranscriptResult(listOf(committed, waiting, open), "", false, 4L))
+    }
+
+    @Test
+    fun droppedPendingTranslation_keepsCommittedCaptionsAndRejectsLateCompletion() {
+        val committed = CaptionRuntimeLine(1L, "hello", "안녕", isFinal = true)
+        val waiting = CaptionRuntimeLine(2L, "old pending", isFinal = true)
+        val latest = CaptionRuntimeLine(3L, "new pending", isFinal = true)
+        val runtime = CaptionRuntimeState(transcriptLines = listOf(committed, waiting, latest))
+        val result = recordDroppedTranslation(runtime, 2L)
+        assertEquals(listOf(committed, latest), result.transcriptLines)
+        assertEquals(1, result.skippedTranslations)
+        assertTrue(result.lastError?.isNotBlank() == true)
+        assertEquals(result, applyTranscriptTranslation(result, 2L, "late stale result", true))
+        assertEquals(result, recordDroppedTranslation(result, 1L))
+    }
+
+    @Test
+    fun successfulCaptureUpdate_preservesVisibleBacklogNotice() {
+        val waiting = CaptionRuntimeLine(1L, "old pending", isFinal = true)
+        val runtime = recordDroppedTranslation(CaptionRuntimeState(transcriptLines = listOf(waiting)), 1L)
+        val failed = withRuntimeError(runtime, "capture failure")
+        assertEquals("capture failure", failed.lastError)
+        val recovered = withRuntimeError(failed, null)
+        assertTrue(recovered.lastError?.isNotBlank() == true)
+        assertEquals(1, recovered.skippedTranslations)
+        assertEquals(recovered.lastError, buildOverlayUiState(recovered, CaptionSettings()).statusDetail)
+    }
+
+    @Test
+    fun finalCleanup_doesNotEraseCaptureFailure() {
+        val committed = CaptionRuntimeLine(1L, "hello", "안녕", isFinal = true)
+        val preview = CaptionRuntimeLine(2L, "ghost partial", "임시 번역")
+        val failure = CaptionRuntimeState(
+            transcriptLines = listOf(committed, preview),
+            status = RecognitionStatus.ERROR,
+            lastError = "specific capture failure"
+        )
+        val emptyTail = applyTranscriptResult(failure, "", true, 3L)
+        assertEquals(listOf(committed), emptyTail.transcriptLines)
+        assertEquals(RecognitionStatus.ERROR, emptyTail.status)
+        assertEquals("specific capture failure", emptyTail.lastError)
+        val recognizedTail = applyTranscriptResult(failure, "recognized tail", true, 3L)
+        assertEquals(RecognitionStatus.ERROR, recognizedTail.status)
+        assertEquals("specific capture failure", recognizedTail.lastError)
+        assertEquals("recognized tail", recognizedTail.transcriptLines.last().originalText)
+    }
+
+    @Test
+    fun terminalTail_keepsFailureBeforeMainObservesErrorStatus() {
+        val failure = CaptionRuntimeState(status = RecognitionStatus.LISTENING, lastError = "specific capture failure")
+        val recorded = applyTranscriptResult(failure, "recognized tail", true, 1L)
+        assertEquals("specific capture failure", recorded.lastError)
+        assertEquals("recognized tail", recorded.transcriptLines.single().originalText)
+    }
+
+    @Test
+    fun backlogEviction_doesNotOverwriteCaptureFailure() {
+        val runtime = CaptionRuntimeState(
+            transcriptLines = listOf(CaptionRuntimeLine(1L, "old pending", isFinal = true)),
+            lastError = "specific capture failure"
+        )
+        val recorded = recordDroppedTranslation(runtime, 1L)
+        assertEquals(1, recorded.skippedTranslations)
+        assertEquals("specific capture failure", recorded.lastError)
     }
 }

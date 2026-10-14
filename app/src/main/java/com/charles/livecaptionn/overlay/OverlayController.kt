@@ -359,8 +359,13 @@ class OverlayController(
                 "ja" -> "일본어 전환 추천"
                 else -> null
             }
-            setTextIfChanged(this, if (suggestion != null) "${s[ui.status.displayName]} · $suggestion" else s[ui.status.displayName])
-            contentDescription = "${s["Status"]}: ${s[ui.status.displayName]}. ${s["Move caption window"]}"
+            val label = when {
+                ui.skippedTranslations > 0 -> "${s[ui.status.displayName]} · 일부 자막 생략"
+                suggestion != null -> "${s[ui.status.displayName]} · $suggestion"
+                else -> s[ui.status.displayName]
+            }
+            setTextIfChanged(this, label)
+            contentDescription = "${s["Status"]}: $label. ${s["Move caption window"]}"
         }
         val detail = ui.statusDetail?.trim().orEmpty()
         statusDetail?.apply {
@@ -416,7 +421,7 @@ class OverlayController(
 
         val display = computeOverlayTextDisplay(ui).let {
             if (ui.stableCaptions && ui.messages.isEmpty() && it.translatedText == "…") {
-                it.copy(translatedText = s["Captions appear when a sentence ends"])
+                it.copy(translatedText = s["Captions appear in short speech segments"])
             } else it
         }
         val content = CaptionContent(ui.displayMode, display,
