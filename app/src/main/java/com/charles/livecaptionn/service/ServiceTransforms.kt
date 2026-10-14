@@ -9,7 +9,7 @@ package com.charles.livecaptionn.service
  */
 
 /** Maximum number of transcript lines kept in the scroll-back buffer. */
-internal const val MAX_TRANSCRIPT_LINES = 30
+internal const val MAX_TRANSCRIPT_LINES = 4
 
 /**
  * Record a new STT result into the transcript line list.

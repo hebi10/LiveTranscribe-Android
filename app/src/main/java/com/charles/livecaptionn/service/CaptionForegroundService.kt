@@ -22,19 +22,14 @@ import com.charles.livecaptionn.R
 import com.charles.livecaptionn.data.TranscriptEntry
 import com.charles.livecaptionn.data.applyGlossary
 import com.charles.livecaptionn.overlay.OverlayController
-import com.charles.livecaptionn.overlay.OverlayFontCatalog
-import com.charles.livecaptionn.overlay.OverlayThemeCatalog
+import com.charles.livecaptionn.ui.l10n.KoreanUiStrings
 import com.charles.livecaptionn.overlay.OverlayUiState
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.CaptionSettings
-import com.charles.livecaptionn.settings.LocaleMap
-import com.charles.livecaptionn.settings.SttBackend
-import com.charles.livecaptionn.speech.AndroidSpeechRecognizerManager
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.speech.SpeechEngine
 import com.charles.livecaptionn.speech.SpeechResult
 import com.charles.livecaptionn.speech.StreamingSttEngine
-import com.charles.livecaptionn.speech.SystemAudioEngine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -81,7 +76,7 @@ class CaptionForegroundService : Service() {
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
 
-    private var currentAudioSource = AudioSource.MIC
+    private var currentAudioSource = AudioSource.SYSTEM
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -116,7 +111,7 @@ class CaptionForegroundService : Service() {
                 // instead of raw stopSelf, which previously crashed the app.
                 val audioSource = intent.getStringExtra(EXTRA_AUDIO_SOURCE)
                     ?.let { runCatching { AudioSource.valueOf(it) }.getOrNull() }
-                    ?: AudioSource.MIC
+                    ?: AudioSource.SYSTEM
                 currentAudioSource = audioSource
                 if (enterForeground(audioSource)) startFlow()
             }
@@ -177,7 +172,7 @@ class CaptionForegroundService : Service() {
             // prior run was hiding the caption body entirely.
             app.container.settingsRepository.update { it.copy(overlayMinimized = false) }
             val settings = app.container.settingsRepository.settingsFlow.first()
-            Log.d("CaptionService", "startFlow settings minimized=${settings.overlayMinimized} w=${settings.overlayWidthDp}dp h=${settings.overlayHeightDp}dp audio=${settings.audioSource}")
+
             // If the activity sent the wrong audio source in the intent extra
             // (legacy intent, settings changed between launch and service start),
             // re-enter foreground with the correct service type.
@@ -186,27 +181,11 @@ class CaptionForegroundService : Service() {
                 if (!enterForeground(currentAudioSource)) return@launch
             }
             val sttLanguageCode = settings.sourceLanguageCode.ifBlank { "en" }
-            val localeForSpeechRec = LocaleMap.bcp47(sttLanguageCode)
 
-            val premium = app.container.premiumRepository.state.first()
-            if (settings.translationBackend == com.charles.livecaptionn.settings.TranslationBackend.ML_KIT &&
-                (com.charles.livecaptionn.translation.MlKitLanguages.requiresPro(settings.sourceLanguageCode) ||
-                    com.charles.livecaptionn.translation.MlKitLanguages.requiresPro(settings.targetLanguageCode)) &&
-                !premium.hasPro
-            ) {
-                failAndStop("This ML Kit language requires Pro. Choose a free language or upgrade.")
+            val model = app.container.voskRegistry.installedModelFor(sttLanguageCode)
+            if (model == null) {
+                failAndStop("음성 모델을 찾을 수 없습니다. 모델이 포함된 APK를 설치해 주세요.")
                 return@launch
-            }
-            if (settings.sttBackend == SttBackend.LOCAL_VOSK) {
-                val model = app.container.voskRegistry.installedModelFor(sttLanguageCode)
-                if (model == null) {
-                    failAndStop("No on-device model installed for '$sttLanguageCode'. Download one first.")
-                    return@launch
-                }
-                if (model.quality == com.charles.livecaptionn.speech.ModelQuality.LARGE && !premium.hasPro) {
-                    failAndStop("The large Vosk model requires Pro. Install or select a small model.")
-                    return@launch
-                }
             }
 
             app.container.runtimeStore.update {
@@ -243,7 +222,7 @@ class CaptionForegroundService : Service() {
 
             val onSpeechResult = { result: SpeechResult ->
                 val transcript = result.text.trim()
-                Log.d("CaptionService", "onSpeechResult final=${result.isFinal} text='$transcript'")
+
                 val candidateId = lineIdCounter.incrementAndGet()
                 app.container.runtimeStore.update {
                     it.copy(
@@ -285,58 +264,19 @@ class CaptionForegroundService : Service() {
                 app.container.runtimeStore.update { it.copy(lastError = msg) }
             }
 
-            // Routing:
-            //   LOCAL_VOSK  → streaming Vosk for both mic and system audio (preferred: low-latency, live partials)
-            //   REMOTE_WHISPER:
-            //       system  → legacy batch SystemAudioEngine (posts WAVs to remote Whisper)
-            //       mic     → AndroidSpeechRecognizerManager (Google recognizer; kept as fallback)
-            val backend = settings.sttBackend
-            val useStreaming = backend == SttBackend.LOCAL_VOSK
-
-            if (useStreaming) {
-                val engine = StreamingSttEngine(
-                    context = this@CaptionForegroundService,
-                    audioSource = currentAudioSource,
-                    mediaProjection = mediaProjection,
-                    languageCode = sttLanguageCode,
-                    localSttClient = app.container.localVoskClient,
-                    scope = serviceScope,
-                    onResult = onSpeechResult,
-                    onError = errorSink
-                )
-                speechEngine = engine
-                observeEngineStatus(engine.status)
-                engine.start()
-            } else {
-                when (currentAudioSource) {
-                    AudioSource.SYSTEM -> {
-                        val engine = SystemAudioEngine(
-                            context = this@CaptionForegroundService,
-                            projection = mediaProjection!!,
-                            sttUrl = settings.sttBaseUrl,
-                            languageCode = sttLanguageCode,
-                            sourceLanguageCode = sttLanguageCode,
-                            sttBackend = settings.sttBackend,
-                            localSttClient = app.container.localVoskClient,
-                            scope = serviceScope,
-                            onResult = onSpeechResult,
-                            onSttError = errorSink
-                        )
-                        speechEngine = engine
-                        observeEngineStatus(engine.status)
-                        engine.start()
-                    }
-                    AudioSource.MIC -> {
-                        val engine = AndroidSpeechRecognizerManager(
-                            this@CaptionForegroundService, onSpeechResult
-                        )
-                        engine.setLanguage(localeForSpeechRec)
-                        speechEngine = engine
-                        observeEngineStatus(engine.status)
-                        engine.start()
-                    }
-                }
-            }
+            val engine = StreamingSttEngine(
+                context = this@CaptionForegroundService,
+                audioSource = currentAudioSource,
+                mediaProjection = mediaProjection,
+                languageCode = sttLanguageCode,
+                localSttClient = app.container.localVoskClient,
+                scope = serviceScope,
+                onResult = onSpeechResult,
+                onError = errorSink
+            )
+            speechEngine = engine
+            observeEngineStatus(engine.status)
+            engine.start()
 
             showOverlay()
             observeOverlayUpdates()
@@ -360,19 +300,11 @@ class CaptionForegroundService : Service() {
             combine(
                 app.container.runtimeStore.state,
                 app.container.settingsRepository.settingsFlow,
-                app.container.premiumRepository.state,
                 overlayReady
-            ) { runtime, settings, premium, _ -> Triple(runtime, settings, premium.hasPro) }
-                .collectLatest { (runtime, settings, hasPro) ->
+            ) { runtime, settings, _ -> Pair(runtime, settings) }
+                .collectLatest { (runtime, settings) ->
                     val overlay = overlayController ?: return@collectLatest
-                    val ui = buildOverlayUi(runtime, settings, hasPro)
-                    Log.d(
-                        "CaptionService",
-                        "overlay update lines=${runtime.transcriptLines.size} " +
-                            "orig='${runtime.originalText.take(40)}' " +
-                            "trans='${runtime.translatedText.take(40)}' " +
-                            "body='${ui.transcriptText.take(60)}'"
-                    )
+                    val ui = buildOverlayUi(runtime, settings)
                     overlay.update(ui)
                 }
         }
@@ -381,7 +313,6 @@ class CaptionForegroundService : Service() {
     private fun buildOverlayUi(
         runtime: CaptionRuntimeState,
         settings: CaptionSettings,
-        hasPro: Boolean
     ) = OverlayUiState(
         originalText = runtime.originalText,
         translatedText = runtime.translatedText.ifBlank { runtime.originalText },
@@ -392,11 +323,8 @@ class CaptionForegroundService : Service() {
         opacity = settings.overlayOpacity,
         showOriginal = settings.showOriginal,
         minimized = settings.overlayMinimized,
-        // Defensive fallback: a lapsed subscription must never leave a stale
-        // Pro theme/font rendering — always re-check entitlement here, not
-        // just at the point the setting was saved.
-        themeId = if (hasPro) settings.overlayThemeId else OverlayThemeCatalog.FREE_THEME_ID,
-        fontId = if (hasPro) settings.overlayFontId else OverlayFontCatalog.FREE_FONT_ID
+        themeId = settings.overlayThemeId,
+        fontId = settings.overlayFontId
     )
 
     private fun queueTranslation(text: String, lineId: Long, isFinal: Boolean = false) {
@@ -420,7 +348,7 @@ class CaptionForegroundService : Service() {
             text = request.text,
             sourceCode = captionSettings.sourceLanguageCode,
             targetCode = captionSettings.targetLanguageCode,
-            autoDetect = currentAudioSource == AudioSource.SYSTEM || captionSettings.autoDetectSource
+            autoDetect = false
         )
         if (translated.isBlank()) return
         val translatedWithGlossary = applyGlossary(translated, app.container.glossary.list())
@@ -457,13 +385,12 @@ class CaptionForegroundService : Service() {
                 onPauseResume = { togglePause() },
                 onClose = { stopFlow() },
                 onToggleMinimize = { toggleMinimized() },
-                uiStrings = { app.container.uiLocalization.latestStrings() }
+                uiStrings = { KoreanUiStrings.values }
             ).apply {
                 show(settings.overlayX, settings.overlayY, settings.overlayWidthDp, settings.overlayHeightDp)
             }
             val runtime = app.container.runtimeStore.state.value
-            val hasPro = app.container.premiumRepository.state.first().hasPro
-            overlayController?.update(buildOverlayUi(runtime, settings, hasPro))
+            overlayController?.update(buildOverlayUi(runtime, settings))
             overlayReady.value = overlayReady.value + 1
         }
     }
@@ -544,7 +471,7 @@ class CaptionForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val uiStrings = app.container.uiLocalization.latestStrings()
+        val uiStrings = KoreanUiStrings.values
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(uiStrings["Captioning in progress"])
             .setContentText(uiStrings["Listening and translating speech."])
@@ -578,7 +505,7 @@ class CaptionForegroundService : Service() {
 
         private const val CHANNEL_ID = "caption_channel"
         private const val NOTIF_ID = 2001
-        private const val TRANSLATE_DEBOUNCE_MS = 450L
+        private const val TRANSLATE_DEBOUNCE_MS = 300L
         private const val NO_LINE_ID = -1L
     }
 }

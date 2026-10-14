@@ -85,8 +85,8 @@ class ServiceTransformsTest {
     fun recordTranscriptResult_trimsToMaxLines() {
         val lines = (1..31).map { CaptionRuntimeLine(id = it.toLong(), originalText = "line $it", isFinal = true) }
         val result = recordTranscriptResult(lines, "line 32", isFinal = true, newLineId = 32L)
-        assertEquals(30, result.size)
-        assertEquals("line 3", result.first().originalText)
+        assertEquals(4, result.size)
+        assertEquals("line 29", result.first().originalText)
         assertEquals("line 32", result.last().originalText)
     }
 

@@ -97,7 +97,7 @@ class StreamingSttEngine(
         if (localSession == null) {
             onError(
                 "No on-device model installed for '$languageCode'. " +
-                    "Open the language picker to download one."
+                    "Install an APK with packaged models."
             )
             statusMutable.value = RecognitionStatus.ERROR
             running = false

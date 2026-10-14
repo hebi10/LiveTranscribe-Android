@@ -57,7 +57,7 @@ class LocalVoskSttClient(private val registry: VoskModelRegistry) {
             val model = modelFor(languageCode)
                 ?: return@withContext TranscribeOutcome(
                     "",
-                    "No local Vosk model installed for '$languageCode'. Download it from the language picker."
+                    "No local Vosk model installed for '$languageCode'. Install a build with packaged models."
                 )
             Recognizer(model, sampleRate.toFloat()).use { recognizer ->
                 val accepted = recognizer.acceptWaveForm(pcmData, pcmData.size)

@@ -8,13 +8,13 @@ import org.junit.Test
 class OverlayDimensionsTest {
 
     @Test
-    fun defaultOverlayWidth_is320dp() {
-        assertEquals(320, CaptionSettings().overlayWidthDp)
+    fun defaultOverlayWidth_is340dp() {
+        assertEquals(340, CaptionSettings().overlayWidthDp)
     }
 
     @Test
-    fun defaultOverlayHeight_is180dp() {
-        assertEquals(180, CaptionSettings().overlayHeightDp)
+    fun defaultOverlayHeight_is160dp() {
+        assertEquals(160, CaptionSettings().overlayHeightDp)
     }
 
     @Test
@@ -33,7 +33,7 @@ class OverlayDimensionsTest {
         val modified = original.copy(overlayWidthDp = 500, overlayHeightDp = 300)
         assertEquals(500, modified.overlayWidthDp)
         assertEquals(300, modified.overlayHeightDp)
-        assertEquals(320, original.overlayWidthDp)
-        assertEquals(180, original.overlayHeightDp)
+        assertEquals(340, original.overlayWidthDp)
+        assertEquals(160, original.overlayHeightDp)
     }
 }

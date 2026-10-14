@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-
-    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- No app-level network access, including permissions from transitive libraries. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -12,27 +13,15 @@
 
     <application
         android:name=".LiveCaptionApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:usesCleartextTraffic="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.LiveCaptionN"
-        android:networkSecurityConfig="@xml/network_security_config">
-
-        <!-- Google Mobile Ads (AdMob). The value is the public App ID,
-             safe to commit: no secret material. -->
-        <meta-data
-            android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="${admobAppId}" />
-
-        <!-- Resolve conflict between play-services-ads and play-services-measurement-api
-             which both inject this property pointing to different XML file names. -->
-        <property
-            android:name="android.adservices.AD_SERVICES_CONFIG"
-            android:resource="@xml/gma_ad_services_config"
-            tools:replace="android:resource" />
-
+        android:theme="@style/Theme.LiveCaptionN">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -41,22 +30,11 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- github/Stripe flavor: Chrome Custom Tabs bounces back here after
-                 Checkout completes, carrying the Stripe session_id so the app can
-                 prove purchase ownership to the Worker (see cloudflare-worker/src/worker.js). -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="livecaptionn" android:host="premium-return" />
-            </intent-filter>
         </activity>
-
         <service
             android:name=".service.CaptionForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone|mediaProjection" />
     </application>
-
 </manifest>

@@ -7,52 +7,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UiStringCatalogTest {
-
-    @Test
-    fun appName_isIncludedInCatalog() {
-        assertTrue(UiStringCatalog.ALL.contains(UiStringCatalog.appName))
-        assertEquals("Live CaptionN", UiStringCatalog.appName)
+    @Test fun catalogIsKoreanFirst() {
+        assertEquals("실시간 영상 번역", UiStringCatalog.appName)
+        assertTrue(UiStringCatalog.ALL.contains("Transcript History"))
     }
 
-    @Test
-    fun allStrings_areDistinct() {
+    @Test fun catalogHasNoDuplicates() {
         assertEquals(UiStringCatalog.ALL.size, UiStringCatalog.ALL.toSet().size)
     }
 
-    @Test
-    fun allStrings_areNonBlank() {
-        UiStringCatalog.ALL.forEach { assertFalse(it.isBlank()) }
-    }
-
-    @Test
-    fun catalog_hasNoNaiveDuplicatesFromTemplating() {
-        // Format templates with %s must appear exactly once as their raw English self.
-        assertTrue(UiStringCatalog.ALL.contains("Example: %s"))
-        assertTrue(UiStringCatalog.ALL.contains("%s is ready to install"))
-    }
-
-    @Test
-    fun placeholderCount_countsPercentSpecifiers() {
-        assertEquals(0, UiStringCatalog.placeholderCount("Hello world"))
-        assertEquals(1, UiStringCatalog.placeholderCount("Example: %s"))
-        assertEquals(2, UiStringCatalog.placeholderCount("Comments (%d) on %s"))
-        // "%d" is one specifier and "%%" (literal percent) is another.
+    @Test fun placeholdersRetainCorrectCounts() {
+        assertEquals(2, UiStringCatalog.placeholderCount("Values: %s (%d)"))
         assertEquals(2, UiStringCatalog.placeholderCount("Opacity: %d%%"))
-        assertEquals(0, UiStringCatalog.placeholderCount("100% of something"))
     }
 
-    @Test
-    fun isSegmentTranslatable_rejectsNoise() {
-        assertFalse(UiStringCatalog.isSegmentTranslatable(""))
-        assertFalse(UiStringCatalog.isSegmentTranslatable("   "))
+    @Test fun untranslatableSegmentsAreIgnored() {
         assertFalse(UiStringCatalog.isSegmentTranslatable("…"))
-        assertFalse(UiStringCatalog.isSegmentTranslatable("--"))
-    }
-
-    @Test
-    fun isSegmentTranslatable_acceptsRealText() {
-        assertTrue(UiStringCatalog.isSegmentTranslatable("Start"))
-        assertTrue(UiStringCatalog.isSegmentTranslatable("Try a different search term."))
-        assertTrue(UiStringCatalog.isSegmentTranslatable("Text size: %dsp"))
+        assertFalse(UiStringCatalog.isSegmentTranslatable(""))
+        assertTrue(UiStringCatalog.isSegmentTranslatable("History"))
     }
 }

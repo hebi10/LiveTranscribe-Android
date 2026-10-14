@@ -98,8 +98,6 @@ class TranscriptHistoryStore private constructor(private val file: File) {
         }
     }
 
-    suspend fun export(): TranscriptExport = TranscriptExport(getAll())
-
     suspend fun clear() = mutex.withLock {
         withContext(Dispatchers.IO) { file.delete(); backup.delete() }
     }
