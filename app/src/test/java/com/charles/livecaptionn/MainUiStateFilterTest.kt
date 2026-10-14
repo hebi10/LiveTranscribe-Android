@@ -2,6 +2,7 @@ package com.charles.livecaptionn
 
 import com.charles.livecaptionn.speech.VoskModelInfo
 import com.charles.livecaptionn.ui.MainUiState
+import com.charles.livecaptionn.settings.AudioSource
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,5 +20,15 @@ class MainUiStateFilterTest {
 
     @Test fun noModelDisablesStart() {
         assertFalse(MainUiState().canStart)
+    }
+
+    @Test fun systemAudioAlsoRequiresRecordAudioPermission() {
+        val source = MainUiState(
+            micPermissionGranted = false,
+            overlayPermissionGranted = true,
+            voskModels = listOf(VoskModelInfo("en", "영어", "model-en", 40, installed = true))
+        )
+        assertFalse(source.copy(settings = source.settings.copy(audioSource = AudioSource.SYSTEM)).canStart)
+        assertTrue(source.copy(micPermissionGranted = true).canStart)
     }
 }

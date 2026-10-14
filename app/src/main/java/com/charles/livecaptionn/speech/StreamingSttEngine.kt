@@ -232,6 +232,12 @@ class StreamingSttEngine(
     }
 
     private fun buildAudioRecord(): AudioRecord? {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            onError("음성 캡처를 위해 마이크(녹음) 권한을 허용해 주세요.")
+            return null
+        }
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
             .setSampleRate(SAMPLE_RATE)
@@ -267,12 +273,6 @@ class StreamingSttEngine(
                     .build()
             }
             AudioSource.MIC -> {
-                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-                    != PackageManager.PERMISSION_GRANTED
-                ) {
-                    onError("Microphone permission not granted. Allow microphone access and try again.")
-                    return null
-                }
                 AudioRecord.Builder()
                     .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                     .setAudioFormat(format)

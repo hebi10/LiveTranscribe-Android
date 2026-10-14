@@ -74,7 +74,6 @@ class MlKitTranslationRepository : TranslationRepository {
         try {
             val translator = translatorFor(src, dst)
             ensureModelDownloaded(translator)
-            Log.i(TAG, "ML Kit model ready for $sourceCode → $targetCode")
         } catch (t: Throwable) {
             Log.w(TAG, "ML Kit prewarm failed for $sourceCode → $targetCode", t)
         }
@@ -92,7 +91,6 @@ class MlKitTranslationRepository : TranslationRepository {
         if (src == dst) return
         val translator = translatorFor(src, dst)
         ensureModelDownloaded(translator)
-        Log.i(TAG, "ML Kit model ready for $sourceCode → $targetCode")
     }
 
     @Synchronized

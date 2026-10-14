@@ -189,12 +189,15 @@ fun MainScreen(
                             Text("화면 표시 권한 허용")
                         }
                     }
-                    if (ui.settings.audioSource == AudioSource.MIC) {
-                        Text(if (ui.micPermissionGranted) "마이크: 허용됨" else "마이크: 권한 필요")
-                        if (!ui.micPermissionGranted) {
-                            FilledTonalButton(onClick = onRequestAudioPermission) {
-                                Text("마이크 권한 허용")
-                            }
+                    Text(if (ui.micPermissionGranted) "음성 캡처: 허용됨" else "음성 캡처: 권한 필요")
+                    if (!ui.micPermissionGranted) {
+                        Text(
+                            "동영상 내부 음성을 인식할 때도 Android의 마이크(녹음) 권한이 필요합니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FilledTonalButton(onClick = onRequestAudioPermission) {
+                            Text("음성 캡처 권한 허용")
                         }
                     }
                     SettingToggle("번역 기록 저장 (기본 꺼짐)", ui.settings.saveHistory,

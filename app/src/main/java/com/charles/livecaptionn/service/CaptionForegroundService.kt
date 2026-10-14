@@ -9,7 +9,10 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.os.Handler
+import android.os.Looper
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
@@ -39,6 +42,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
@@ -224,23 +228,23 @@ class CaptionForegroundService : Service() {
                 val transcript = result.text.trim()
 
                 val candidateId = lineIdCounter.incrementAndGet()
+                var effectiveLineId = candidateId
                 app.container.runtimeStore.update {
+                    val updatedLines = recordTranscriptResult(
+                        lines = it.transcriptLines,
+                        originalText = transcript,
+                        isFinal = result.isFinal,
+                        newLineId = candidateId
+                    )
+                    effectiveLineId = updatedLines.lastOrNull()?.id ?: candidateId
                     it.copy(
                         originalText = transcript,
-                        // Partials overwrite the open line; finals close it so the next
-                        // utterance starts fresh. Works the same for mic and system audio
-                        // now that both stream.
-                        transcriptLines = recordTranscriptResult(
-                            lines = it.transcriptLines,
-                            originalText = transcript,
-                            isFinal = result.isFinal,
-                            newLineId = candidateId
-                        ),
+                        transcriptLines = updatedLines,
                         status = RecognitionStatus.PROCESSING,
                         lastError = null
                     )
                 }
-                queueTranslation(transcript, candidateId, result.isFinal)
+                queueTranslation(transcript, effectiveLineId, result.isFinal)
             }
 
             val mediaProjection = if (currentAudioSource == AudioSource.SYSTEM) {
@@ -251,14 +255,30 @@ class CaptionForegroundService : Service() {
                     failAndStop("System-audio capture permission is missing. Start again and allow capture.")
                     return@launch
                 }
-                mpManager.getMediaProjection(MediaProjectionHolder.resultCode, data)
-                    ?: run {
-                        failAndStop("System-audio capture could not be initialized. Try again.")
-                        return@launch
-                    }
+                try {
+                    mpManager.getMediaProjection(MediaProjectionHolder.resultCode, data)
+                        ?: run {
+                            failAndStop("시스템 오디오 캡처를 시작하지 못했습니다. 다시 시도해 주세요.")
+                            return@launch
+                        }
+                } catch (_: SecurityException) {
+                    failAndStop("오디오 캡처 권한이 만료되었습니다. 다시 시작해 주세요.")
+                    return@launch
+                }
             } else {
                 null
             }
+
+            mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    if (!captionSessionActive.get()) return
+                    serviceScope.launch(Dispatchers.Main.immediate) {
+                        if (captionSessionActive.get()) {
+                            failAndStop("Android에서 음성 캡처가 종료되었습니다. 번역을 다시 시작해 주세요.")
+                        }
+                    }
+                }
+            }, Handler(Looper.getMainLooper()))
 
             val errorSink: (String?) -> Unit = { msg ->
                 app.container.runtimeStore.update { it.copy(lastError = msg) }
