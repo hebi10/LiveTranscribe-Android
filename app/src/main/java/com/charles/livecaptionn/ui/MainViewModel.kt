@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 class MainViewModel(
@@ -42,6 +45,17 @@ class MainViewModel(
                 mutable.value = mutable.value.copy(voskModels = models)
             }
         }
+        viewModelScope.launch {
+            container.translationModels.state.collect { modelState ->
+                mutable.value = mutable.value.copy(translationModel = modelState)
+            }
+        }
+        viewModelScope.launch {
+            container.settingsRepository.settingsFlow
+                .map { it.sourceLanguageCode }
+                .distinctUntilChanged()
+                .collectLatest { code -> container.translationModels.refresh(code) }
+        }
         refreshPermissionState()
     }
 
@@ -57,8 +71,16 @@ class MainViewModel(
 
     fun selectSourceLanguage(code: String) {
         if (code !in setOf("en", "ja")) return
+        if (container.runtimeStore.state.value.running) return
         viewModelScope.launch {
             container.settingsRepository.update { it.copy(sourceLanguageCode = code) }
+        }
+    }
+
+    fun prepareSelectedTranslationModel() {
+        if (container.runtimeStore.state.value.running) return
+        viewModelScope.launch {
+            container.translationModels.prepare(mutable.value.settings.sourceLanguageCode)
         }
     }
 

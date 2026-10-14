@@ -124,6 +124,10 @@ class MainActivity : ComponentActivity() {
                 setError("음성 모델이 없습니다. 모델이 포함된 APK를 설치해 주세요.")
                 return@launch
             }
+            if (!app.container.translationModels.isReady(settings.sourceLanguageCode)) {
+                setError("번역 모델 준비가 필요합니다. 앱의 '번역 모델 준비'를 먼저 실행해 주세요.")
+                return@launch
+            }
             when (settings.audioSource) {
                 AudioSource.SYSTEM -> {
                     val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager

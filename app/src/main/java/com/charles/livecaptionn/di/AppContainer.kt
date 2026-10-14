@@ -13,11 +13,16 @@ import com.charles.livecaptionn.speech.LocalVoskSttClient
 import com.charles.livecaptionn.speech.VoskModelRegistry
 import com.charles.livecaptionn.translation.MlKitTranslationRepository
 import com.charles.livecaptionn.translation.TranslationRepository
+import com.charles.livecaptionn.translation.TranslationModelSetup
+import com.charles.livecaptionn.speech.OfflineSpokenLanguageIdentifier
 
 class AppContainer(context: Context) {
     val settingsRepository: SettingsRepository = SettingsDataStore(context.applicationContext)
     val runtimeStore = CaptionRuntimeStore()
-    val translationRepository: TranslationRepository = MlKitTranslationRepository()
+    private val mlKitTranslator = MlKitTranslationRepository()
+    val translationRepository: TranslationRepository = mlKitTranslator
+    val translationModels = TranslationModelSetup(mlKitTranslator)
+    val languageIdentifier = OfflineSpokenLanguageIdentifier(context.applicationContext)
     val transcriptHistory = TranscriptHistoryStore(context.applicationContext)
     val captionProfiles: CaptionProfileRepository = FileCaptionProfileRepository(context.applicationContext)
     val glossary: GlossaryRepository = FileGlossaryRepository(context.applicationContext)
