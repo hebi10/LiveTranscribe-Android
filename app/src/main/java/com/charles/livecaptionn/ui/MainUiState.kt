@@ -16,6 +16,5 @@ data class MainUiState(
     val modelReady: Boolean get() =
         sourceModels.any { it.languageCode == settings.sourceLanguageCode }
     val canStart: Boolean get() =
-        modelReady && overlayPermissionGranted &&
-            (settings.audioSource == AudioSource.SYSTEM || micPermissionGranted)
+        modelReady && overlayPermissionGranted && micPermissionGranted
 }

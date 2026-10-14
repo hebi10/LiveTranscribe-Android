@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
     private val audioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startCaptioning()
+            else setError("영상 음성과 마이크 인식 모두 음성 녹음 권한이 필요합니다.")
         }
 
     private val mediaProjectionLauncher =
@@ -112,6 +113,13 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
             val settings = app.container.settingsRepository.settingsFlow.first()
+            val granted = ContextCompat.checkSelfPermission(
+                this@MainActivity, Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                requestMicrophonePermission()
+                return@launch
+            }
             if (app.container.voskRegistry.installedModelFor(settings.sourceLanguageCode) == null) {
                 setError("음성 모델이 없습니다. 모델이 포함된 APK를 설치해 주세요.")
                 return@launch
@@ -126,13 +134,7 @@ class MainActivity : ComponentActivity() {
                     }
                     mediaProjectionLauncher.launch(capture)
                 }
-                AudioSource.MIC -> {
-                    val granted = ContextCompat.checkSelfPermission(
-                        this@MainActivity, Manifest.permission.RECORD_AUDIO
-                    ) == PackageManager.PERMISSION_GRANTED
-                    if (granted) startCaptionService(AudioSource.MIC)
-                    else requestMicrophonePermission()
-                }
+                AudioSource.MIC -> startCaptionService(AudioSource.MIC)
             }
         }
     }
