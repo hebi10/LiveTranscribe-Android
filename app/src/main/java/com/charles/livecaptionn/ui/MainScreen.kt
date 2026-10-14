@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.speech.RecognitionStatus
+import com.charles.livecaptionn.translation.ModelSetupStage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -154,9 +155,38 @@ fun MainScreen(
                         color = if (ui.modelReady) MaterialTheme.colorScheme.onSurfaceVariant
                             else MaterialTheme.colorScheme.error
                     )
+                    val preparation = ui.translationModel
+                    val preparationStatus = if (preparation.sourceCode != ui.settings.sourceLanguageCode) {
+                        "선택 언어의 번역 모델 확인 중"
+                    } else when (preparation.stage) {
+                        ModelSetupStage.CHECKING -> "번역 모델 확인 중"
+                        ModelSetupStage.NOT_DOWNLOADED -> "번역 모델 준비 필요"
+                        ModelSetupStage.DOWNLOADING -> "Wi-Fi에서 번역 모델 준비 중"
+                        ModelSetupStage.READY -> "한국어 번역 모델 준비 완료"
+                        ModelSetupStage.ERROR -> preparation.message ?: "번역 모델 오류"
+                    }
+                    Text(preparationStatus, style = MaterialTheme.typography.bodyMedium,
+                        color = if (ui.translationReady) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.error)
+                    if (!ui.translationReady && preparation.stage != ModelSetupStage.DOWNLOADING &&
+                        preparation.stage != ModelSetupStage.CHECKING &&
+                        preparation.sourceCode == ui.settings.sourceLanguageCode
+                    ) {
+                        FilledTonalButton(onClick = viewModel::prepareSelectedTranslationModel,
+                            enabled = !ui.runtime.running) {
+                            Text("번역 모델 준비 (Wi-Fi)")
+                        }
+                    }
                     Text(
-                        "Google ML Kit 번역 모델은 최초 사용 시 Google Play 서비스가 다운로드할 수 있습니다. " +
-                            "다운로드 후 문장 번역은 휴대전화 내에서 처리합니다.",
+                        "버튼을 누르면 Google ML Kit이 번역 모델을 내려받습니다. " +
+                            "음성과 번역 문장은 외부 서버에 전송하지 않지만 " +
+                            "Google SDK에서 기기·앱·언어 등의 진단 데이터를 수집할 수 있습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "언어가 다르면 서로 다른 음성 구간 2개를 독립적으로 분석한 뒤 " +
+                            "영어·일본어 전환을 추천합니다. 언어는 자동 변경되지 않습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

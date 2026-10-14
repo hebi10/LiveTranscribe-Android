@@ -55,6 +55,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.alphacephei:vosk-android:0.3.75")
+    implementation(files("libs/sherpa-onnx-1.13.8.aar"))
     implementation("com.google.mlkit:translate:17.0.3")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")

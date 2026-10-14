@@ -13,6 +13,7 @@ data class OverlayUiState(
     val opacity: Float = 0.65f,
     val showOriginal: Boolean = true,
     val minimized: Boolean = false,
+    val suggestedLanguageCode: String? = null,
     /** Optional local font and theme identifiers; no subscriptions. */
     val themeId: String = OverlayThemeCatalog.FREE_THEME_ID,
     val fontId: String = OverlayFontCatalog.FREE_FONT_ID

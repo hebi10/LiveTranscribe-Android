@@ -31,6 +31,8 @@ class OverlayController(
     private val onPauseResume: () -> Unit,
     private val onClose: () -> Unit,
     private val onToggleMinimize: () -> Unit,
+    private val onAcceptLanguageSuggestion: (String) -> Unit,
+    private val onDismissLanguageSuggestion: (String) -> Unit,
     private val uiStrings: () -> UiStrings = { UiStrings.EMPTY }
 ) {
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -47,6 +49,9 @@ class OverlayController(
     private var pauseButton: ImageButton? = null
     private var minButton: ImageButton? = null
     private var closeButton: ImageButton? = null
+    private var suggestionBar: LinearLayout? = null
+    private var suggestionLabel: TextView? = null
+    private var suggestionCode: String? = null
     private var params: WindowManager.LayoutParams? = null
 
     fun show(initialX: Int, initialY: Int, widthDp: Int, heightDp: Int) {
@@ -121,6 +126,51 @@ class OverlayController(
         header.addView(minButton)
         header.addView(closeButton)
 
+        // Local acoustic language recommendation, shown only after two finalized intervals.
+        val languageBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            setPadding(0, dp(5), 0, dp(5))
+        }
+        suggestionLabel = TextView(context).apply {
+            textSize = 12f
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val acceptLanguage = TextView(context).apply {
+            text = "변경"
+            textSize = 12f
+            gravity = Gravity.CENTER
+            minWidth = dp(44)
+            minHeight = dp(44)
+            setPadding(dp(6), 0, dp(6), 0)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.rgb(65, 65, 65))
+            contentDescription = "추천 음성 언어로 변경"
+            setOnClickListener {
+                suggestionCode?.let(onAcceptLanguageSuggestion)
+            }
+        }
+        val dismissLanguage = TextView(context).apply {
+            text = "유지"
+            textSize = 12f
+            gravity = Gravity.CENTER
+            minWidth = dp(44)
+            minHeight = dp(44)
+            setPadding(dp(6), 0, dp(6), 0)
+            setTextColor(Color.WHITE)
+            contentDescription = "기존 음성 언어 유지"
+            setOnClickListener {
+                suggestionCode?.let(onDismissLanguageSuggestion)
+            }
+        }
+        languageBar.addView(suggestionLabel)
+        languageBar.addView(acceptLanguage)
+        languageBar.addView(dismissLanguage)
+        suggestionBar = languageBar
+
         // Original speech section (shown when transcribing + translating with showOriginal)
         val origContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -192,6 +242,7 @@ class OverlayController(
         }
 
         container.addView(header)
+        container.addView(languageBar)
         container.addView(origContainer)
         container.addView(body)
 
@@ -254,6 +305,15 @@ class OverlayController(
         val textG = Color.green(theme.textRgb)
         val textB = Color.blue(theme.textRgb)
 
+        suggestionCode = ui.suggestedLanguageCode
+        suggestionLabel?.text = when (ui.suggestedLanguageCode) {
+            "en" -> "영어 음성 감지 (2회)"
+            "ja" -> "일본어 음성 감지 (2회)"
+            else -> ""
+        }
+        suggestionBar?.visibility =
+            if (ui.suggestedLanguageCode != null && !ui.minimized) View.VISIBLE else View.GONE
+
         val display = computeOverlayTextDisplay(ui)
 
         if (display.showOriginal) {
@@ -304,6 +364,9 @@ class OverlayController(
         pauseButton = null
         minButton = null
         closeButton = null
+        suggestionBar = null
+        suggestionLabel = null
+        suggestionCode = null
     }
 
     // ── Helpers ──
