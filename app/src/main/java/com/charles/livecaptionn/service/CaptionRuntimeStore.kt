@@ -10,7 +10,9 @@ data class CaptionRuntimeLine(
     val id: Long,
     val originalText: String,
     val translatedText: String = "",
-    val isFinal: Boolean = false
+    val isFinal: Boolean = false,
+    /** Only the translation requested at the recognizer's final boundary is permanent. */
+    val finalTranslationCommitted: Boolean = isFinal && translatedText.isNotBlank()
 )
 
 data class CaptionRuntimeState(

@@ -33,6 +33,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,6 +43,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.charles.livecaptionn.settings.AudioSource
+import com.charles.livecaptionn.settings.CaptionDisplayMode
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.translation.ModelSetupStage
 
@@ -204,6 +207,30 @@ fun MainScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("자막 설정", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for ((mode, label) in listOf(CaptionDisplayMode.CAPTIONS to "자막형", CaptionDisplayMode.CHAT to "대화형")) {
+                            val selected = ui.settings.captionDisplayMode == mode
+                            if (selected) {
+                                FilledTonalButton(onClick = { viewModel.updateCaptionDisplayMode(mode) },
+                                    modifier = Modifier.weight(1f).semantics { this.selected = true }) { Text(label) }
+                            } else {
+                                OutlinedButton(onClick = { viewModel.updateCaptionDisplayMode(mode) },
+                                    modifier = Modifier.weight(1f).semantics { this.selected = false }) { Text(label) }
+                            }
+                        }
+                    }
+                    Text(
+                        if (ui.settings.captionDisplayMode == CaptionDisplayMode.CHAT)
+                            "최근 40개 자막을 대화처럼 모아 봅니다. 이전 자막을 읽을 때 자동 스크롤이 멈춥니다."
+                        else "최근 2개 자막을 표시합니다. 자막 창 너비에 맞춰 줄바꿈됩니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    SettingToggle("확정된 문장만 표시 (움직임 줄이기)", ui.settings.stableCaptions,
+                        viewModel::updateStableCaptions)
+                    Text("이 설정을 끄면 인식 중인 문장도 표시합니다. 확정 문장은 발화가 끝난 뒤 번역되어 약간 늦게 나타날 수 있습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("글자 크기: " + ui.settings.textSizeSp.toInt() + "sp")
                     Slider(value = ui.settings.textSizeSp, onValueChange = viewModel::updateTextSize,
                         valueRange = 14f..40f)
