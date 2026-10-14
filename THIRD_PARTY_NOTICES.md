@@ -14,7 +14,7 @@ The original models and their Apache License 2.0 terms must be preserved when re
 ## Other components
 
 - [Vosk Android SDK](https://github.com/alphacep/vosk-api): consult the dependency license and transitive notices.
-- [Google ML Kit Translation](https://developers.google.com/ml-kit/language/translation): subject to Google's ML Kit terms and the device's Google Play services.
+- [Google ML Kit Translation](https://developers.google.com/ml-kit/language/translation): subject to Google's ML Kit terms and the device's Google Play services. The SDK may collect diagnostics and usage metadata (including device/app information and configured language pair): https://developers.google.com/ml-kit/android-data-disclosure .
 - AndroidX and Kotlin components retain their respective third-party licenses.
 
-No remote translation service, advertising, analytics, error reporting, or payment SDK is part of the modified runtime.
+No separate remote transcription/translation API, AdMob, Firebase Analytics integration, error reporting, or payment SDK is part of the modified app. **ML Kit itself may nonetheless collect diagnostic and usage metadata.**

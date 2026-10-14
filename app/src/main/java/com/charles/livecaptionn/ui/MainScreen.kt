@@ -203,8 +203,9 @@ fun MainScreen(
                     SettingToggle("번역 기록 저장 (기본 꺼짐)", ui.settings.saveHistory,
                         viewModel::updateSaveHistory)
                     Text(
-                        "광고, 분석, 오류 제보, 원격 인식, 서버 번역이 없습니다. " +
-                            "기록은 기기 내부에만 저장되며 Android 백업을 사용하지 않습니다.",
+                        "이 앱의 광고·별도 분석·오류 제보·원격 음성 인식은 제거했습니다. " +
+                            "단, Google ML Kit은 기기·앱 정보와 번역 언어 등의 진단 데이터를 수집할 수 있습니다. " +
+                            "기록 저장은 기본 꺼짐이며 Android 백업은 사용하지 않습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
