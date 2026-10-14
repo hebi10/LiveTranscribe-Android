@@ -125,15 +125,6 @@ fun HistoryScreen(
                 },
                 actions = {
                     if (entries.isNotEmpty()) {
-                        IconButton(onClick = {
-                            val share = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, TranscriptExport(entries).asText())
-                            }
-                            context.startActivity(Intent.createChooser(share, t["Share transcripts"]))
-                        }) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = t["Share transcripts"])
-                        }
                         TextButton(onClick = {
                             scope.launch {
                                 historyStore.clear()
