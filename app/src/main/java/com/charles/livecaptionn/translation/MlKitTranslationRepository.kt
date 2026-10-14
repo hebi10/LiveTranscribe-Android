@@ -58,7 +58,7 @@ class MlKitTranslationRepository : TranslationRepository {
 
         return try {
             val translator = translatorFor(src, dst)
-            ensureModelDownloaded(translator)
+            // Models must have been prepared explicitly by the user.
             val translated = translateBlocking(translator, clean).trim()
             translated
         } catch (t: Throwable) {
@@ -67,30 +67,17 @@ class MlKitTranslationRepository : TranslationRepository {
         }
     }
 
-    override suspend fun prewarm(sourceCode: String, targetCode: String) {
-        val src = TranslateLanguage.fromLanguageTag(sourceCode.lowercase()) ?: return
-        val dst = TranslateLanguage.fromLanguageTag(targetCode.lowercase()) ?: return
-        if (src == dst) return
-        try {
-            val translator = translatorFor(src, dst)
-            ensureModelDownloaded(translator)
-        } catch (t: Throwable) {
-            Log.w(TAG, "ML Kit prewarm failed for $sourceCode → $targetCode", t)
-        }
-    }
-
     /**
-     * Ensures the source→target model is downloaded, propagating failures
-     * (unlike [prewarm], which swallows them for the caption service). Used by
-     * UI localization so a stalled model download can bail to the server
-     * fallback instead of spinning forever.
+     * Runs only after the user explicitly opts in to model download.
+     * Does not upload the text that will later be translated.
      */
-    suspend fun requireModel(sourceCode: String, targetCode: String) {
-        val src = TranslateLanguage.fromLanguageTag(sourceCode.lowercase()) ?: return
-        val dst = TranslateLanguage.fromLanguageTag(targetCode.lowercase()) ?: return
+    suspend fun requireModel(sourceCode: String, targetCode: String, wifiOnly: Boolean = true) {
+        val src = TranslateLanguage.fromLanguageTag(sourceCode.lowercase())
+            ?: throw IllegalArgumentException("Unsupported source language")
+        val dst = TranslateLanguage.fromLanguageTag(targetCode.lowercase())
+            ?: throw IllegalArgumentException("Unsupported translation language")
         if (src == dst) return
-        val translator = translatorFor(src, dst)
-        ensureModelDownloaded(translator)
+        ensureModelDownloaded(translatorFor(src, dst), wifiOnly)
     }
 
     @Synchronized
@@ -106,17 +93,18 @@ class MlKitTranslationRepository : TranslationRepository {
         return translator
     }
 
-    private suspend fun ensureModelDownloaded(translator: Translator) = withContext(Dispatchers.IO) {
-        suspendCancellableCoroutine<Unit> { cont ->
-            // DownloadConditions defaults allow cellular — we don't force
-            // Wi-Fi so the first-use download actually completes when the
-            // user isn't on Wi-Fi.
-            val conditions = DownloadConditions.Builder().build()
-            translator.downloadModelIfNeeded(conditions)
-                .addOnSuccessListener { if (cont.isActive) cont.resume(Unit) }
-                .addOnFailureListener { e -> if (cont.isActive) cont.resumeWithException(e) }
+    private suspend fun ensureModelDownloaded(translator: Translator, wifiOnly: Boolean) =
+        withContext(Dispatchers.IO) {
+            suspendCancellableCoroutine<Unit> { cont ->
+                val builder = DownloadConditions.Builder()
+                if (wifiOnly) builder.requireWifi()
+                translator.downloadModelIfNeeded(builder.build())
+                    .addOnSuccessListener { if (cont.isActive) cont.resume(Unit) }
+                    .addOnFailureListener { e ->
+                        if (cont.isActive) cont.resumeWithException(e)
+                    }
+            }
         }
-    }
 
     private suspend fun translateBlocking(translator: Translator, text: String): String =
         suspendCancellableCoroutine { cont ->
