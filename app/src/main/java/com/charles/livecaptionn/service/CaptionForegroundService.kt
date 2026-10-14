@@ -35,9 +35,7 @@ import com.charles.livecaptionn.data.TranscriptEntry
 import com.charles.livecaptionn.data.applyGlossary
 import com.charles.livecaptionn.overlay.OverlayController
 import com.charles.livecaptionn.ui.l10n.KoreanUiStrings
-import com.charles.livecaptionn.overlay.OverlayUiState
 import com.charles.livecaptionn.settings.AudioSource
-import com.charles.livecaptionn.settings.CaptionSettings
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.speech.SpeechEngine
 import com.charles.livecaptionn.speech.SpeechResult
@@ -73,6 +71,8 @@ class CaptionForegroundService : Service() {
     private var setupJob: Job? = null
     private var stopping = false
     private var sessionSourceCode = "en"
+    /** Read by capture callbacks; initialized before speech starts. */
+    @Volatile private var stableCaptions = true
 
     private var currentAudioSource = AudioSource.SYSTEM
     private var languageSamples: Channel<ByteArray>? = null
@@ -175,6 +175,7 @@ class CaptionForegroundService : Service() {
             // prior run was hiding the caption body entirely.
             app.container.settingsRepository.update { it.copy(overlayMinimized = false) }
             val settings = app.container.settingsRepository.settingsFlow.first()
+            stableCaptions = settings.stableCaptions
 
             // If the activity sent the wrong audio source in the intent extra
             // (legacy intent, settings changed between launch and service start),
@@ -341,33 +342,16 @@ class CaptionForegroundService : Service() {
                 overlayReady
             ) { runtime, settings, _ -> Pair(runtime, settings) }
                 .collectLatest { (runtime, settings) ->
+                    stableCaptions = settings.stableCaptions
                     val overlay = overlayController ?: return@collectLatest
-                    val ui = buildOverlayUi(runtime, settings)
+                    val ui = buildOverlayUiState(runtime, settings)
                     overlay.update(ui)
                 }
         }
     }
 
-    private fun buildOverlayUi(
-        runtime: CaptionRuntimeState,
-        settings: CaptionSettings,
-    ) = OverlayUiState(
-        originalText = runtime.originalText,
-        translatedText = runtime.translatedText.ifBlank { runtime.originalText },
-        transcriptText = overlayTranscriptText(runtime),
-        status = runtime.status,
-        statusDetail = runtime.lastError,
-        textSizeSp = settings.textSizeSp,
-        opacity = settings.overlayOpacity,
-        showOriginal = settings.showOriginal,
-        minimized = settings.overlayMinimized,
-        suggestedLanguageCode = runtime.suggestedLanguageCode,
-        themeId = settings.overlayThemeId,
-        fontId = settings.overlayFontId
-    )
-
     private fun queueTranslation(text: String, lineId: Long, isFinal: Boolean = false) {
-        if (text.isBlank()) return
+        if (text.isBlank() || !shouldTranslateCaption(isFinal, stableCaptions)) return
         val request = TranslationRequest(text, lineId, isFinal)
         if (isFinal) translationQueue?.submitFinal(request)
         else translationQueue?.submitPartial(request)
@@ -375,6 +359,8 @@ class CaptionForegroundService : Service() {
 
     private suspend fun translateSnapshot(request: TranslationRequest) {
         val captionSettings = app.container.settingsRepository.settingsFlow.first()
+        // A pending preview may have been queued before the user enabled stability.
+        if (!shouldTranslateCaption(request.isFinal, captionSettings.stableCaptions)) return
         val translated = try {
             app.container.translationRepository.translate(
                 text = request.text,
@@ -384,28 +370,30 @@ class CaptionForegroundService : Service() {
             )
         } catch (_: TimeoutCancellationException) {
             val message = "번역 시간이 초과되어 일부 문장을 번역하거나 저장하지 못했습니다."
-            if (request.saveHistory) failureMessage = failureMessage ?: message
+            if (request.isFinal) failureMessage = failureMessage ?: message
             app.container.runtimeStore.update { it.copy(lastError = message) }
             return
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             val message = "일부 문장을 번역하거나 저장하지 못했습니다. 번역 모델을 확인해 주세요."
-            if (request.saveHistory) failureMessage = failureMessage ?: message
+            if (request.isFinal) failureMessage = failureMessage ?: message
             app.container.runtimeStore.update { it.copy(lastError = message) }
             return
         }
         if (translated.isBlank()) return
         val translatedWithGlossary = applyGlossary(translated, app.container.glossary.list())
         app.container.runtimeStore.update {
-            val current = it.transcriptLines.any { line -> line.id == request.lineId }
-            it.copy(
-                translatedText = if (current) translatedWithGlossary else it.translatedText,
-                transcriptLines = updateTranscriptTranslation(it.transcriptLines, request.lineId, translatedWithGlossary),
+            applyTranscriptTranslation(
+                runtime = it,
+                lineId = request.lineId,
+                translatedText = translatedWithGlossary,
+                isFinalTranslation = request.isFinal
+            ).copy(
                 status = if (paused) RecognitionStatus.PAUSED else RecognitionStatus.LISTENING
             )
         }
-        if (request.saveHistory && captionSettings.saveHistory) {
+        if (request.isFinal && captionSettings.saveHistory) {
             app.container.transcriptHistory.add(
                 TranscriptEntry(
                     originalText = request.text,
@@ -417,7 +405,7 @@ class CaptionForegroundService : Service() {
         }
     }
 
-    private data class TranslationRequest(val text: String, val lineId: Long, val saveHistory: Boolean)
+    private data class TranslationRequest(val text: String, val lineId: Long, val isFinal: Boolean)
 
     private fun showOverlay() {
         if (overlayController != null) return
@@ -442,7 +430,7 @@ class CaptionForegroundService : Service() {
                 return@launch
             }
             val runtime = app.container.runtimeStore.state.value
-            overlayController?.update(buildOverlayUi(runtime, settings))
+            overlayController?.update(buildOverlayUiState(runtime, settings))
             overlayReady.value = overlayReady.value + 1
         }
     }

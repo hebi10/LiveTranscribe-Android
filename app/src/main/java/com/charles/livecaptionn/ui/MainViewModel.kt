@@ -12,6 +12,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.charles.livecaptionn.di.AppContainer
 import com.charles.livecaptionn.settings.AudioSource
+import com.charles.livecaptionn.settings.CaptionDisplayMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -116,6 +117,14 @@ class MainViewModel(
 
     fun updateShowOriginal(enabled: Boolean) {
         viewModelScope.launch { container.settingsRepository.update { it.copy(showOriginal = enabled) } }
+    }
+
+    fun updateCaptionDisplayMode(mode: CaptionDisplayMode) {
+        viewModelScope.launch { container.settingsRepository.update { it.copy(captionDisplayMode = mode) } }
+    }
+
+    fun updateStableCaptions(enabled: Boolean) {
+        viewModelScope.launch { container.settingsRepository.update { it.copy(stableCaptions = enabled) } }
     }
 
     fun updateSaveHistory(enabled: Boolean) {

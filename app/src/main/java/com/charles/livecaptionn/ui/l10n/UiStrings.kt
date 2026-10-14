@@ -58,6 +58,19 @@ object UiStringCatalog {
         "Resume captioning",
         "Minimize overlay",
         "Close overlay",
+        "Expand controls",
+        "Collapse controls",
+        "Restore overlay",
+        "Switch to chat view",
+        "Switch to caption view",
+        "Show original text",
+        "Hide original text",
+        "Latest captions",
+        "Captions appear when a sentence ends",
+        "Move caption window",
+        "Resize caption window",
+        "Enlarge caption window",
+        "Shrink caption window",
         "Listening",
         "Stop",
         "Status"
@@ -71,3 +84,4 @@ object UiStringCatalog {
         return trimmed.length >= 2 && trimmed.any { it.isLetter() }
     }
 }
+

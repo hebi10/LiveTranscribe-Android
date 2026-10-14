@@ -21,6 +21,19 @@ object KoreanUiStrings {
         "Resume captioning" to "자막 다시 시작",
         "Minimize overlay" to "자막 접기",
         "Close overlay" to "자막 닫기",
+        "Expand controls" to "자막 조작 펼치기",
+        "Collapse controls" to "자막 조작 접기",
+        "Restore overlay" to "자막 다시 펼치기",
+        "Switch to chat view" to "대화형 자막으로 전환",
+        "Switch to caption view" to "자막형으로 전환",
+        "Show original text" to "원문 표시",
+        "Hide original text" to "원문 숨기기",
+        "Latest captions" to "최신 자막으로 이동",
+        "Captions appear when a sentence ends" to "문장이 끝나면 자막이 표시됩니다.",
+        "Move caption window" to "자막 창 이동",
+        "Resize caption window" to "자막 창 크기 조절",
+        "Enlarge caption window" to "자막 창 크게",
+        "Shrink caption window" to "자막 창 작게",
         "Captioning in progress" to "영상 번역 실행 중",
         "Listening and translating speech." to "기기 내부에서 실시간 번역 중",
         "Pause/Resume" to "일시정지/재개",
@@ -34,3 +47,4 @@ object KoreanUiStrings {
         "Error" to "오류"
     ))
 }
+

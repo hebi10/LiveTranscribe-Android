@@ -2,11 +2,16 @@ package com.charles.livecaptionn
 
 import com.charles.livecaptionn.service.CaptionRuntimeLine
 import com.charles.livecaptionn.service.CaptionRuntimeState
+import com.charles.livecaptionn.service.MAX_TRANSCRIPT_LINES
+import com.charles.livecaptionn.service.MAX_PENDING_TRANSCRIPT_LINES
+import com.charles.livecaptionn.service.applyTranscriptTranslation
+import com.charles.livecaptionn.service.shouldTranslateCaption
 import com.charles.livecaptionn.service.overlayTranscriptText
 import com.charles.livecaptionn.service.recordTranscriptResult
 import com.charles.livecaptionn.service.updateTranscriptTranslation
-import com.charles.livecaptionn.speech.RecognitionStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ServiceTransformsTest {
@@ -62,15 +67,16 @@ class ServiceTransformsTest {
     }
 
     @Test
-    fun recordTranscriptResult_sameTextRepeatedFinalTransition_preservesTranslation() {
+    fun recordTranscriptResult_sameTextFinalTransition_waitsForFinalTranslation() {
         val lines = listOf(
             CaptionRuntimeLine(id = 1L, originalText = "hello", translatedText = "xin chao", isFinal = false)
         )
         val result = recordTranscriptResult(lines, "hello", isFinal = true, newLineId = 2L)
         assertEquals(1, result.size)
         assertEquals(1L, result.first().id)
-        assertEquals("xin chao", result.first().translatedText)
+        assertEquals("", result.first().translatedText)
         assertEquals(true, result.first().isFinal)
+        assertFalse(result.first().finalTranslationCommitted)
     }
 
     @Test
@@ -82,12 +88,13 @@ class ServiceTransformsTest {
     }
 
     @Test
-    fun recordTranscriptResult_trimsToMaxLines() {
-        val lines = (1..31).map { CaptionRuntimeLine(id = it.toLong(), originalText = "line $it", isFinal = true) }
-        val result = recordTranscriptResult(lines, "line 32", isFinal = true, newLineId = 32L)
-        assertEquals(4, result.size)
-        assertEquals("line 29", result.first().originalText)
-        assertEquals("line 32", result.last().originalText)
+    fun recordTranscriptResult_boundsPendingFinals() {
+        val lines = (1..50).map { CaptionRuntimeLine(id = it.toLong(), originalText = "line $it", isFinal = true) }
+        val result = recordTranscriptResult(lines, "line 51", isFinal = true, newLineId = 51L)
+        assertEquals(MAX_PENDING_TRANSCRIPT_LINES, result.size)
+        assertEquals(40, result.size)
+        assertEquals("line 12", result.first().originalText)
+        assertEquals("line 51", result.last().originalText)
     }
 
     // ── updateTranscriptTranslation ──
@@ -95,10 +102,10 @@ class ServiceTransformsTest {
     @Test
     fun updateTranscriptTranslation_matchesById() {
         val lines = listOf(
-            CaptionRuntimeLine(id = 1L, originalText = "hello"),
+            CaptionRuntimeLine(id = 1L, originalText = "hello", isFinal = true),
             CaptionRuntimeLine(id = 2L, originalText = "world")
         )
-        val result = updateTranscriptTranslation(lines, lineId = 1L, translatedText = "xin chao")
+        val result = updateTranscriptTranslation(lines, lineId = 1L, translatedText = "xin chao", isFinalTranslation = true)
         assertEquals("xin chao", result[0].translatedText)
         assertEquals("", result[1].translatedText)
     }
@@ -106,7 +113,7 @@ class ServiceTransformsTest {
     @Test
     fun updateTranscriptTranslation_idNotFound_returnsUnchanged() {
         val lines = listOf(CaptionRuntimeLine(id = 1L, originalText = "hello"))
-        val result = updateTranscriptTranslation(lines, lineId = 99L, translatedText = "translated")
+        val result = updateTranscriptTranslation(lines, lineId = 99L, translatedText = "translated", isFinalTranslation = false)
         assertEquals(lines, result)
     }
 
@@ -115,7 +122,7 @@ class ServiceTransformsTest {
         val original = listOf(CaptionRuntimeLine(id = 1L, originalText = "hel"))
         val evolved = recordTranscriptResult(original, "hello world", isFinal = false, newLineId = 2L)
         // Translation for the stale id (1L) arrives after the line evolved to id 2L.
-        val result = updateTranscriptTranslation(evolved, lineId = 1L, translatedText = "stale")
+        val result = updateTranscriptTranslation(evolved, lineId = 1L, translatedText = "stale", isFinalTranslation = false)
         assertEquals(evolved, result)
     }
 
@@ -126,7 +133,7 @@ class ServiceTransformsTest {
             CaptionRuntimeLine(id = 2L, originalText = "world", isFinal = true),
             CaptionRuntimeLine(id = 3L, originalText = "hello", isFinal = true)
         )
-        val result = updateTranscriptTranslation(lines, lineId = 3L, translatedText = "translated")
+        val result = updateTranscriptTranslation(lines, lineId = 3L, translatedText = "translated", isFinalTranslation = true)
         assertEquals("", result[0].translatedText) // first "hello" unchanged
         assertEquals("translated", result[2].translatedText) // matched by id, not text
     }
@@ -140,17 +147,18 @@ class ServiceTransformsTest {
     }
 
     @Test
-    fun overlayTranscriptText_showsLivePartialOnly() {
+    fun overlayTranscriptText_orphanTranslation_isNeverRendered() {
         val state = CaptionRuntimeState(translatedText = "xin chao")
-        assertEquals("xin chao", overlayTranscriptText(state))
+        assertEquals("", overlayTranscriptText(state))
+        assertEquals("", overlayTranscriptText(state, stableCaptions = false))
     }
 
     @Test
     fun overlayTranscriptText_showsHistory() {
         val state = CaptionRuntimeState(
             transcriptLines = listOf(
-                CaptionRuntimeLine(id = 1L, originalText = "hello", translatedText = "xin chao"),
-                CaptionRuntimeLine(id = 2L, originalText = "world", translatedText = "the gioi")
+                CaptionRuntimeLine(id = 1L, originalText = "hello", translatedText = "xin chao", isFinal = true),
+                CaptionRuntimeLine(id = 2L, originalText = "world", translatedText = "the gioi", isFinal = true)
             ),
             translatedText = "the gioi"
         )
@@ -159,10 +167,10 @@ class ServiceTransformsTest {
     }
 
     @Test
-    fun overlayTranscriptText_dedupesDuplicateEnding() {
+    fun overlayTranscriptText_ignoresLegacyCurrentTranslationInsteadOfAppending() {
         val state = CaptionRuntimeState(
             transcriptLines = listOf(
-                CaptionRuntimeLine(id = 1L, originalText = "hello", translatedText = "xin chao")
+                CaptionRuntimeLine(id = 1L, originalText = "hello", translatedText = "xin chao", isFinal = true)
             ),
             translatedText = "xin chao"
         )
@@ -174,9 +182,102 @@ class ServiceTransformsTest {
         val state = CaptionRuntimeState(
             transcriptLines = listOf(
                 CaptionRuntimeLine(id = 1L, originalText = "hello"),
-                CaptionRuntimeLine(id = 2L, originalText = "world", translatedText = "the gioi")
+                CaptionRuntimeLine(id = 2L, originalText = "world", translatedText = "the gioi", isFinal = true)
             )
         )
         assertEquals("the gioi", overlayTranscriptText(state))
+    }
+
+    @Test
+    fun recordTranscriptResult_openSegmentPreservesFortyFinals() {
+        val finals = (1..40).map { CaptionRuntimeLine(it.toLong(), "source $it", "translation $it", isFinal = true) }
+        val result = recordTranscriptResult(finals, "new speech", isFinal = false, newLineId = 41L)
+        assertEquals(41, result.size)
+        assertEquals(finals, result.dropLast(1))
+        assertFalse(result.last().isFinal)
+    }
+
+    @Test
+    fun recordTranscriptResult_repeatedLegitimateUtterancesRemainDistinct() {
+        val first = listOf(CaptionRuntimeLine(1L, "hello", "안녕", isFinal = true))
+        val next = recordTranscriptResult(first, "hello", isFinal = true, newLineId = 2L)
+        assertEquals(listOf(1L, 2L), next.map { it.id })
+        assertEquals(listOf("hello", "hello"), next.map { it.originalText })
+    }
+
+    @Test
+    fun updateTranscriptTranslation_latePartialCannotFillFinalizedSameId() {
+        val preview = listOf(CaptionRuntimeLine(1L, "hello", "미리 보기"))
+        val finalized = recordTranscriptResult(preview, "hello", isFinal = true, newLineId = 2L)
+        val late = updateTranscriptTranslation(finalized, 1L, "늦은 미리 보기", isFinalTranslation = false)
+        assertEquals(finalized, late)
+        assertEquals("", late.single().translatedText)
+        val committed = updateTranscriptTranslation(late, 1L, "안녕", isFinalTranslation = true)
+        assertEquals("안녕", committed.single().translatedText)
+        assertTrue(committed.single().finalTranslationCommitted)
+    }
+
+    @Test
+    fun updateTranscriptTranslation_committedFinalNeverChanges() {
+        val lines = listOf(CaptionRuntimeLine(1L, "hello", "안녕", isFinal = true))
+        assertEquals(lines, updateTranscriptTranslation(lines, 1L, "늦은 부분", isFinalTranslation = false))
+        assertEquals(lines, updateTranscriptTranslation(lines, 1L, "다른 결과", isFinalTranslation = true))
+    }
+
+    @Test
+    fun applyTranscriptTranslation_outOfOrderFinalKeepsNewestCurrentTranslation() {
+        val runtime = CaptionRuntimeState(transcriptLines = listOf(
+            CaptionRuntimeLine(1L, "first", isFinal = true),
+            CaptionRuntimeLine(2L, "second", isFinal = true)
+        ))
+        val newerFirst = applyTranscriptTranslation(runtime, 2L, "둘째", isFinalTranslation = true)
+        val olderLater = applyTranscriptTranslation(newerFirst, 1L, "첫째", isFinalTranslation = true)
+        assertEquals("둘째", olderLater.translatedText)
+        assertEquals(listOf("첫째", "둘째"), olderLater.transcriptLines.map { it.translatedText })
+        assertEquals("첫째\n둘째", overlayTranscriptText(olderLater))
+    }
+
+    @Test
+    fun applyTranscriptTranslation_rejectedStaleCompletionDoesNotChangeRuntime() {
+        val runtime = CaptionRuntimeState(
+            translatedText = "안녕",
+            transcriptLines = listOf(CaptionRuntimeLine(2L, "hello", "안녕", isFinal = true))
+        )
+        assertEquals(runtime, applyTranscriptTranslation(runtime, 1L, "evicted", isFinalTranslation = true))
+        assertEquals(runtime, applyTranscriptTranslation(runtime, 2L, "late partial", isFinalTranslation = false))
+        assertEquals(runtime, applyTranscriptTranslation(runtime, 2L, "replacement final", isFinalTranslation = true))
+    }
+
+    @Test
+    fun shouldTranslateCaption_stabilitySkipsOnlyPartials() {
+        assertFalse(shouldTranslateCaption(isFinal = false, stableCaptions = true))
+        assertTrue(shouldTranslateCaption(isFinal = true, stableCaptions = true))
+        assertTrue(shouldTranslateCaption(isFinal = false, stableCaptions = false))
+        assertTrue(shouldTranslateCaption(isFinal = true, stableCaptions = false))
+    }
+
+    @Test
+    fun recordTranscriptResult_translationBacklogPreservesStableCaptionsAndHasHardBound() {
+        val committed = (1..40).map { CaptionRuntimeLine(it.toLong(), "stable $it", "확정 $it", isFinal = true) }
+        var lines = committed
+        for (id in 41L..100L) lines = recordTranscriptResult(lines, "pending $id", true, id)
+        lines = recordTranscriptResult(lines, "open partial", false, 101L)
+        assertEquals(MAX_TRANSCRIPT_LINES, lines.size)
+        assertEquals(81, lines.size)
+        assertEquals(committed, lines.take(40))
+        assertEquals((61L..101L).toList(), lines.drop(40).map { it.id })
+        assertEquals("확정 39\n확정 40", overlayTranscriptText(CaptionRuntimeState(transcriptLines = lines)))
+        assertEquals(lines, updateTranscriptTranslation(lines, 41L, "evicted pending final", true))
+    }
+
+    @Test
+    fun updateTranscriptTranslation_newCommitTrimsOldestCommittedAndKeepsPendingOrder() {
+        val committed = (1..40).map { CaptionRuntimeLine(it.toLong(), "stable $it", "확정 $it", isFinal = true) }
+        val pending = (41..80).map { CaptionRuntimeLine(it.toLong(), "pending $it", isFinal = true) }
+        val updated = updateTranscriptTranslation(committed + pending, 41L, "새 확정", true)
+        assertEquals((2L..80L).toList(), updated.map { it.id })
+        assertEquals(40, updated.count { it.finalTranslationCommitted })
+        assertEquals("새 확정", updated.first { it.id == 41L }.translatedText)
+        assertEquals(updated, updateTranscriptTranslation(updated, 1L, "evicted committed final", true))
     }
 }

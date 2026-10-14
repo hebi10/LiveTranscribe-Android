@@ -18,16 +18,19 @@ data class OverlayTextDisplay(
  * Determines text visibility, contents, and proportional scaling for the overlay.
  */
 fun computeOverlayTextDisplay(ui: OverlayUiState): OverlayTextDisplay {
-    val isIdentical = ui.originalText.isNotBlank() &&
-        ui.originalText.trim().equals(ui.transcriptText.trim(), ignoreCase = true)
-    val showOriginal = ui.showOriginal && ui.originalText.isNotBlank() && !isIdentical
+    val messages = visibleOverlayMessages(ui)
+    val original = messages.joinToString("\n") { it.originalText }
+    val translated = messages.joinToString("\n") { it.translatedText }
+    val isIdentical = original.isNotBlank() && original.trim().equals(translated.trim(), ignoreCase = true)
+    val showOriginal = ui.showOriginal && original.isNotBlank() && !isIdentical
     val scaledOriginalSize = (ui.textSizeSp * 0.82f).coerceIn(12f, 22f)
-    val displayTranslated = ui.transcriptText.ifBlank { "…" }
+    val displayTranslated = translated.ifBlank { "…" }
     return OverlayTextDisplay(
         showOriginal = showOriginal,
-        originalText = ui.originalText,
+        originalText = original,
         originalTextSizeSp = scaledOriginalSize,
         translatedText = displayTranslated,
         translatedTextSizeSp = ui.textSizeSp
     )
 }
+

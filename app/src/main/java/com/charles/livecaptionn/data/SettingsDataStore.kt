@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.CaptionSettings
+import com.charles.livecaptionn.settings.CaptionDisplayMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -24,6 +25,9 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
                 textSizeSp = (p[TEXT_SIZE] ?: defaults.textSizeSp).coerceIn(14f, 40f),
                 overlayOpacity = (p[OPACITY] ?: defaults.overlayOpacity).coerceIn(0.2f, 1f),
                 showOriginal = p[SHOW_ORIGINAL] ?: defaults.showOriginal,
+                captionDisplayMode = CaptionDisplayMode.fromName(p[DISPLAY_MODE] ?: defaults.captionDisplayMode.name),
+                stableCaptions = p[STABLE_CAPTIONS] ?: defaults.stableCaptions,
+                overlayControlsExpanded = p[CONTROLS_EXPANDED] ?: defaults.overlayControlsExpanded,
                 overlayX = p[OVERLAY_X] ?: defaults.overlayX,
                 overlayY = p[OVERLAY_Y] ?: defaults.overlayY,
                 overlayMinimized = p[OVERLAY_MIN] ?: defaults.overlayMinimized,
@@ -44,6 +48,9 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
                 textSizeSp = p[TEXT_SIZE] ?: 22f,
                 overlayOpacity = p[OPACITY] ?: 0.85f,
                 showOriginal = p[SHOW_ORIGINAL] ?: false,
+                captionDisplayMode = CaptionDisplayMode.fromName(p[DISPLAY_MODE] ?: CaptionDisplayMode.CAPTIONS.name),
+                stableCaptions = p[STABLE_CAPTIONS] ?: true,
+                overlayControlsExpanded = p[CONTROLS_EXPANDED] ?: false,
                 overlayX = p[OVERLAY_X] ?: 24,
                 overlayY = p[OVERLAY_Y] ?: 260,
                 overlayMinimized = p[OVERLAY_MIN] ?: false,
@@ -60,6 +67,9 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
             p[TEXT_SIZE] = next.textSizeSp.coerceIn(14f, 40f)
             p[OPACITY] = next.overlayOpacity.coerceIn(0.2f, 1f)
             p[SHOW_ORIGINAL] = next.showOriginal
+            p[DISPLAY_MODE] = next.captionDisplayMode.name
+            p[STABLE_CAPTIONS] = next.stableCaptions
+            p[CONTROLS_EXPANDED] = next.overlayControlsExpanded
             p[OVERLAY_X] = next.overlayX
             p[OVERLAY_Y] = next.overlayY
             p[OVERLAY_MIN] = next.overlayMinimized
@@ -78,6 +88,9 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
         val TEXT_SIZE = floatPreferencesKey("text_size")
         val OPACITY = floatPreferencesKey("opacity")
         val SHOW_ORIGINAL = booleanPreferencesKey("show_original")
+        val DISPLAY_MODE = stringPreferencesKey("caption_display_mode")
+        val STABLE_CAPTIONS = booleanPreferencesKey("stable_captions")
+        val CONTROLS_EXPANDED = booleanPreferencesKey("overlay_controls_expanded")
         val OVERLAY_X = intPreferencesKey("overlay_x")
         val OVERLAY_Y = intPreferencesKey("overlay_y")
         val OVERLAY_MIN = booleanPreferencesKey("overlay_min")

@@ -6,6 +6,9 @@ data class CaptionSettings(
     val textSizeSp: Float = 22f,
     val overlayOpacity: Float = 0.85f,
     val showOriginal: Boolean = false,
+    val captionDisplayMode: CaptionDisplayMode = CaptionDisplayMode.CAPTIONS,
+    val stableCaptions: Boolean = true,
+    val overlayControlsExpanded: Boolean = false,
     val overlayX: Int = 24,
     val overlayY: Int = 260,
     val overlayMinimized: Boolean = false,
@@ -23,3 +26,4 @@ data class CaptionSettings(
         const val MIN_OVERLAY_HEIGHT_DP = 80
     }
 }
+

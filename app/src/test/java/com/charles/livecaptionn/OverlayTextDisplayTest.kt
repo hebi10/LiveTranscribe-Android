@@ -1,6 +1,7 @@
 package com.charles.livecaptionn
 
 import com.charles.livecaptionn.overlay.OverlayUiState
+import com.charles.livecaptionn.overlay.OverlayCaptionMessage
 import com.charles.livecaptionn.overlay.computeOverlayTextDisplay
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,8 +13,7 @@ class OverlayTextDisplayTest {
     @Test
     fun computeOverlayTextDisplay_transcribingAndTranslating_showsBothDistinctly() {
         val ui = OverlayUiState(
-            originalText = "Good morning everyone",
-            transcriptText = "Chào buổi sáng mọi người",
+            messages = listOf(OverlayCaptionMessage(1L, "Good morning everyone", "Chào buổi sáng mọi người", true)),
             showOriginal = true,
             textSizeSp = 20f
         )
@@ -29,8 +29,7 @@ class OverlayTextDisplayTest {
     @Test
     fun computeOverlayTextDisplay_showOriginalDisabled_hidesOriginal() {
         val ui = OverlayUiState(
-            originalText = "Good morning",
-            transcriptText = "Chào buổi sáng",
+            messages = listOf(OverlayCaptionMessage(1L, "Good morning", "Chào buổi sáng", true)),
             showOriginal = false
         )
         val display = computeOverlayTextDisplay(ui)
@@ -42,8 +41,7 @@ class OverlayTextDisplayTest {
     @Test
     fun computeOverlayTextDisplay_blankOriginal_hidesOriginal() {
         val ui = OverlayUiState(
-            originalText = "",
-            transcriptText = "Chào buổi sáng",
+            messages = listOf(OverlayCaptionMessage(1L, "", "Chào buổi sáng", true)),
             showOriginal = true
         )
         val display = computeOverlayTextDisplay(ui)
@@ -52,7 +50,7 @@ class OverlayTextDisplayTest {
     }
 
     @Test
-    fun computeOverlayTextDisplay_pendingTranslation_showsEllipsisForTranslated() {
+    fun computeOverlayTextDisplay_pendingTranslation_keepsOriginalPairedAndHidden() {
         val ui = OverlayUiState(
             originalText = "Listening to audio...",
             transcriptText = "",
@@ -60,16 +58,15 @@ class OverlayTextDisplayTest {
         )
         val display = computeOverlayTextDisplay(ui)
 
-        assertTrue(display.showOriginal)
-        assertEquals("Listening to audio...", display.originalText)
+        assertFalse(display.showOriginal)
+        assertEquals("", display.originalText)
         assertEquals("…", display.translatedText)
     }
 
     @Test
     fun computeOverlayTextDisplay_identicalText_avoidsDuplication() {
         val ui = OverlayUiState(
-            originalText = "Hello world",
-            transcriptText = "Hello world",
+            messages = listOf(OverlayCaptionMessage(1L, "Hello world", "Hello world", true)),
             showOriginal = true
         )
         val display = computeOverlayTextDisplay(ui)
@@ -81,8 +78,7 @@ class OverlayTextDisplayTest {
     @Test
     fun computeOverlayTextDisplay_identicalTextCaseInsensitive_avoidsDuplication() {
         val ui = OverlayUiState(
-            originalText = "Hello World  ",
-            transcriptText = "hello world",
+            messages = listOf(OverlayCaptionMessage(1L, "Hello World  ", "hello world", true)),
             showOriginal = true
         )
         val display = computeOverlayTextDisplay(ui)
@@ -101,3 +97,4 @@ class OverlayTextDisplayTest {
         assertEquals(12f, computeOverlayTextDisplay(smallUi).originalTextSizeSp, 0.01f)
     }
 }
+
