@@ -9,103 +9,83 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.CaptionSettings
-import com.charles.livecaptionn.settings.SttBackend
-import com.charles.livecaptionn.settings.TranslationBackend
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-private val Context.dataStore by preferencesDataStore(name = "caption_settings")
+private val Context.captionDataStore by preferencesDataStore(name = "caption_settings")
 
 class SettingsDataStore(private val context: Context) : SettingsRepository {
-
-    override val settingsFlow: Flow<CaptionSettings> = context.dataStore.data.map { p -> p.toCaptionSettings() }
+    override val settingsFlow: Flow<CaptionSettings> =
+        context.captionDataStore.data.map { p ->
+            val defaults = CaptionSettings()
+            CaptionSettings(
+                sourceLanguageCode = p[SOURCE] ?: defaults.sourceLanguageCode,
+                targetLanguageCode = p[TARGET] ?: defaults.targetLanguageCode,
+                textSizeSp = p[TEXT_SIZE] ?: defaults.textSizeSp,
+                overlayOpacity = p[OPACITY] ?: defaults.overlayOpacity,
+                showOriginal = p[SHOW_ORIGINAL] ?: defaults.showOriginal,
+                overlayX = p[OVERLAY_X] ?: defaults.overlayX,
+                overlayY = p[OVERLAY_Y] ?: defaults.overlayY,
+                overlayMinimized = p[OVERLAY_MIN] ?: defaults.overlayMinimized,
+                audioSource = AudioSource.fromName(p[AUDIO_SOURCE] ?: defaults.audioSource.name),
+                overlayWidthDp = p[OVERLAY_W] ?: defaults.overlayWidthDp,
+                overlayHeightDp = p[OVERLAY_H] ?: defaults.overlayHeightDp,
+                overlayThemeId = p[OVERLAY_THEME] ?: defaults.overlayThemeId,
+                overlayFontId = p[OVERLAY_FONT] ?: defaults.overlayFontId,
+                saveHistory = p[SAVE_HISTORY] ?: defaults.saveHistory
+            )
+        }
 
     override suspend fun update(transform: (CaptionSettings) -> CaptionSettings) {
-        context.dataStore.edit { p ->
-            val curr = p.toCaptionSettings()
-            val next = transform(curr)
+        context.captionDataStore.edit { p ->
+            val current = CaptionSettings(
+                sourceLanguageCode = p[SOURCE] ?: "en",
+                targetLanguageCode = p[TARGET] ?: "ko",
+                textSizeSp = p[TEXT_SIZE] ?: 22f,
+                overlayOpacity = p[OPACITY] ?: 0.85f,
+                showOriginal = p[SHOW_ORIGINAL] ?: false,
+                overlayX = p[OVERLAY_X] ?: 24,
+                overlayY = p[OVERLAY_Y] ?: 260,
+                overlayMinimized = p[OVERLAY_MIN] ?: false,
+                audioSource = AudioSource.fromName(p[AUDIO_SOURCE] ?: "SYSTEM"),
+                overlayWidthDp = p[OVERLAY_W] ?: 340,
+                overlayHeightDp = p[OVERLAY_H] ?: 160,
+                overlayThemeId = p[OVERLAY_THEME] ?: "default",
+                overlayFontId = p[OVERLAY_FONT] ?: "default",
+                saveHistory = p[SAVE_HISTORY] ?: false
+            )
+            val next = transform(current)
             p[SOURCE] = next.sourceLanguageCode
             p[TARGET] = next.targetLanguageCode
-            p[AUTO_DETECT] = next.autoDetectSource
-            p[TEXT_SIZE] = next.textSizeSp
+            p[TEXT_SIZE] = next.textSizeSp.coerceIn(14f, 40f)
             p[OPACITY] = next.overlayOpacity.coerceIn(0.2f, 1f)
             p[SHOW_ORIGINAL] = next.showOriginal
-            p[BASE_URL] = next.serverBaseUrl.trim()
             p[OVERLAY_X] = next.overlayX
             p[OVERLAY_Y] = next.overlayY
             p[OVERLAY_MIN] = next.overlayMinimized
             p[AUDIO_SOURCE] = next.audioSource.name
-            p[STT_BACKEND] = next.sttBackend.name
-            p[TRANSLATION_BACKEND] = next.translationBackend.name
-            p[STT_URL] = next.sttBaseUrl.trim()
-            p[OVERLAY_W] = next.overlayWidthDp
-            p[OVERLAY_H] = next.overlayHeightDp
+            p[OVERLAY_W] = next.overlayWidthDp.coerceAtLeast(CaptionSettings.MIN_OVERLAY_WIDTH_DP)
+            p[OVERLAY_H] = next.overlayHeightDp.coerceAtLeast(CaptionSettings.MIN_OVERLAY_HEIGHT_DP)
             p[OVERLAY_THEME] = next.overlayThemeId
             p[OVERLAY_FONT] = next.overlayFontId
-            p[UI_LANG] = next.uiLanguageCode.orEmpty().ifBlank { "en" }
-            p[ONBOARDING_COMPLETE] = next.onboardingComplete
             p[SAVE_HISTORY] = next.saveHistory
-            p[BORDERLINE_WARNING_DISMISSED] = next.borderlineWarningDismissed
-            if (next.simulatedCompatibilityTier != null) {
-                p[SIMULATED_TIER] = next.simulatedCompatibilityTier
-            } else {
-                p.remove(SIMULATED_TIER)
-            }
         }
-    }
-
-    private fun androidx.datastore.preferences.core.Preferences.toCaptionSettings(): CaptionSettings {
-        val defaults = CaptionSettings()
-        return CaptionSettings(
-            sourceLanguageCode = this[SOURCE] ?: defaults.sourceLanguageCode,
-            targetLanguageCode = this[TARGET] ?: defaults.targetLanguageCode,
-            autoDetectSource = this[AUTO_DETECT] ?: false,
-            textSizeSp = this[TEXT_SIZE] ?: 20f,
-            overlayOpacity = this[OPACITY] ?: 0.65f,
-            showOriginal = this[SHOW_ORIGINAL] ?: true,
-            serverBaseUrl = this[BASE_URL] ?: CaptionSettings.DEFAULT_BASE_URL,
-            overlayX = this[OVERLAY_X] ?: 60,
-            overlayY = this[OVERLAY_Y] ?: 220,
-            overlayMinimized = this[OVERLAY_MIN] ?: false,
-            audioSource = AudioSource.fromName(this[AUDIO_SOURCE] ?: AudioSource.MIC.name),
-            sttBackend = SttBackend.fromName(this[STT_BACKEND] ?: SttBackend.LOCAL_VOSK.name),
-            translationBackend = TranslationBackend.fromName(this[TRANSLATION_BACKEND]),
-            sttBaseUrl = this[STT_URL] ?: CaptionSettings.DEFAULT_STT_URL,
-            overlayWidthDp = this[OVERLAY_W] ?: CaptionSettings.DEFAULT_OVERLAY_WIDTH_DP,
-            overlayHeightDp = this[OVERLAY_H] ?: CaptionSettings.DEFAULT_OVERLAY_HEIGHT_DP,
-            overlayThemeId = this[OVERLAY_THEME] ?: defaults.overlayThemeId,
-            overlayFontId = this[OVERLAY_FONT] ?: defaults.overlayFontId,
-            uiLanguageCode = this[UI_LANG] ?: defaults.uiLanguageCode,
-            onboardingComplete = this[ONBOARDING_COMPLETE] ?: defaults.onboardingComplete,
-            saveHistory = this[SAVE_HISTORY] ?: defaults.saveHistory,
-            borderlineWarningDismissed = this[BORDERLINE_WARNING_DISMISSED] ?: defaults.borderlineWarningDismissed,
-            simulatedCompatibilityTier = this[SIMULATED_TIER]
-        )
     }
 
     private companion object {
         val SOURCE = stringPreferencesKey("source")
         val TARGET = stringPreferencesKey("target")
-        val AUTO_DETECT = booleanPreferencesKey("auto_detect")
         val TEXT_SIZE = floatPreferencesKey("text_size")
         val OPACITY = floatPreferencesKey("opacity")
         val SHOW_ORIGINAL = booleanPreferencesKey("show_original")
-        val BASE_URL = stringPreferencesKey("base_url")
         val OVERLAY_X = intPreferencesKey("overlay_x")
         val OVERLAY_Y = intPreferencesKey("overlay_y")
         val OVERLAY_MIN = booleanPreferencesKey("overlay_min")
         val AUDIO_SOURCE = stringPreferencesKey("audio_source")
-        val STT_BACKEND = stringPreferencesKey("stt_backend")
-        val TRANSLATION_BACKEND = stringPreferencesKey("translation_backend")
-        val STT_URL = stringPreferencesKey("stt_url")
         val OVERLAY_W = intPreferencesKey("overlay_w")
         val OVERLAY_H = intPreferencesKey("overlay_h")
         val OVERLAY_THEME = stringPreferencesKey("overlay_theme")
         val OVERLAY_FONT = stringPreferencesKey("overlay_font")
-        val UI_LANG = stringPreferencesKey("ui_language")
-        val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
         val SAVE_HISTORY = booleanPreferencesKey("save_history")
-        val BORDERLINE_WARNING_DISMISSED = booleanPreferencesKey("borderline_warning_dismissed")
-        val SIMULATED_TIER = stringPreferencesKey("simulated_tier")
     }
 }

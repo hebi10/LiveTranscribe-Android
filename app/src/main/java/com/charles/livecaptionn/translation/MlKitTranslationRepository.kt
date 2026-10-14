@@ -60,7 +60,6 @@ class MlKitTranslationRepository : TranslationRepository {
             val translator = translatorFor(src, dst)
             ensureModelDownloaded(translator)
             val translated = translateBlocking(translator, clean).trim()
-            Log.d(TAG, "ML Kit $sourceCode→$targetCode ok: '${clean.take(40)}' → '${translated.take(40)}'")
             translated
         } catch (t: Throwable) {
             Log.w(TAG, "ML Kit translation failed for $sourceCode→$targetCode", t)
