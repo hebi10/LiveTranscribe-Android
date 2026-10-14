@@ -17,8 +17,6 @@ object KoreanUiStrings {
         "Delete this transcript entry?\n\n\"%s\"" to "이 기록을 삭제하시겠습니까?\n\n\"%s\"",
         "Cancel" to "취소",
         "Back" to "뒤로",
-        "Copy" to "복사",
-        "Share transcripts" to "번역 기록 공유",
         "Pause captioning" to "자막 일시정지",
         "Resume captioning" to "자막 다시 시작",
         "Minimize overlay" to "자막 접기",

@@ -23,7 +23,6 @@ import com.charles.livecaptionn.data.TranscriptEntry
 import com.charles.livecaptionn.data.applyGlossary
 import com.charles.livecaptionn.overlay.OverlayController
 import com.charles.livecaptionn.ui.l10n.KoreanUiStrings
-import com.charles.livecaptionn.overlay.OverlayThemeCatalog
 import com.charles.livecaptionn.overlay.OverlayUiState
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.CaptionSettings
@@ -324,9 +323,6 @@ class CaptionForegroundService : Service() {
         opacity = settings.overlayOpacity,
         showOriginal = settings.showOriginal,
         minimized = settings.overlayMinimized,
-        // Defensive fallback: a lapsed subscription must never leave a stale
-        // Pro theme/font rendering — always re-check entitlement here, not
-        // just at the point the setting was saved.
         themeId = settings.overlayThemeId,
         fontId = settings.overlayFontId
     )
