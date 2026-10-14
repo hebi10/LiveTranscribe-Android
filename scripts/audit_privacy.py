@@ -32,4 +32,8 @@ for path in (app / "src/main/java").rglob("*.kt"):
     for pattern in bad_patterns:
         if re.search(pattern, text):
             raise SystemExit(f"Forbidden behavior in {path.relative_to(root)}: {pattern}")
+assert (root / "scripts/prepare_language_id.py").exists(), "Language ID model installer missing"
+assert (root / "app/src/main/java/com/charles/livecaptionn/speech/OfflineSpokenLanguageIdentifier.kt").exists()
+assert (root / "app/src/main/java/com/charles/livecaptionn/translation/TranslationModelSetup.kt").exists()
+assert (root / "app/src/main/java/com/charles/livecaptionn/speech/LanguageRecommendationTracker.kt").exists()
 print("OK: no app Internet permission, online SDKs, sharing intents, or remote client paths")

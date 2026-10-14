@@ -5,7 +5,9 @@ LiveCaptionN의 MIT 라이선스 소스코드를 기반으로 한 **한국어 �
 ## 주요 기능
 - Android 10 이상에서 캡처가 허용된 다른 앱의 재생 음성 인식
 - Vosk를 이용한 영어·일본어 음성의 기기 내 인식
+- Whisper Tiny + sherpa-onnx의 **독립 음성 언어 식별**: 서로 다른 발화 구간에서 2회 연속 언어가 다르면 자막 위에 영어·일본어 변경을 제안 (자동 변경 없음)
 - Google ML Kit을 이용한 한국어 번역 및 드래그 가능한 자막 오버레이
+- 번역 모델 상태 확인 및 **사용자 동의를 통한 Wi-Fi 최초 모델 다운로드** (음성/자막 원문 전송 없음)
 - 자막 크기, 투명도, 원문 표시, 번역 기록 저장 여부 설정
 - 초기 설정: 동영상 음성 / 영어 → 한국어 / 원문 숨김 / 기록 저장 끔
 
@@ -19,16 +21,18 @@ LiveCaptionN의 MIT 라이선스 소스코드를 기반으로 한 **한국어 �
 **중요 — 완전 무전송 앱은 아닙니다.** Google ML Kit은 번역 모델을 내려받는 과정 및 사용 진단 목적으로 **기기 정보, 앱 정보, 사용 언어(출발어·도착어), 사용/성능 이벤트** 등을 수집할 수 있습니다. Google 공식 설명: https://developers.google.com/ml-kit/android-data-disclosure . **영상 음성이나 번역할 문장을 앱에서 외부 번역 서버로 전송하는 기능은 제거했습니다.** 번역 자체는 기기에서 처리하지만, Google SDK와 시스템 프로세스의 네트워크 통신까지 이 앱의 권한 설정만으로 차단한다고 보장할 수는 없습니다. 제3자 통신 자체가 허용되지 않는 환경에서는 이 버전을 사용하지 말고 별도 모델을 번들로 포함한 독립 실행형 번역 엔진으로 교체해야 합니다.
 
 ## 빌드
-JDK 17, Android SDK 및 Python 3이 필요합니다. 음성 모델은 **개발 환경에서만** 공식 서버로부터 다운로드해 APK에 포함합니다. 완성된 앱에서는 다운로드 기능이 없습니다.
+JDK 17, Android SDK 및 Python 3이 필요합니다. **Vosk 음성 모델(영어 약 40MB, 일본어 약 48MB), sherpa-onnx Android AAR(v1.13.8), Whisper Tiny int8 언어 식별 모델**은 개발 환경 또는 GitHub Actions 빌드 머신에서만 공식 서버로부터 다운로드해 APK에 포함합니다. Android 앱에는 이러한 모델의 다운로드 기능과 INTERNET 권한이 없습니다. 단, **ML Kit 번역 모델(언어당 약 30MB)은 별도**로, 앱에서 처음 실행 시 사용자가 Wi-Fi 모델 준비 버튼을 눌러 설치해야 합니다.
 
 ```bash
 python scripts/prepare_vosk_models.py
+python scripts/prepare_language_id.py
 ./gradlew testDebugUnitTest assembleDebug
 ```
 
 Windows PowerShell:
 ```powershell
 python scripts/prepare_vosk_models.py
+python scripts/prepare_language_id.py
 ./gradlew.bat testDebugUnitTest assembleDebug
 ```
 
@@ -40,6 +44,9 @@ GitHub Actions의 **Private Android APK** 워크플로도 같은 과정을 실�
 - 보호된 콘텐츠나 오디오 캡처를 차단한 앱에서는 시스템 음성을 인식할 수 없습니다.
 - 현재 APK에 포함되는 음성 인식 모델은 영어·일본어입니다. 언어 자동 감지는 지원하지 않습니다.
 - Vosk small 모델은 고유명사, 빠른 대화, 잡음에 따른 인식 오류가 발생할 수 있습니다.
-- 최초 ML Kit 모델 준비 전에는 한국어 번역을 바로 사용할 수 없을 수 있습니다.
+- 최초 ML Kit 번역 모델 준비 전에는 번역 시작 버튼이 비활성화됩니다. 사용자 선택 후 Wi-Fi에서 번역 모델을 다운로드합니다.
+- 언어 식별은 Vosk의 문장부호 기준이 아니라 **음성 인식으로 확정된 독립 발화 구간 2개**를 기준으로 합니다. 소음·혼합 언어·짧은 발화에서는 오탐 또는 미탐이 가능하며, 영어·일본어에 대해서만 전환을 추천합니다.
+- 자동 언어 변경은 하지 않습니다. 오버레이에서 변경을 승인하면 현재 캡처가 종료되고, 사용자가 앱에서 다시 시작해야 합니다.
+- APK 안에 소형 ASR 2개 + Whisper Tiny + native 라이브러리가 들어가 설치 파일 크기와 메모리 사용량이 증가합니다.
 
 원본 저작권 및 MIT 라이선스 고지는 [LICENSE](LICENSE)에 유지됩니다.
