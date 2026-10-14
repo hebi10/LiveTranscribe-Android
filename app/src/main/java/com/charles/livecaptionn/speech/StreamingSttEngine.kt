@@ -229,22 +229,26 @@ class StreamingSttEngine(
             val result = localSession.feed(buffer, read)
 
             if (result.accepted) {
-                // Vosk hit a silence/segment boundary and emitted a finalized chunk.
+                // The selected ASR may produce no text for a different spoken language.
                 if (result.text.isNotBlank()) {
                     onResult(SpeechResult(result.text, isFinal = true))
-                    if (onUtteranceAudio != null &&
-                        intervalPcm.size() >= MIN_LANGUAGE_AUDIO_BYTES && voicedChunks >= 8
-                    ) {
-                        onUtteranceAudio.invoke(intervalPcm.toByteArray())
-                    }
                     lastEmittedPartial = ""
+                }
+            } else if (result.text.isNotBlank() && result.text != lastEmittedPartial) {
+                onResult(SpeechResult(result.text, isFinal = false))
+                lastEmittedPartial = result.text
+            }
+
+            // Independently end acoustic intervals on silence, even when the
+            // currently selected Vosk model cannot recognize the language.
+            if (result.accepted || (isSilent && silentChunkStreak == LANGUAGE_SILENCE_CHUNKS)) {
+                if (onUtteranceAudio != null &&
+                    intervalPcm.size() >= MIN_LANGUAGE_AUDIO_BYTES && voicedChunks >= 8
+                ) {
+                    onUtteranceAudio.invoke(intervalPcm.toByteArray())
                 }
                 intervalPcm.reset()
                 voicedChunks = 0
-            } else if (result.text.isNotBlank() && result.text != lastEmittedPartial) {
-                // Live partial — drives the "words appearing as you speak" overlay.
-                onResult(SpeechResult(result.text, isFinal = false))
-                lastEmittedPartial = result.text
             }
 
             if (!paused && running) {
@@ -309,6 +313,7 @@ class StreamingSttEngine(
         private const val SAMPLE_RATE = 16_000
         /** ~100ms at 16kHz mono 16-bit = 3200 bytes. Small chunks = live partials. */
         private const val CHUNK_BYTES = 3200
+        private const val LANGUAGE_SILENCE_CHUNKS = 7
         private const val MIN_LANGUAGE_AUDIO_BYTES = SAMPLE_RATE * 2
         private const val MAX_LANGUAGE_AUDIO_BYTES = SAMPLE_RATE * 2 * 15
         private const val SILENCE_AVERAGE_ABS_THRESHOLD = 120
