@@ -227,23 +227,23 @@ class CaptionForegroundService : Service() {
                 val transcript = result.text.trim()
 
                 val candidateId = lineIdCounter.incrementAndGet()
+                var effectiveLineId = candidateId
                 app.container.runtimeStore.update {
+                    val updatedLines = recordTranscriptResult(
+                        lines = it.transcriptLines,
+                        originalText = transcript,
+                        isFinal = result.isFinal,
+                        newLineId = candidateId
+                    )
+                    effectiveLineId = updatedLines.lastOrNull()?.id ?: candidateId
                     it.copy(
                         originalText = transcript,
-                        // Partials overwrite the open line; finals close it so the next
-                        // utterance starts fresh. Works the same for mic and system audio
-                        // now that both stream.
-                        transcriptLines = recordTranscriptResult(
-                            lines = it.transcriptLines,
-                            originalText = transcript,
-                            isFinal = result.isFinal,
-                            newLineId = candidateId
-                        ),
+                        transcriptLines = updatedLines,
                         status = RecognitionStatus.PROCESSING,
                         lastError = null
                     )
                 }
-                queueTranslation(transcript, candidateId, result.isFinal)
+                queueTranslation(transcript, effectiveLineId, result.isFinal)
             }
 
             val mediaProjection = if (currentAudioSource == AudioSource.SYSTEM) {
