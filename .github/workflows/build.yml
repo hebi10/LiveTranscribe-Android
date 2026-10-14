@@ -25,6 +25,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Verify source privacy contract
         run: python scripts/audit_privacy.py
+      - name: Privacy regression tests
+        run: python -m unittest discover -s scripts -p 'test_*.py'
+      - name: Cache bundled offline assets
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/src/main/assets/models
+            app/src/main/assets/language-id
+            app/libs
+          key: ${{ runner.os }}-offline-assets-${{ hashFiles('scripts/prepare_vosk_models.py', 'scripts/prepare_language_id.py') }}
       - name: Bundle official Vosk models (build-time only)
         run: python scripts/prepare_vosk_models.py
       - name: Bundle offline acoustic language ID (build-time only)
@@ -41,7 +51,7 @@ jobs:
       - name: Unit tests and debug APK
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon testDebugUnitTest assembleDebug
+          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
       - name: Assert debug APK has no app Internet permission
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
@@ -62,3 +72,4 @@ jobs:
           name: hebi-live-translate-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+

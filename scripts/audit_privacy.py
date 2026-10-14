@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Static check for accidental regression to outgoing app networking or telemetry."""
+"""Source-level regression audit; does not inspect SDK internals or device traffic."""
 from pathlib import Path
 import re
+import xml.etree.ElementTree as ET
 root = Path(__file__).resolve().parents[1]
 app = root / "app"
 manifest = (app / "src/main/AndroidManifest.xml").read_text(encoding="utf-8")
@@ -13,10 +14,40 @@ blocked_dependencies = (
 for item in blocked_dependencies:
     if item in build.lower():
         raise SystemExit(f"Forbidden runtime dependency: {item}")
-if 'android:name="android.permission.INTERNET" tools:node="remove"' not in manifest:
+android = "{http://schemas.android.com/apk/res/android}"
+tools = "{http://schemas.android.com/tools}"
+manifest_xml = ET.fromstring(manifest)
+internet = [node for node in manifest_xml if node.tag.startswith("uses-permission")
+            and node.get(android + "name") == "android.permission.INTERNET"]
+if not internet or any(node.get(tools + "node") != "remove" for node in internet):
     raise SystemExit("The app must explicitly remove merged INTERNET permissions")
-if 'android:allowBackup="false"' not in manifest:
+application = manifest_xml.find("application")
+if application is None or application.get(android + "allowBackup") != "false":
     raise SystemExit("App backups must be disabled")
+if application.get(android + "fullBackupContent") != "false":
+    raise SystemExit("Legacy full backups must be disabled")
+if application.get(android + "dataExtractionRules") != "@xml/data_extraction_rules":
+    raise SystemExit("App must reference the audited backup/transfer rules")
+
+# root only covers the root domain, not files/, preferences, databases or
+# device-protected equivalents. Require each applicable domain explicitly.
+backup_domains = {"root", "file", "database", "sharedpref", "external",
+                  "device_root", "device_file", "device_database", "device_sharedpref"}
+rules = ET.parse(app / "src/main/res/xml/data_extraction_rules.xml").getroot()
+for operation in ("cloud-backup", "device-transfer"):
+    section = rules.find(operation)
+    excluded = set() if section is None else {
+        node.get("domain") for node in section.findall("exclude") if node.get("path") == "."
+    }
+    missing = backup_domains - excluded
+    if missing:
+        raise SystemExit(f"Missing {operation} backup domains: {', '.join(sorted(missing))}")
+    if section.findall("include"):
+        raise SystemExit(f"Unexpected {operation} backup includes")
+
+history_store = app / "src/main/java/com/charles/livecaptionn/data/TranscriptHistoryStore.kt"
+if "context.noBackupFilesDir" not in history_store.read_text(encoding="utf-8"):
+    raise SystemExit("Transcript history must use noBackupFilesDir")
 bad_patterns = (
     r'\bjava\.net\.(URL|HttpURLConnection|Socket)\b',
     r'\bokhttp3\.',
@@ -36,4 +67,6 @@ assert (root / "scripts/prepare_language_id.py").exists(), "Language ID model in
 assert (root / "app/src/main/java/com/charles/livecaptionn/speech/OfflineSpokenLanguageIdentifier.kt").exists()
 assert (root / "app/src/main/java/com/charles/livecaptionn/translation/TranslationModelSetup.kt").exists()
 assert (root / "app/src/main/java/com/charles/livecaptionn/speech/LanguageRecommendationTracker.kt").exists()
-print("OK: no app Internet permission, online SDKs, sharing intents, or remote client paths")
+print("OK: source manifest removes INTERNET; known app network/sharing paths blocked; backup domains excluded")
+print("Static source audit only: SDK internals/telemetry, merged manifest and device traffic unverified")
+

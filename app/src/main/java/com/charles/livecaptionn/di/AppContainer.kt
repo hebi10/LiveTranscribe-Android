@@ -1,6 +1,10 @@
 package com.charles.livecaptionn.di
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import com.charles.livecaptionn.data.FileGlossaryRepository
 import com.charles.livecaptionn.data.FileCaptionProfileRepository
 import com.charles.livecaptionn.data.GlossaryRepository
@@ -28,4 +32,15 @@ class AppContainer(context: Context) {
     val glossary: GlossaryRepository = FileGlossaryRepository(context.applicationContext)
     val voskRegistry = VoskModelRegistry(context.applicationContext)
     val localVoskClient = LocalVoskSttClient(voskRegistry)
+
+    init {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                transcriptHistory.getAll()
+            } catch (_: Exception) {
+                runtimeStore.update { it.copy(lastError = "기존 번역 기록을 정리하지 못했습니다. 기록 화면에서 다시 확인해 주세요.") }
+            }
+        }
+    }
 }
+

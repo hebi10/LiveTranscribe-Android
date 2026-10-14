@@ -16,12 +16,13 @@ import androidx.core.content.ContextCompat
 import com.charles.livecaptionn.settings.AudioSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
@@ -50,119 +51,93 @@ class StreamingSttEngine(
     private val statusMutable = MutableStateFlow(RecognitionStatus.IDLE)
     val status: StateFlow<RecognitionStatus> = statusMutable
 
-    private var audioRecord: AudioRecord? = null
-    private var captureJob: Job? = null
-    private var session: VoskStreamingSession? = null
-
-    @Volatile private var running = false
+    private val lifecycle = CaptureLifecycle(scope, Dispatchers.IO)
     @Volatile private var paused = false
 
     override fun start() {
-        if (running) return
-        running = true
-        paused = false
-        scope.launch(Dispatchers.IO) { startInternal() }
+        lifecycle.start { owner -> runCapture(owner) }
     }
 
-    override fun stop() {
-        running = false
+    override suspend fun stop() {
+        lifecycle.stop()
         paused = false
-        captureJob?.cancel()
-        captureJob = null
-        try { audioRecord?.stop() } catch (_: Throwable) {}
-        try { audioRecord?.release() } catch (_: Throwable) {}
-        audioRecord = null
-        session?.finish()?.let { remainder ->
-            if (remainder.isNotBlank()) onResult(SpeechResult(remainder, isFinal = true))
-        }
-        session?.close()
-        session = null
-        if (audioSource == AudioSource.SYSTEM) {
-            try { mediaProjection?.stop() } catch (_: Throwable) {}
-        }
         statusMutable.value = RecognitionStatus.IDLE
     }
 
     override fun pause() {
+        if (!lifecycle.isRunning) return
         paused = true
         statusMutable.value = RecognitionStatus.PAUSED
     }
 
     override fun resume() {
-        if (!running) return
+        if (!lifecycle.isRunning) return
         paused = false
         statusMutable.value = RecognitionStatus.LISTENING
     }
 
-    private suspend fun startInternal() {
-        val localSession = localSttClient.openSession(languageCode, SAMPLE_RATE)
-        if (localSession == null) {
-            onError(
-                "No on-device model installed for '$languageCode'. " +
-                    "Install an APK with packaged models."
-            )
-            statusMutable.value = RecognitionStatus.ERROR
-            running = false
-            return
-        }
-        session = localSession
-
-        val record = try {
-            buildAudioRecord()
-        } catch (t: Throwable) {
-            Log.e(TAG, "buildAudioRecord failed", t)
-            onError("Audio capture failed: ${t.message ?: t::class.java.simpleName}")
-            statusMutable.value = RecognitionStatus.ERROR
-            session?.close(); session = null
-            running = false
-            return
-        }
-
-        if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
-            onError(
-                if (audioSource == AudioSource.SYSTEM)
-                    "System audio capture failed to initialize"
-                else
-                    "Microphone capture failed to initialize"
-            )
-            statusMutable.value = RecognitionStatus.ERROR
-            record?.release()
-            session?.close(); session = null
-            running = false
-            return
-        }
-        audioRecord = record
-
+    private suspend fun runCapture(owner: CaptureLifecycle.Owner) {
+        var localSession: VoskStreamingSession? = null
+        var record: AudioRecord? = null
+        var captureStarted = false
         try {
-            record.startRecording()
+            val openedSession = localSttClient.openSession(languageCode, SAMPLE_RATE)
+                ?: throw IllegalStateException(
+                    "'$languageCode' 오프라인 음성 모델이 없습니다. 모델이 포함된 APK를 설치해 주세요."
+                )
+            localSession = openedSession
+            currentCoroutineContext().ensureActive()
+            val localRecord = buildAudioRecord()
+                ?: throw IllegalStateException("오디오 캡처를 준비하지 못했습니다. 권한과 오디오 소스를 확인해 주세요.")
+            record = localRecord
+            currentCoroutineContext().ensureActive()
+            check(localRecord.state == AudioRecord.STATE_INITIALIZED) {
+                "오디오 캡처를 초기화하지 못했습니다. 오디오 소스를 확인해 주세요."
+            }
+            owner.setInterrupt { try { localRecord.stop() } catch (_: Throwable) {} }
+            val captureContext = currentCoroutineContext()
+            if (!owner.whenActive {
+                    captureContext.ensureActive()
+                    localRecord.startRecording()
+                    captureStarted = true
+                }) return
+            currentCoroutineContext().ensureActive()
+            check(localRecord.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                "오디오 캡처를 시작하지 못했습니다. 다시 시작해 주세요."
+            }
+            statusMutable.value = if (paused) RecognitionStatus.PAUSED else RecognitionStatus.LISTENING
+            onError(null)
+            captureLoop(localRecord, openedSession)
+        } catch (t: CancellationException) {
+            throw t
         } catch (t: Throwable) {
-            Log.e(TAG, "startRecording failed", t)
-            onError("Audio capture failed to start: ${t.message ?: t::class.java.simpleName}")
+            // AudioRecord.stop can make an in-flight blocking read fail during shutdown.
+            currentCoroutineContext().ensureActive()
+            Log.e(TAG, "Audio capture failed", t)
             statusMutable.value = RecognitionStatus.ERROR
-            record.release()
-            audioRecord = null
-            session?.close(); session = null
-            running = false
-            return
+            onError(t.message ?: "오디오 캡처에 실패했습니다. 다시 시작해 주세요.")
+        } finally {
+            // Only this owning worker finalizes and releases resources. stop() joins it.
+            owner.clearInterrupt()
+            try {
+                if (captureStarted) {
+                    localSession?.finish()?.takeIf { it.isNotBlank() }?.let {
+                        onResult(SpeechResult(it, isFinal = true))
+                    }
+                }
+            } finally {
+                try { record?.stop() } catch (_: Throwable) {}
+                try { record?.release() } catch (_: Throwable) {}
+                localSession?.close()
+                if (audioSource == AudioSource.SYSTEM) {
+                    try { mediaProjection?.stop() } catch (_: Throwable) {}
+                }
+                paused = false
+            }
         }
-
-        if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
-            onError("Audio capture did not start")
-            statusMutable.value = RecognitionStatus.ERROR
-            record.release()
-            audioRecord = null
-            session?.close(); session = null
-            running = false
-            return
-        }
-
-        statusMutable.value = RecognitionStatus.LISTENING
-        onError(null)
-
-        captureJob = scope.launch(Dispatchers.Default) { captureLoop(record) }
     }
 
-    private suspend fun captureLoop(record: AudioRecord) {
+    private suspend fun captureLoop(record: AudioRecord, localSession: VoskStreamingSession) {
         val buffer = ByteArray(CHUNK_BYTES)
         var silentChunkStreak = 0
         var lastEmittedPartial = ""
@@ -170,7 +145,7 @@ class StreamingSttEngine(
         val intervalPcm = ByteArrayOutputStream()
         var voicedChunks = 0
 
-        while (scope.isActive && running) {
+        while (currentCoroutineContext().isActive) {
             if (paused) {
                 intervalPcm.reset()
                 voicedChunks = 0
@@ -178,22 +153,13 @@ class StreamingSttEngine(
                 continue
             }
 
-            val read = try {
-                record.read(buffer, 0, buffer.size)
-            } catch (t: Throwable) {
-                Log.w(TAG, "AudioRecord.read threw", t)
-                onError("Audio capture read failed")
-                statusMutable.value = RecognitionStatus.ERROR
-                delay(500)
-                continue
+            val read = record.read(buffer, 0, buffer.size)
+            currentCoroutineContext().ensureActive()
+            if (read < 0) {
+                throw IllegalStateException("오디오 읽기에 실패했습니다 ($read). 오디오 소스를 확인하고 다시 시작해 주세요.")
             }
-
-            if (read <= 0) {
-                // read == 0 is transient on some devices; anything negative is fatal-ish.
-                if (read < 0) {
-                    Log.w(TAG, "AudioRecord.read returned $read")
-                    delay(100)
-                }
+            if (read == 0) {
+                delay(10)
                 continue
             }
 
@@ -225,7 +191,6 @@ class StreamingSttEngine(
                 if (!isSilent) voicedChunks++
             }
 
-            val localSession = session ?: break
             val result = localSession.feed(buffer, read)
 
             if (result.accepted) {
@@ -251,7 +216,7 @@ class StreamingSttEngine(
                 voicedChunks = 0
             }
 
-            if (!paused && running) {
+            if (!paused && currentCoroutineContext().isActive) {
                 statusMutable.value = RecognitionStatus.LISTENING
             }
         }
@@ -279,12 +244,12 @@ class StreamingSttEngine(
         return when (audioSource) {
             AudioSource.SYSTEM -> {
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                    onError("System audio capture requires Android 10 (API 29) or newer. Please switch to Microphone mode.")
+                    onError("시스템 오디오 캡처는 Android 10 이상에서 사용할 수 있습니다. 마이크 모드로 전환해 주세요.")
                     return null
                 }
                 val projection = mediaProjection
                     ?: run {
-                        onError("MediaProjection not available for system audio")
+                        onError("화면 캡처 권한이 없습니다. 시스템 오디오를 다시 시작해 주세요.")
                         return null
                     }
                 val config = AudioPlaybackCaptureConfiguration.Builder(projection)
@@ -319,7 +284,7 @@ class StreamingSttEngine(
         private const val SILENCE_AVERAGE_ABS_THRESHOLD = 120
         private const val SILENT_CHUNKS_BEFORE_SYSTEM_HINT = 30 // ~3s of silence
         private const val NO_CAPTURABLE_AUDIO_MESSAGE =
-            "No capturable system audio yet. Play unmuted media in an app that allows audio capture."
+            "캡처 가능한 시스템 오디오가 없습니다. 캡처를 허용하는 앱에서 음소거를 해제하고 재생해 주세요."
 
         private fun averageAbsAmplitude(pcmData: ByteArray, length: Int): Int {
             var sum = 0L
@@ -338,3 +303,4 @@ class StreamingSttEngine(
         }
     }
 }
+
