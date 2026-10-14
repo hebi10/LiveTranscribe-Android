@@ -8,9 +8,6 @@ import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
-import com.charles.livecaptionn.review.PlayReviewHelper
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.launch
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,115 +17,81 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.charles.livecaptionn.ads.AdUnits
-import com.charles.livecaptionn.ads.BannerAd
-import com.charles.livecaptionn.review.ReviewPrompter
 import com.charles.livecaptionn.service.CaptionForegroundService
 import com.charles.livecaptionn.service.MediaProjectionHolder
 import com.charles.livecaptionn.settings.AudioSource
+import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.ui.HistoryScreen
 import com.charles.livecaptionn.ui.MainScreen
 import com.charles.livecaptionn.ui.MainViewModel
 import com.charles.livecaptionn.ui.MainViewModelFactory
-import com.charles.livecaptionn.ui.OnboardingScreen
 import com.charles.livecaptionn.ui.l10n.UiStringsProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-
     private var showHistory by mutableStateOf(false)
 
-    /** Stripe Checkout session ID carried back by the /checkout/success deep link (github flavor). */
-    private var pendingCheckoutSessionId by mutableStateOf<String?>(null)
+    private val audioPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) startCaptioning()
+        }
 
-    private val audioPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) startCaptioning()
-    }
-
-    private val mediaProjectionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            MediaProjectionHolder.set(result.resultCode, result.data!!.clone() as Intent)
-            startCaptionService(AudioSource.SYSTEM)
-        } else {
-            (application as LiveCaptionApp).container.runtimeStore.update {
-                it.copy(
-                    status = com.charles.livecaptionn.speech.RecognitionStatus.ERROR,
-                    lastError = "System-audio capture permission was not granted."
-                )
+    private val mediaProjectionLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+                MediaProjectionHolder.set(result.resultCode, result.data!!.clone() as Intent)
+                startCaptionService(AudioSource.SYSTEM)
+            } else {
+                setError("시스템 오디오 캡처 권한이 허용되지 않았습니다.")
             }
         }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Play In-App Review - trigger after 3 launches
-        try {
-            val prefs = getSharedPreferences("play_review", MODE_PRIVATE)
-            val count = prefs.getInt("launch_count", 0) + 1
-            prefs.edit().putInt("launch_count", count).apply()
-            if (count >= 3 && count % 5 == 0) {
-                lifecycleScope.launch {
-                    PlayReviewHelper.requestAndLaunch(this@MainActivity)
-                }
-            }
-        } catch (_: Exception) {}
-
         val app = application as LiveCaptionApp
-        pendingCheckoutSessionId = extractCheckoutSessionId(intent)
         setContent {
             val vm: MainViewModel = viewModel(factory = MainViewModelFactory(app.container, application))
-            val settings by app.container.settingsRepository.settingsFlow
-                .collectAsStateWithLifecycle(initialValue = null)
-            val onboardingComplete = settings?.onboardingComplete ?: true
-            UiStringsProvider(app.container) {
-                MaterialTheme {
+            UiStringsProvider {
+                MaterialTheme(
+                    colorScheme = darkColorScheme(
+                        primary = Color(0xFFEAEAEA),
+                        onPrimary = Color(0xFF111111),
+                        background = Color(0xFF111111),
+                        onBackground = Color(0xFFF5F5F5),
+                        surface = Color(0xFF1C1C1C),
+                        onSurface = Color(0xFFF5F5F5),
+                        surfaceVariant = Color(0xFF292929),
+                        onSurfaceVariant = Color(0xFFCCCCCC)
+                    )
+                ) {
                     Surface(color = MaterialTheme.colorScheme.background) {
-                        if (!onboardingComplete) {
-                            OnboardingScreen(
-                                viewModel = vm,
-                                onRequestAudioPermission = { requestAudioPermission() },
-                                onOpenOverlaySettings = { vm.openOverlayPermissionSettings(this@MainActivity) },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
-                                // Main content fills remaining space above the
-                                // persistent banner ad at the bottom.
-                                if (showHistory) {
-                                    HistoryScreen(
-                                        historyStore = app.container.transcriptHistory,
-                                        onBack = { showHistory = false },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                } else {
-                                    MainScreen(
-                                        viewModel = vm,
-                                        onRequestAudioPermission = { requestAudioPermission() },
-                                        onStart = { startCaptioning() },
-                                        onStop = { stopCaptionService() },
-                                        onOpenOverlaySettings = { vm.openOverlayPermissionSettings(this@MainActivity) },
-                                        onHistory = { showHistory = true },
-                                        pendingCheckoutSessionId = pendingCheckoutSessionId,
-                                        onCheckoutSessionConsumed = { pendingCheckoutSessionId = null },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                                if (AdUnits.ENABLED && AdUnits.BANNER.isNotBlank()) {
-                                    BannerAd()
-                                }
+                        Column(Modifier.fillMaxSize().navigationBarsPadding()) {
+                            if (showHistory) {
+                                HistoryScreen(
+                                    historyStore = app.container.transcriptHistory,
+                                    onBack = { showHistory = false },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            } else {
+                                MainScreen(
+                                    viewModel = vm,
+                                    onRequestAudioPermission = { requestMicrophonePermission() },
+                                    onOpenOverlaySettings = { vm.openOverlayPermissionSettings(this@MainActivity) },
+                                    onStart = { startCaptioning() },
+                                    onStop = { stopCaptionService() },
+                                    onHistory = { showHistory = true },
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                         }
                     }
@@ -137,19 +100,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        extractCheckoutSessionId(intent)?.let { pendingCheckoutSessionId = it }
-    }
-
-    private fun extractCheckoutSessionId(intent: Intent?): String? {
-        val data = intent?.data ?: return null
-        if (data.scheme != "livecaptionn" || data.host != "premium-return") return null
-        return data.getQueryParameter("session_id")
-    }
-
-    private fun requestAudioPermission() {
+    private fun requestMicrophonePermission() {
         audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
 
@@ -157,62 +108,53 @@ class MainActivity : ComponentActivity() {
         val app = application as LiveCaptionApp
         lifecycleScope.launch {
             if (!Settings.canDrawOverlays(this@MainActivity)) {
-                app.container.runtimeStore.update {
-                    it.copy(
-                        status = com.charles.livecaptionn.speech.RecognitionStatus.ERROR,
-                        lastError = "Overlay permission is required. Enable it in system settings and try again."
-                    )
-                }
+                setError("다른 앱 위에 표시 권한을 먼저 허용해 주세요.")
                 return@launch
             }
             val settings = app.container.settingsRepository.settingsFlow.first()
+            if (app.container.voskRegistry.installedModelFor(settings.sourceLanguageCode) == null) {
+                setError("음성 모델이 없습니다. 모델이 포함된 APK를 설치해 주세요.")
+                return@launch
+            }
             when (settings.audioSource) {
                 AudioSource.SYSTEM -> {
-                    val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                    val captureIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                        mpManager.createScreenCaptureIntent(
-                            MediaProjectionConfig.createConfigForDefaultDisplay()
-                        )
+                    val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                    val capture = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
                     } else {
-                        mpManager.createScreenCaptureIntent()
+                        manager.createScreenCaptureIntent()
                     }
-                    mediaProjectionLauncher.launch(captureIntent)
+                    mediaProjectionLauncher.launch(capture)
                 }
                 AudioSource.MIC -> {
-                    val hasMic = ContextCompat.checkSelfPermission(
+                    val granted = ContextCompat.checkSelfPermission(
                         this@MainActivity, Manifest.permission.RECORD_AUDIO
                     ) == PackageManager.PERMISSION_GRANTED
-                    if (hasMic) {
-                        startCaptionService(AudioSource.MIC)
-                    } else {
-                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    }
+                    if (granted) startCaptionService(AudioSource.MIC)
+                    else requestMicrophonePermission()
                 }
             }
         }
     }
 
-    private fun startCaptionService(audioSource: AudioSource) {
-        val intent = Intent(this, CaptionForegroundService::class.java).apply {
-            action = CaptionForegroundService.ACTION_START
-            // Passed eagerly so the service can call startForeground() with the
-            // correct service type synchronously inside Android's 5-second
-            // post-startForegroundService deadline (DataStore reads were racing
-            // it on slow devices, crashing the app).
-            putExtra(CaptionForegroundService.EXTRA_AUDIO_SOURCE, audioSource.name)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+    private fun setError(message: String) {
+        (application as LiveCaptionApp).container.runtimeStore.update {
+            it.copy(running = false, status = RecognitionStatus.ERROR, lastError = message)
         }
     }
 
-    private fun stopCaptionService() {
+    private fun startCaptionService(source: AudioSource) {
         val intent = Intent(this, CaptionForegroundService::class.java).apply {
-            action = CaptionForegroundService.ACTION_STOP
+            action = CaptionForegroundService.ACTION_START
+            putExtra(CaptionForegroundService.EXTRA_AUDIO_SOURCE, source.name)
         }
-        startService(intent)
-        ReviewPrompter.onCaptioningSessionCompleted(this)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+        else startService(intent)
+    }
+
+    private fun stopCaptionService() {
+        startService(Intent(this, CaptionForegroundService::class.java).apply {
+            action = CaptionForegroundService.ACTION_STOP
+        })
     }
 }
