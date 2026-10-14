@@ -27,6 +27,13 @@ jobs:
         run: python scripts/audit_privacy.py
       - name: Bundle official Vosk models (build-time only)
         run: python scripts/prepare_vosk_models.py
+      - name: Bundle offline acoustic language ID (build-time only)
+        run: python scripts/prepare_language_id.py
+      - name: Verify language-ID binaries
+        run: |
+          test -s app/libs/sherpa-onnx-1.13.8.aar
+          test -s app/src/main/assets/language-id/sherpa-onnx-whisper-tiny/tiny-encoder.int8.onnx
+          test -s app/src/main/assets/language-id/sherpa-onnx-whisper-tiny/tiny-decoder.int8.onnx
       - name: Check packaged Vosk assets
         run: |
           test -s app/src/main/assets/models/vosk-model-small-en-us-0.15/conf/model.conf
