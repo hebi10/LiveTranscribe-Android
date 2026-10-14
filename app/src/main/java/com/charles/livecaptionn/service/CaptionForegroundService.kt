@@ -39,6 +39,7 @@ import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.speech.SpeechEngine
 import com.charles.livecaptionn.speech.SpeechResult
+import com.charles.livecaptionn.speech.normalizeRecognizedTranscript
 import com.charles.livecaptionn.speech.StreamingSttEngine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CoroutineScope
@@ -163,7 +164,7 @@ class CaptionForegroundService : Service() {
         failureMessage = null
         app.container.runtimeStore.update {
             it.copy(running = true, paused = false, status = RecognitionStatus.PROCESSING,
-                lastError = null, skippedTranslations = 0)
+                lastError = null, skippedTranslations = 0, skippedSpeechSegments = 0)
         }
         if (!Settings.canDrawOverlays(this)) {
             Log.e("CaptionService", "Overlay permission missing.")
@@ -226,8 +227,6 @@ class CaptionForegroundService : Service() {
                 CoroutineScope(serviceScope.coroutineContext + Dispatchers.IO),
                 onFinalDropped = { request ->
                     app.container.runtimeStore.update { recordDroppedTranslation(it, request.lineId) }
-                    failureMessage = failureMessage ?: translationBacklogMessage(
-                        app.container.runtimeStore.state.value.skippedTranslations)
                 },
                 translate = { request ->
                     try {
@@ -243,7 +242,7 @@ class CaptionForegroundService : Service() {
             )
 
             val onSpeechResult: (SpeechResult) -> Unit = onSpeechResult@{ result ->
-                val transcript = result.text.trim()
+                val transcript = normalizeRecognizedTranscript(result.text, sessionSourceCode)
                 if (transcript.isBlank() && !result.isFinal) return@onSpeechResult
 
                 val candidateId = lineIdCounter.incrementAndGet()
@@ -298,6 +297,9 @@ class CaptionForegroundService : Service() {
                 audioSource = currentAudioSource,
                 mediaProjection = mediaProjection,
                 languageCode = sttLanguageCode,
+                onSkippedAudio = {
+                    app.container.runtimeStore.update { recordSkippedSpeechSegment(it) }
+                },
                 localSttClient = app.container.localVoskClient,
                 scope = serviceScope,
                 onResult = onSpeechResult,
@@ -505,7 +507,9 @@ class CaptionForegroundService : Service() {
             overlayReady.value = 0
             MediaProjectionHolder.clear()
             app.container.runtimeStore.update {
-                completedCaptionSession(failureMessage, error, drained, completionMessage)
+                completedCaptionSession(failureMessage, error, drained, completionMessage,
+                    skippedTranslations = it.skippedTranslations,
+                    skippedSpeechSegments = it.skippedSpeechSegments)
             }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -523,12 +527,20 @@ class CaptionForegroundService : Service() {
         val engine = speechEngine
         speechEngine = null
         if (engine != null) {
-            serviceScope.launch(NonCancellable) { engine.stop() }
+            serviceScope.launch(NonCancellable) {
+                stopSpeechEngineSafely({ engine.stop() }) {
+                    app.container.runtimeStore.update { runtime ->
+                        runtime.copy(status = RecognitionStatus.ERROR,
+                            lastError = runtime.lastError ?: "음성 인식 종료 중 오류가 발생했습니다.")
+                    }
+                }
+            }
         }
         serviceScope.cancel()
         MediaProjectionHolder.clear()
         app.container.runtimeStore.update {
-            if (it.running) it.copy(running = false, paused = false, status = RecognitionStatus.IDLE) else it
+            if (it.running) it.copy(running = false, paused = false,
+                status = if (it.status == RecognitionStatus.ERROR) RecognitionStatus.ERROR else RecognitionStatus.IDLE) else it
         }
         super.onDestroy()
     }

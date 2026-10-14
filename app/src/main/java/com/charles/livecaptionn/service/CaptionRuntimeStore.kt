@@ -25,6 +25,8 @@ data class CaptionRuntimeState(
     val lastError: String? = null,
     /** Number of pending translations skipped to keep up during this session. */
     val skippedTranslations: Int = 0,
+    /** Audio segments skipped before recognition during a slow-device backlog. */
+    val skippedSpeechSegments: Int = 0,
     val suggestedLanguageCode: String? = null
 )
 
@@ -42,13 +44,17 @@ internal fun completedCaptionSession(
     previousFailure: String?,
     terminalFailure: String?,
     drained: Boolean,
-    completionMessage: String? = null
+    completionMessage: String? = null,
+    skippedTranslations: Int = 0,
+    skippedSpeechSegments: Int = 0
 ): CaptionRuntimeState {
     val error = terminalFailure ?: previousFailure ?: if (!drained)
         "번역 종료 시간이 초과되어 마지막 일부 문장이 저장되지 않았습니다." else null
     return CaptionRuntimeState(
         status = if (error == null) RecognitionStatus.IDLE else RecognitionStatus.ERROR,
-        lastError = error ?: completionMessage
+        lastError = error ?: listOfNotNull(completionMessage,
+            captionBacklogMessage(skippedTranslations, skippedSpeechSegments))
+            .takeIf { it.isNotEmpty() }?.joinToString("\n")
     )
 }
 
@@ -62,11 +68,26 @@ internal fun recordDroppedTranslation(runtime: CaptionRuntimeState, lineId: Long
     return runtime.copy(
         transcriptLines = runtime.transcriptLines.filterNot { it.id == lineId },
         skippedTranslations = skipped,
-        lastError = runtime.lastError?.takeUnless {
-            it == translationBacklogMessage(runtime.skippedTranslations)
-        } ?: translationBacklogMessage(skipped)
+        lastError = retainedRuntimeError(runtime) ?: captionBacklogMessage(skipped, runtime.skippedSpeechSegments)
     )
 }
 
 internal fun withRuntimeError(runtime: CaptionRuntimeState, message: String?): CaptionRuntimeState =
-    runtime.copy(lastError = message ?: translationBacklogMessage(runtime.skippedTranslations))
+    runtime.copy(lastError = message ?: captionBacklogMessage(runtime.skippedTranslations, runtime.skippedSpeechSegments))
+
+internal fun captionBacklogMessage(translations: Int, speech: Int): String? = listOfNotNull(
+    if (speech > 0) "음성 인식이 밀려 대기 중인 음성 구간 ${speech}개를 생략했습니다." else null,
+    translationBacklogMessage(translations)
+).takeIf { it.isNotEmpty() }?.joinToString("\n")
+
+private fun retainedRuntimeError(runtime: CaptionRuntimeState): String? = runtime.lastError?.takeUnless {
+    it == captionBacklogMessage(runtime.skippedTranslations, runtime.skippedSpeechSegments)
+}
+
+internal fun recordSkippedSpeechSegment(runtime: CaptionRuntimeState): CaptionRuntimeState {
+    val skipped = (runtime.skippedSpeechSegments.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    return runtime.copy(
+        skippedSpeechSegments = skipped,
+        lastError = retainedRuntimeError(runtime) ?: captionBacklogMessage(runtime.skippedTranslations, skipped)
+    )
+}

@@ -145,6 +145,7 @@ internal fun buildOverlayUiState(runtime: CaptionRuntimeState, settings: Caption
         status = runtime.status,
         statusDetail = runtime.lastError,
         skippedTranslations = runtime.skippedTranslations,
+        skippedSpeechSegments = runtime.skippedSpeechSegments,
         textSizeSp = settings.textSizeSp,
         opacity = settings.overlayOpacity,
         showOriginal = settings.showOriginal,
@@ -174,5 +175,5 @@ internal fun applyTranscriptResult(
     // Error text arrives before Main observes ERROR; only the capture error sink
     // may clear that text after capture resumes successfully.
     if (text.isBlank() || runtime.status == RecognitionStatus.ERROR) return recorded
-    return withRuntimeError(recorded.copy(status = RecognitionStatus.PROCESSING), runtime.lastError)
+    return withRuntimeError(recorded.copy(status = if (runtime.paused) RecognitionStatus.PAUSED else RecognitionStatus.PROCESSING), runtime.lastError)
 }

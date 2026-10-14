@@ -1,5 +1,7 @@
 package com.charles.livecaptionn
 
+import com.charles.livecaptionn.service.completedCaptionSession
+import com.charles.livecaptionn.service.recordSkippedSpeechSegment
 import com.charles.livecaptionn.service.applyTranscriptResult
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.service.recordDroppedTranslation
@@ -360,5 +362,35 @@ class ServiceTransformsTest {
         val recorded = recordDroppedTranslation(runtime, 1L)
         assertEquals(1, recorded.skippedTranslations)
         assertEquals("specific capture failure", recorded.lastError)
+    }
+
+    @Test
+    fun skippedSpeech_noticeSurvivesCaptureRecoveryWithoutChangingCaptions() {
+        val committed = CaptionRuntimeLine(1L, "hello", "안녕", isFinal = true)
+        val runtime = CaptionRuntimeState(transcriptLines = listOf(committed))
+        val skipped = recordSkippedSpeechSegment(runtime)
+        assertEquals(1, skipped.skippedSpeechSegments)
+        assertEquals(listOf(committed), skipped.transcriptLines)
+        assertTrue(skipped.lastError?.isNotBlank() == true)
+        assertTrue(withRuntimeError(skipped, null).lastError?.isNotBlank() == true)
+        assertEquals("안녕", overlayTranscriptText(skipped))
+        val failed = recordSkippedSpeechSegment(runtime.copy(lastError = "specific capture failure"))
+        assertEquals("specific capture failure", failed.lastError)
+    }
+
+    @Test
+    fun recognizedFinalWhilePaused_preservesPauseState() {
+        val paused = CaptionRuntimeState(status = RecognitionStatus.PAUSED, paused = true)
+        assertEquals(RecognitionStatus.PAUSED, applyTranscriptResult(paused, "final speech", true, 1L).status)
+    }
+
+    @Test
+    fun successfulStop_preservesLatestSpeechAndTranslationSkipCounts() {
+        val completion = completedCaptionSession(null, null, true, "language changed", 3, 2)
+        assertEquals(RecognitionStatus.IDLE, completion.status)
+        assertTrue(completion.lastError!!.contains("language changed"))
+        assertTrue(completion.lastError!!.contains("음성 구간 2개"))
+        assertTrue(completion.lastError!!.contains("자막 3개"))
+        assertEquals("specific failure", completedCaptionSession("specific failure", null, true, null, 3, 2).lastError)
     }
 }

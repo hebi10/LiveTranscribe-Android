@@ -360,7 +360,7 @@ class OverlayController(
                 else -> null
             }
             val label = when {
-                ui.skippedTranslations > 0 -> "${s[ui.status.displayName]} · 일부 자막 생략"
+                ui.skippedTranslations > 0 || ui.skippedSpeechSegments > 0 -> "${s[ui.status.displayName]} · 일부 자막 생략"
                 suggestion != null -> "${s[ui.status.displayName]} · $suggestion"
                 else -> s[ui.status.displayName]
             }
