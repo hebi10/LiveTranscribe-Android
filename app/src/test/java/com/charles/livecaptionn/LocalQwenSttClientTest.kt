@@ -13,6 +13,34 @@ import java.io.File
 class LocalQwenSttClientTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun manualModesSetNativeLanguageBeforeWaveformAndAutoUsesFreshUnforcedStream() {
+        val backend = Backend()
+        val session = OfflineSttSession(backend, Gate())
+        for (mode in listOf("ja", "en", "auto")) session.transcribe(ByteArray(32000), mode)
+        assertEquals(listOf("language=Japanese", "waveform", "decode", "close",
+            "language=English", "waveform", "decode", "close",
+            "waveform", "decode", "close"), backend.events)
+        assertEquals(3, backend.streamClosed)
+        session.close()
+    }
+
+    @Test fun nativeLanguageOptionFailureStillClosesTheStreamBeforePropagation() {
+        val backend = Backend().apply { optionFailure = true }
+        val session = OfflineSttSession(backend, Gate())
+        assertThrows(IllegalStateException::class.java) { session.transcribe(ByteArray(32000), "ja") }
+        assertEquals(listOf("language=Japanese", "close"), backend.events)
+        assertEquals(1, backend.streamClosed)
+        session.close()
+    }
+
+    @Test fun unsupportedManualModeFailsBeforeNativeStreamCreation() {
+        val backend = Backend()
+        val session = OfflineSttSession(backend, Gate())
+        assertThrows(IllegalArgumentException::class.java) { session.transcribe(ByteArray(32000), "fr") }
+        assertEquals(0, backend.streams)
+        session.close()
+    }
+
     @Test fun resultsNearGenerationCapAreRejectedIncludingStrippedScaffoldAllowance() {
         assertEquals("complete", validateQwenResult("complete", 111))
         for (count in listOf(112, 127, 128, 129)) {
@@ -157,14 +185,17 @@ class LocalQwenSttClientTest {
         var streamClosed = 0
         var failure = false
         var acceptFailure = false
+        var optionFailure = false
+        val events = mutableListOf<String>()
         override fun createStream(): OfflineRecognizerStream {
             streams++
             return object : OfflineRecognizerStream {
-                override fun acceptWaveform(samples: FloatArray, sampleRate: Int) { this@Backend.samples = samples; this@Backend.sampleRate = sampleRate; if (acceptFailure) error("accept failed") }
-                override fun close() { streamClosed++ }
+                override fun setOption(name: String, value: String) { events += "$name=$value"; if (optionFailure) error("option failed") }
+                override fun acceptWaveform(samples: FloatArray, sampleRate: Int) { events += "waveform"; this@Backend.samples = samples; this@Backend.sampleRate = sampleRate; if (acceptFailure) error("accept failed") }
+                override fun close() { events += "close"; streamClosed++ }
             }
         }
-        override fun decode(stream: OfflineRecognizerStream) { if (failure) error("native failed") }
+        override fun decode(stream: OfflineRecognizerStream) { events += "decode"; if (failure) error("native failed") }
         override fun result(stream: OfflineRecognizerStream) = "日本語"
         override fun close() { closed++ }
     }

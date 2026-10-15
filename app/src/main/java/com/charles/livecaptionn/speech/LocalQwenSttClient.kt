@@ -117,6 +117,7 @@ internal fun requireQwenModelFiles(directory: File) {
 }
 
 internal interface OfflineRecognizerStream {
+    fun setOption(name: String, value: String)
     fun acceptWaveform(samples: FloatArray, sampleRate: Int)
     fun close()
 }
@@ -138,11 +139,18 @@ internal class OfflineSttSession(backend: OfflineRecognizerBackend, gate: Speech
     private val recognizer = NativeSessionOwner(backend)
     private val speechGate = NativeSessionOwner(gate)
 
-    fun transcribe(pcm: ByteArray): String = recognizer.feed("") { backend ->
+    fun transcribe(pcm: ByteArray, sourceLanguageCode: String = "auto"): String = recognizer.feed("") { backend ->
         require(pcm.size % 2 == 0)
         if (pcm.isEmpty()) return@feed ""
+        val forcedLanguage = when (sourceLanguageCode) {
+            "auto" -> null
+            "en" -> "English"
+            "ja" -> "Japanese"
+            else -> throw IllegalArgumentException("지원하지 않는 음성 인식 모드입니다.")
+        }
         val stream = backend.createStream()
         try {
+            forcedLanguage?.let { stream.setOption("language", it) }
             stream.acceptWaveform(pcmSamples(pcm, pcm.size, trailingSamples = 8000), 16000)
             backend.decode(stream)
             backend.result(stream).trim()
@@ -180,6 +188,7 @@ private class NativeOfflineBackend(private val recognizer: OfflineRecognizer) : 
 }
 
 private class NativeOfflineStream(val stream: OfflineStream) : OfflineRecognizerStream {
+    override fun setOption(name: String, value: String) = stream.setOption(name, value)
     override fun acceptWaveform(samples: FloatArray, sampleRate: Int) = stream.acceptWaveform(samples, sampleRate)
     override fun close() = stream.release()
 }

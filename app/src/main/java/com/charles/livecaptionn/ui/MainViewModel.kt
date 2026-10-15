@@ -14,6 +14,7 @@ import com.charles.livecaptionn.di.AppContainer
 import com.charles.livecaptionn.service.manuallySelectedCaptionLanguage
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.CaptionDisplayMode
+import com.charles.livecaptionn.settings.RecognitionLanguages
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -73,11 +74,12 @@ class MainViewModel(
     }
 
     fun selectSourceLanguage(code: String) {
-        if (code !in setOf("en", "ja")) return
-        if (container.runtimeStore.state.value.running) return
+        if (!RecognitionLanguages.isValidMode(code)) return
+        if (container.runtimeStore.state.value.running || container.runtimeStore.state.value.stopping) return
         viewModelScope.launch {
             container.settingsRepository.update {
-                if (container.runtimeStore.state.value.running) it else it.copy(sourceLanguageCode = code)
+                if (container.runtimeStore.state.value.running || container.runtimeStore.state.value.stopping) it
+                else it.copy(sourceLanguageCode = code)
             }
             container.runtimeStore.update {
                 manuallySelectedCaptionLanguage(it, code)

@@ -82,6 +82,57 @@ class LocalTranslationRepositoryTest {
         repository.close()
     }
 
+    @Test fun automaticAndUnknownSourcesUseTranslationWithoutAssumingKorean() = runBlocking {
+        val backend = FakeBackend()
+        val repository = repository(backend)
+        assertEquals("안녕하세요.", repository.translate("bonjour", "auto", "ko", true))
+        assertEquals("안녕하세요.", repository.translate("한국어인지 미확인", "und", "ko", true))
+        assertTrue(backend.prompt.endsWith("한국어인지 미확인"))
+        assertEquals(1, backend.loads)
+        repository.close()
+    }
+
+    @Test fun detectedSupportedLanguagesAndAliasesTranslateIntoKorean() = runBlocking {
+        val backend = FakeBackend()
+        val repository = repository(backend)
+        listOf("fr", "yue", "Filipino", "tl", "Persian", "de-DE").forEach {
+            assertEquals("안녕하세요.", repository.translate("source text", it, "ko", true))
+        }
+        repository.close()
+    }
+
+    @Test fun automaticKoreanDetectionStillTranslatesMixedOrMislabelledForeignText() = runBlocking {
+        val backend = FakeBackend()
+        val repository = repository(backend)
+        listOf("안녕하세요. Please send the report.", "Please send the report.").forEach { text ->
+            assertEquals("안녕하세요.", repository.translate(text, "Korean", "ko", true))
+            assertTrue(backend.prompt.endsWith(text))
+        }
+        assertEquals(1, backend.loads)
+        repository.close()
+    }
+
+    @Test fun automaticPrewarmLoadsOneSharedTranslationModel() = runBlocking {
+        val backend = FakeBackend()
+        val repository = repository(backend)
+        repository.prewarm("auto", "ko")
+        repository.prewarm("ja", "ko")
+        assertEquals(1, backend.loads)
+        repository.close()
+    }
+
+    @Test fun unsupportedSourcesNeverBypassValidationThroughAutoDetect() = runBlocking {
+        val backend = FakeBackend()
+        val repository = repository(backend)
+        listOf("sv", "made-up", "", "fr-FakeScript").forEach { source ->
+            try { repository.translate("text", source, "ko", true); fail("Unsupported source accepted: $source") }
+            catch (_: IllegalArgumentException) {}
+        }
+        try { repository.translate("text", "auto", "ko", false); fail("Automatic mode requires autoDetect") }
+        catch (_: IllegalArgumentException) {}
+        assertEquals(0, backend.loads)
+    }
+
     private fun repository(backend: FakeBackend) = LocalTranslationRepository(
         modelFile = { File("/verified/model.gguf") },
         backend = backend,

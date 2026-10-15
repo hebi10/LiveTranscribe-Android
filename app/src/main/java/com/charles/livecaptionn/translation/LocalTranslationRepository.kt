@@ -1,5 +1,6 @@
 package com.charles.livecaptionn.translation
 
+import com.charles.livecaptionn.settings.RecognitionLanguages
 import java.io.File
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
@@ -28,10 +29,11 @@ class LocalTranslationRepository internal constructor(
     @Volatile private var handle = 0L
 
     override suspend fun translate(text: String, sourceCode: String, targetCode: String, autoDetect: Boolean): String {
+        val source = requirePair(sourceCode, targetCode, allowAutomaticMode = autoDetect)
         val clean = text.trim()
         if (clean.isEmpty()) return clean
-        requirePair(sourceCode, targetCode)
-        if (sourceCode == targetCode) return clean
+        // Automatic segments can mix languages or have an incorrect language label.
+        if (source == "ko" && !autoDetect) return clean
         require(clean.length <= 4_000) { "번역할 문장이 너무 깁니다." }
         val prompt = "Translate the following text into Korean. Note that you should only output " +
             "the translated result without any additional explanation:\n\n$clean"
@@ -43,14 +45,20 @@ class LocalTranslationRepository internal constructor(
     }
 
     override suspend fun prewarm(sourceCode: String, targetCode: String) {
-        requirePair(sourceCode, targetCode)
-        if (sourceCode != targetCode) execute { _, _ -> Unit }
+        val source = requirePair(sourceCode, targetCode, allowAutomaticMode = true)
+        if (source != "ko") execute { _, _ -> Unit }
     }
 
-    private fun requirePair(source: String, target: String) {
-        require(target == "ko" && source in setOf("ja", "en", "ko")) {
-            "현재 기기 내 번역은 일본어·영어에서 한국어로 지원합니다."
+    private fun requirePair(source: String, target: String, allowAutomaticMode: Boolean): String {
+        val detected = RecognitionLanguages.normalizeDetected(source)
+        val explicitUnknown = source.trim().equals(RecognitionLanguages.UNKNOWN, ignoreCase = true)
+        val automatic = allowAutomaticMode && source.trim().equals(RecognitionLanguages.AUTO, ignoreCase = true)
+        require(RecognitionLanguages.normalizeDetected(target) == "ko" &&
+            (detected in RecognitionLanguages.supportedSourceCodes || explicitUnknown || automatic)) {
+            "지원하는 원문 언어에서 한국어로만 기기 내 번역을 사용할 수 있습니다."
         }
+        // An unknown source is translated by text; it must never trigger Korean identity bypass.
+        return detected
     }
 
     private suspend fun <T> execute(action: (Long, Long) -> T): T = suspendCancellableCoroutine { continuation ->

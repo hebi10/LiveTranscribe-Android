@@ -34,10 +34,59 @@ class MainSetupStateTest {
         assertFalse(state.canStart)
     }
 
+    @Test fun checklistCountsCompletedStepsAndPointsToTheNextMissingRequirement() {
+        val firstRun = ready.copy(
+            micPermissionGranted = false,
+            overlayPermissionGranted = false,
+            translationModel = TranslationModelState("auto", ModelSetupStage.NOT_DOWNLOADED)
+        )
+        val first = firstRun.setupState()
+        assertEquals(0, first.completedSteps)
+        assertEquals(3, first.remainingSteps)
+        assertEquals(SetupStep.AUDIO_PERMISSION, first.nextStep)
+
+        val audioAllowed = firstRun.copy(micPermissionGranted = true).setupState()
+        assertEquals(1, audioAllowed.completedSteps)
+        assertEquals(2, audioAllowed.remainingSteps)
+        assertEquals(SetupStep.OVERLAY_PERMISSION, audioAllowed.nextStep)
+
+        val permissionsAllowed = firstRun.copy(micPermissionGranted = true,
+            overlayPermissionGranted = true).setupState()
+        assertEquals(2, permissionsAllowed.completedSteps)
+        assertEquals(1, permissionsAllowed.remainingSteps)
+        assertEquals(SetupStep.MODELS, permissionsAllowed.nextStep)
+
+        val complete = ready.setupState()
+        assertEquals(3, complete.completedSteps)
+        assertEquals(0, complete.remainingSteps)
+        assertTrue(complete.isComplete)
+        assertNull(complete.nextStep)
+    }
+
+    @Test fun fullyDownloadedButUnverifiedModelsRemainAnUnfinishedStep() {
+        for (stage in listOf(ModelSetupStage.CHECKING, ModelSetupStage.DOWNLOADING, ModelSetupStage.ERROR)) {
+            val setup = ready.copy(translationModel = TranslationModelState("auto", stage,
+                downloadedBytes = 100, totalBytes = 100)).setupState()
+            assertEquals(2, setup.completedSteps)
+            assertEquals(1, setup.remainingSteps)
+            assertFalse(setup.isComplete)
+            assertEquals(SetupStep.MODELS, setup.nextStep)
+        }
+    }
+
+    @Test fun revokedPermissionBecomesTheNextActionWithoutLosingModelCompletion() {
+        val setup = ready.copy(micPermissionGranted = false)
+            .setupState(audioPermissionSettingsRequired = true)
+        assertEquals(2, setup.completedSteps)
+        assertEquals(1, setup.remainingSteps)
+        assertEquals(SetupStep.AUDIO_PERMISSION, setup.nextStep)
+        assertEquals(ModelSetupStage.READY, setup.modelStage)
+    }
+
     @Test fun preparedSharedModelsRemainReadyWhenTheSelectedLanguageChanges() {
         val state = ready.copy(settings = ready.settings.copy(sourceLanguageCode = "ja"))
         assertTrue(state.canStart)
-        assertFalse(state.setupState().isVisible)
+        assertTrue(state.setupState().isVisible)
     }
 
     @Test fun checkingDoesNotOfferADuplicateDownloadOrCancellation() {
@@ -111,10 +160,11 @@ class MainSetupStateTest {
 
         assertEquals(AudioPermissionAction.OPEN_SETTINGS, setup.audioPermissionAction)
         assertFalse(setup.overlayPermissionNeeded)
-        assertNull(setup.modelStage)
+        assertEquals(SetupStep.AUDIO_PERMISSION, setup.nextStep)
+        assertEquals(ModelSetupStage.READY, setup.modelStage)
     }
 
-    @Test fun grantedPermissionsDisappearEvenIfAnOldSettingsFlagRemains() {
+    @Test fun grantedPermissionsRemainCompleteEvenIfAnOldSettingsFlagRemains() {
         val setup = ready.copy(
             translationModel = TranslationModelState("en", ModelSetupStage.NOT_DOWNLOADED)
         ).setupState(audioPermissionSettingsRequired = true)
@@ -124,13 +174,13 @@ class MainSetupStateTest {
         assertTrue(setup.canPrepareModels)
     }
 
-    @Test fun completingSetupCollapsesTheChecklistForRepeatUse() {
+    @Test fun completingSetupKeepsCompletedStepsAvailableForReview() {
         val setup = ready.setupState()
 
-        assertFalse(setup.isVisible)
+        assertTrue(setup.isVisible)
         assertFalse(setup.canPrepareModels)
         assertFalse(setup.canCancelModelPreparation)
-        assertNull(setup.modelStage)
+        assertEquals(ModelSetupStage.READY, setup.modelStage)
         assertEquals(AudioPermissionAction.GRANTED, setup.audioPermissionAction)
         assertFalse(setup.overlayPermissionNeeded)
     }
@@ -143,6 +193,7 @@ class MainSetupStateTest {
         assertFalse(setup.canCancelModelPreparation)
         assertEquals(AudioPermissionAction.GRANTED, setup.audioPermissionAction)
         assertFalse(setup.overlayPermissionNeeded)
+        assertNull(setup.nextStep)
     }
 
     @Test fun activePausedAndStoppingSessionsHideSetupActions() {
@@ -157,6 +208,7 @@ class MainSetupStateTest {
             assertFalse(setup.canCancelModelPreparation)
             assertEquals(AudioPermissionAction.GRANTED, setup.audioPermissionAction)
             assertFalse(setup.overlayPermissionNeeded)
+            assertNull(setup.nextStep)
         }
     }
 

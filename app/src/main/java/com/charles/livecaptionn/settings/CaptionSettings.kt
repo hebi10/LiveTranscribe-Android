@@ -1,7 +1,7 @@
 package com.charles.livecaptionn.settings
 
 data class CaptionSettings(
-    val sourceLanguageCode: String = "en",
+    val sourceLanguageCode: String = RecognitionLanguages.AUTO,
     val targetLanguageCode: String = "ko",
     val textSizeSp: Float = 22f,
     val overlayOpacity: Float = 0.85f,
