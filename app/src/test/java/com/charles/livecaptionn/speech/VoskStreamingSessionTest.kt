@@ -41,6 +41,44 @@ class VoskStreamingSessionTest {
         assertEquals("", session.finish())
     }
 
+    @Test fun pauseFinalizesPrecedingSpeechWithoutFinishingTheSession() {
+        val session = VoskStreamingSession(FakeRecognizer(), SAMPLE_RATE)
+        repeat(3) { session.feed(CHUNK) }
+        assertEquals(VoskStreamingSession.FeedResult("segment 1 bytes 9600", true), session.pauseBoundary())
+        assertNull(session.pauseBoundary())
+        repeat(59) { assertFalse(session.feed(CHUNK).accepted) }
+        assertEquals(VoskStreamingSession.FeedResult("segment 2 bytes 192000", true), session.feed(CHUNK))
+        assertEquals("", session.finish())
+        assertNull(session.pauseBoundary())
+    }
+
+    @Test fun sharedCaptureBoundaryDropsPausedPcmAndEmitsSeparateVoskUtterances() {
+        val recognizer = FakeRecognizer()
+        val session = VoskStreamingSession(recognizer, SAMPLE_RATE)
+        val results = mutableListOf<SpeechResult>()
+        val emitter = StreamingSpeechResultEmitter(results::add)
+        val signals = CaptureSignalState({}, {})
+        val boundary = CaptureAudioBoundary(signals) { session.pauseBoundary()?.let(emitter::emit) }
+        assertTrue(boundary.prepareRead { error("No queued audio before pause") })
+        assertTrue(boundary.acceptRead())
+        emitter.emit(session.feed(CHUNK))
+
+        // This blocking read spans both transitions and must never reach Vosk.
+        assertTrue(boundary.prepareRead { error("No queued audio before pause") })
+        signals.pause()
+        signals.resume()
+        if (boundary.acceptRead()) emitter.emit(session.feed(ByteArray(6400)))
+        var unreadPausedBytes = 9600
+        assertTrue(boundary.prepareRead { unreadPausedBytes = 0; true })
+        assertEquals(0, unreadPausedBytes)
+        assertTrue(boundary.acceptRead())
+        emitter.emit(session.feed(ByteArray(12800)))
+        emitter.emit(VoskStreamingSession.FeedResult(session.finish(), true))
+
+        assertEquals(listOf("segment 1 bytes 3200", "segment 2 bytes 12800"), results.filter { it.isFinal }.map { it.text })
+        assertEquals(16000L, recognizer.totalBytes)
+    }
+
     @Test fun stoppingImmediatelyAfterANaturalBoundaryDoesNotRepeatIt() {
         val session = VoskStreamingSession(FakeRecognizer(setOf(3)), SAMPLE_RATE)
         repeat(3) { session.feed(CHUNK) }

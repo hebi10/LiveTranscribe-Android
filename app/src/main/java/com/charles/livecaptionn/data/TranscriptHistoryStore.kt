@@ -133,7 +133,16 @@ class TranscriptHistoryStore private constructor(
         initialized = true
     }
 
-    private fun readArray(): JSONArray = readValidArray(file) ?: readValidArray(backup) ?: JSONArray()
+    private fun readArray(): JSONArray {
+        readValidArray(file)?.let { return it }
+        readValidArray(backup)?.let { return it }
+        // An existing but unreadable snapshot is not an empty history. Preserve both
+        // copies for recovery and prevent subsequent mutations from replacing them.
+        if (file.exists() || backup.exists()) {
+            throw IOException("No readable history snapshot")
+        }
+        return JSONArray()
+    }
 
     private fun readValidArray(candidate: File): JSONArray? {
         if (!candidate.exists()) return null

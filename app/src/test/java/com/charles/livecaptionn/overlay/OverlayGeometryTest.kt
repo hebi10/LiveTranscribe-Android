@@ -33,4 +33,51 @@ class OverlayGeometryTest {
             clampOverlayGeometry(OverlayGeometry(500, 650, 280, 120),
                 OverlayBounds(0, 24, 800, 280), 180, 80))
     }
+
+    private val wide = OverlayBounds(0, 24, 1200, 900)
+    private val narrow = OverlayBounds(0, 24, 320, 500)
+    private val preference = OverlayGeometry(500, 650, 600, 220)
+
+    @Test fun narrowDisplayDoesNotReplaceWidePreference() {
+        val state = OverlayGeometryState(preference)
+        assertEquals(OverlayGeometry(0, 280, 320, 220), state.display(narrow, 220, 108))
+        assertEquals(preference, state.preferred)
+        assertEquals(preference, state.display(wide, 220, 108))
+    }
+
+    @Test fun presentationModesNeverReplaceNormalSizeOrPosition() {
+        val normal = OverlayGeometry(600, 740, 300, 120)
+        val state = OverlayGeometryState(normal)
+        assertEquals(OverlayGeometry(600, 680, 300, 220),
+            state.display(wide, 220, 108, expandedMinHeight = 220))
+        assertEquals(OverlayGeometry(20, 444, 300, 56),
+            state.display(narrow, 220, 108, minimizedHeight = 56))
+        assertEquals(normal, state.preferred)
+        assertEquals(normal, state.display(wide, 220, 108))
+    }
+
+    @Test fun movingOnNarrowScreenPreservesPreferredNormalDimensions() {
+        val state = OverlayGeometryState(preference)
+        state.moveTo(-500, 999, narrow, 220, 108, minimizedHeight = 56)
+        assertEquals(OverlayGeometry(0, 444, 600, 220), state.preferred)
+        assertEquals(OverlayGeometry(0, 444, 600, 220), state.display(wide, 220, 108))
+    }
+
+    @Test fun directionalMovementUsesDisplayedPositionAndStopsAtEdges() {
+        val state = OverlayGeometryState(OverlayGeometry(900, 900, 220, 108))
+        state.moveBy(-24, -24, narrow, 220, 108)
+        assertEquals(OverlayGeometry(76, 368, 220, 108), state.preferred)
+        state.moveBy(999, 999, narrow, 220, 108)
+        assertEquals(OverlayGeometry(100, 392, 220, 108), state.preferred)
+        state.moveBy(-999, -999, narrow, 220, 108)
+        assertEquals(OverlayGeometry(0, 24, 220, 108), state.preferred)
+    }
+
+    @Test fun explicitResizeStartsFromFittedNormalSizeAndRemainsPreferred() {
+        val state = OverlayGeometryState(preference)
+        val start = state.display(narrow, 220, 108)
+        state.resizeTo(start.width - 24, start.height - 24, narrow, 220, 108)
+        assertEquals(OverlayGeometry(0, 280, 296, 196), state.preferred)
+        assertEquals(state.preferred, state.display(wide, 220, 108))
+    }
 }

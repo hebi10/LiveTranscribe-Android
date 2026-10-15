@@ -128,7 +128,7 @@ class MainViewModel(
     }
 
     fun updateSaveHistory(enabled: Boolean) {
-        viewModelScope.launch { container.settingsRepository.update { it.copy(saveHistory = enabled) } }
+        viewModelScope.launch { container.historyRecordingGate.updateEnabled(enabled) }
     }
 
     fun openOverlayPermissionSettings(context: Context) {

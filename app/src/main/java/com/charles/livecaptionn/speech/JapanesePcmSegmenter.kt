@@ -8,6 +8,7 @@ internal class JapanesePcmSegmenter {
     private var leadingSilence = ByteArray(0)
     private var voicedBytes = 0
     private var silentBytes = 0
+    private var continuingSpeech = false
     private var finished = false
 
     fun feed(pcm: ByteArray, length: Int = pcm.size, speechDetected: Boolean? = null): List<ByteArray> {
@@ -19,7 +20,7 @@ internal class JapanesePcmSegmenter {
         var offset = 0
         while (offset < length) {
             if (audio.size() == 0) {
-                if (!voiced) {
+                if (!voiced && !continuingSpeech) {
                     retainLeadingSilence(pcm, offset, length - offset)
                     break
                 }
@@ -37,7 +38,7 @@ internal class JapanesePcmSegmenter {
                 silentBytes += count
             }
             if (audio.size() == MAX_BYTES || silentBytes == SILENCE_BYTES) {
-                drain()?.let(outputs::add)
+                drain(continueUtterance = silentBytes < SILENCE_BYTES)?.let(outputs::add)
             }
         }
         return outputs
@@ -54,11 +55,15 @@ internal class JapanesePcmSegmenter {
         return drain().also { leadingSilence = ByteArray(0) }
     }
 
-    private fun drain(): ByteArray? {
-        val result = if (voicedBytes >= MIN_SPEECH_BYTES) audio.toByteArray() else null
+    private fun drain(continueUtterance: Boolean = false): ByteArray? {
+        val qualifiedSpeech = voicedBytes >= MIN_SPEECH_BYTES || (continuingSpeech && voicedBytes > 0)
+        val result = if (qualifiedSpeech) audio.toByteArray() else null
+        // A duration split continues the same utterance, including a short voiced
+        // tail. Silence/pause/stop ends that eligibility for independent sounds.
+        continuingSpeech = continueUtterance && (continuingSpeech || qualifiedSpeech)
         audio.reset()
         voicedBytes = 0
-        silentBytes = 0
+        if (!continueUtterance) silentBytes = 0
         return result
     }
 

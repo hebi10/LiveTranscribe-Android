@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -26,11 +27,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelProvider
 import com.charles.livecaptionn.service.CaptionForegroundService
 import com.charles.livecaptionn.service.MediaProjectionHolder
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.speech.RecognitionStatus
+import com.charles.livecaptionn.ui.AudioPermissionAction
+import com.charles.livecaptionn.ui.audioPermissionAction
 import com.charles.livecaptionn.ui.CaptionStartGate
 import com.charles.livecaptionn.ui.HistoryScreen
 import com.charles.livecaptionn.ui.MainScreen
@@ -45,15 +48,24 @@ class MainActivity : ComponentActivity() {
     private var showHistory by mutableStateOf(false)
     private var startGate = CaptionStartGate()
     private var startPending by mutableStateOf(false)
+    private var completedAudioPermissionRequest = false
+    private var audioPermissionSettingsRequired by mutableStateOf(false)
+    private lateinit var mainViewModel: MainViewModel
 
     private fun syncStartPending() { startPending = startGate.busy }
 
     private val audioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            completedAudioPermissionRequest = true
+            getPreferences(MODE_PRIVATE).edit().putBoolean("audio_permission_requested", true).apply()
+            refreshAudioPermissionAction()
+            if (::mainViewModel.isInitialized) mainViewModel.refreshPermissionState()
             val resumeStart = startGate.audioPermissionResult(granted)
             syncStartPending()
             if (resumeStart) continueStartCaptioning()
-            else if (!granted) setError("영상 음성과 마이크 인식 모두 음성 녹음 권한이 필요합니다.")
+            else if (!granted) setError(if (audioPermissionSettingsRequired)
+                "음성 녹음 권한이 거부되었습니다. 앱 설정에서 마이크 권한을 허용해 주세요."
+                else "영상 음성과 마이크 인식 모두 음성 녹음 권한이 필요합니다.")
         }
 
     private val mediaProjectionLauncher =
@@ -72,10 +84,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        completedAudioPermissionRequest = savedInstanceState?.getBoolean("audio_permission_requested") == true ||
+            getPreferences(MODE_PRIVATE).getBoolean("audio_permission_requested", false)
+        refreshAudioPermissionAction()
         showHistory = savedInstanceState?.getBoolean("show_history") ?: false
         startGate = CaptionStartGate(savedInstanceState?.getString("start_stage"))
         syncStartPending()
         val app = application as LiveCaptionApp
+        mainViewModel = ViewModelProvider(this, MainViewModelFactory(app.container, application))[MainViewModel::class.java]
         lifecycleScope.launch {
             app.container.runtimeStore.state.collect { runtime ->
                 if (runtime.running || runtime.status == RecognitionStatus.ERROR) {
@@ -85,7 +101,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            val vm: MainViewModel = viewModel(factory = MainViewModelFactory(app.container, application))
+            val vm = mainViewModel
             UiStringsProvider {
                 MaterialTheme(
                     colorScheme = darkColorScheme(
@@ -144,6 +160,7 @@ class MainActivity : ComponentActivity() {
                                     onStop = { stopCaptionService() },
                                     onHistory = { showHistory = true },
                                     startPending = startPending,
+                                    audioPermissionSettingsRequired = audioPermissionSettingsRequired,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -158,10 +175,39 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("show_history", showHistory)
         outState.putString("start_stage", startGate.savedStage)
+        outState.putBoolean("audio_permission_requested", completedAudioPermissionRequest)
         super.onSaveInstanceState(outState)
     }
 
+    override fun onResume() {
+        super.onResume()
+        refreshAudioPermissionAction()
+    }
+
+    private fun currentAudioPermissionAction(): AudioPermissionAction = audioPermissionAction(
+        granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
+        completedRequest = completedAudioPermissionRequest,
+        showRationale = shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)
+    )
+
+    private fun refreshAudioPermissionAction() {
+        audioPermissionSettingsRequired = currentAudioPermissionAction() == AudioPermissionAction.OPEN_SETTINGS
+    }
+
     private fun requestMicrophonePermission(forStart: Boolean = false) {
+        if (forStart && !startGate.checking || !forStart && startGate.busy) return
+        refreshAudioPermissionAction()
+        if (audioPermissionSettingsRequired) {
+            // A settings return only refreshes permission state; starting always needs another tap.
+            startGate.cancel()
+            syncStartPending()
+            try {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            } catch (_: RuntimeException) {
+                setError("앱 설정을 열 수 없습니다. Android 설정에서 마이크 권한을 허용해 주세요.")
+            }
+            return
+        }
         if (!startGate.requestAudioPermission(forStart)) return
         syncStartPending()
         audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)

@@ -41,6 +41,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,13 +69,21 @@ fun HistoryScreen(
 ) {
     val scope = rememberCoroutineScope()
     val t = LocalUiStrings.current
-    var entries by remember { mutableStateOf<List<TranscriptEntry>>(emptyList()) }
+    val controller = remember(historyStore) {
+        HistoryController(
+            load = historyStore::getAll,
+            delete = { historyStore.deleteById(it) },
+            clear = historyStore::clear
+        )
+    }
+    val history by controller.state.collectAsStateWithLifecycle()
+    val entries = history.entries
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<TranscriptEntry?>(null) }
 
     var confirmClear by remember { mutableStateOf(false) }
     LaunchedEffect(historyStore) {
-        historyStore.revisions.collect { entries = historyStore.getAll() }
+        historyStore.revisions.collect { controller.refresh() }
     }
 
     val filteredEntries = remember(entries, searchQuery) {
@@ -91,12 +104,9 @@ fun HistoryScreen(
             confirmButton = {
                 TextButton(onClick = {
                     val target = deleteTarget ?: return@TextButton
-                    scope.launch {
-                        historyStore.deleteById(target.id)
-                        entries = historyStore.getAll()
-                    }
+                    scope.launch { controller.delete(target.id) }
                     deleteTarget = null
-                }) {
+                }, enabled = !history.busy) {
                     Text(t["Delete"])
                 }
             },
@@ -116,8 +126,8 @@ fun HistoryScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmClear = false
-                    scope.launch { historyStore.clear() }
-                }) { Text("전체 삭제") }
+                    scope.launch { controller.clear() }
+                }, enabled = !history.busy) { Text("전체 삭제") }
             },
             dismissButton = {
                 TextButton(onClick = { confirmClear = false }) { Text("취소") }
@@ -139,7 +149,7 @@ fun HistoryScreen(
                     if (entries.isNotEmpty()) {
                         TextButton(onClick = {
                             confirmClear = true
-                        }) {
+                        }, enabled = !history.busy) {
                             Icon(Icons.Filled.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(t["Clear"])
@@ -158,6 +168,15 @@ fun HistoryScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            history.error?.let { message ->
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(message, color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    TextButton(onClick = { scope.launch { controller.retry() } }, enabled = !history.busy) {
+                        Text("다시 시도")
+                    }
+                }
+            }
             if (entries.isNotEmpty() || searchQuery.isNotBlank()) {
                 OutlinedTextField(
                     value = searchQuery,
@@ -179,7 +198,9 @@ fun HistoryScreen(
                 )
             }
 
-            if (filteredEntries.isEmpty()) {
+            if (entries.isEmpty() && (history.error != null || history.busy)) {
+                if (history.busy) Text("기록을 불러오는 중…", modifier = Modifier.padding(16.dp))
+            } else if (filteredEntries.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -211,7 +232,8 @@ fun HistoryScreen(
                     items(filteredEntries, key = { it.id }) { entry ->
                         TranscriptCard(
                             entry = entry,
-                            onDelete = { deleteTarget = entry }
+                            onDelete = { deleteTarget = entry },
+                            deleteEnabled = !history.busy
                         )
                     }
                     item { Spacer(Modifier.height(16.dp)) }
@@ -224,9 +246,13 @@ fun HistoryScreen(
 @Composable
 private fun TranscriptCard(
     entry: TranscriptEntry,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    deleteEnabled: Boolean
 ) {
     val t = LocalUiStrings.current
+    var expanded by rememberSaveable(entry.id) { mutableStateOf(false) }
+    var originalOverflow by remember(entry.originalText) { mutableStateOf(false) }
+    var translatedOverflow by remember(entry.translatedText) { mutableStateOf(false) }
     val timeStr = remember(entry.timestamp) {
         val fmt = SimpleDateFormat("M월 d일 a h:mm", Locale.KOREAN)
         fmt.format(Date(entry.timestamp))
@@ -256,6 +282,7 @@ private fun TranscriptCard(
                     )
                     IconButton(
                         onClick = onDelete,
+                        enabled = deleteEnabled,
                         modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
@@ -275,8 +302,9 @@ private fun TranscriptCard(
                 style = MaterialTheme.typography.bodySmall,
                 fontStyle = FontStyle.Italic,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis
+                maxLines = if (expanded) Int.MAX_VALUE else 4,
+                overflow = TextOverflow.Ellipsis,
+                onTextLayout = { if (!expanded) originalOverflow = it.hasVisualOverflow }
             )
             Spacer(Modifier.height(4.dp))
             Text(
@@ -284,9 +312,18 @@ private fun TranscriptCard(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis
+                maxLines = if (expanded) Int.MAX_VALUE else 4,
+                overflow = TextOverflow.Ellipsis,
+                onTextLayout = { if (!expanded) translatedOverflow = it.hasVisualOverflow }
             )
+            if (expanded || originalOverflow || translatedOverflow) {
+                TextButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.semantics {
+                        stateDescription = if (expanded) "전체 내용 펼쳐짐" else "내용 접힘"
+                    }
+                ) { Text(if (expanded) "접기" else "전체 내용 펼치기") }
+            }
         }
     }
 }
