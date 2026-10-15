@@ -10,6 +10,23 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CaptureAudioBoundaryTest {
+    @Test fun typedCaptureHintNeverClearsOrReplacesFatalError() {
+        var error: String? = null
+        var hint: String? = null
+        val signals = CaptureSignalState({ error = it }, {}, { hint = it })
+        signals.hint("play supported audio")
+        assertNull(error)
+        assertEquals("play supported audio", hint)
+        signals.hint(null)
+        assertNull(hint)
+        signals.fail("capture failed")
+        signals.hint("late hint")
+        signals.hint(null)
+        signals.ready()
+        assertEquals("capture failed", error)
+        assertNull(hint)
+    }
+
     @Test fun pauseAndResumeAfterRecorderStartStillDrainBeforeTheFirstRead() {
         val signals = CaptureSignalState({}, {})
         val resumeGenerationAtStart = signals.resumeGeneration

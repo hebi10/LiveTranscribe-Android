@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -27,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -42,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -51,9 +55,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.charles.livecaptionn.data.HistoryPolicy
 import com.charles.livecaptionn.data.TranscriptEntry
 import com.charles.livecaptionn.data.TranscriptHistoryStore
 import com.charles.livecaptionn.ui.l10n.LocalUiStrings
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -64,6 +70,8 @@ import java.util.Locale
 @Composable
 fun HistoryScreen(
     historyStore: TranscriptHistoryStore,
+    historySavingEnabled: Flow<Boolean>,
+    onHistorySavingChange: (Boolean) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -77,6 +85,8 @@ fun HistoryScreen(
         )
     }
     val history by controller.state.collectAsStateWithLifecycle()
+    val saveHistory: Boolean? by historySavingEnabled.collectAsStateWithLifecycle(initialValue = null)
+    val historyLimit = remember { HistoryPolicy().maxEntries }
     val entries = history.entries
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<TranscriptEntry?>(null) }
@@ -163,82 +173,127 @@ fun HistoryScreen(
             )
         }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            item(key = "history-saving") {
+                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        val savingState = when (saveHistory) {
+                            true -> "켜짐"
+                            false -> "꺼짐"
+                            null -> "설정 확인 중"
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .semantics { stateDescription = savingState }
+                                .toggleable(
+                                    value = saveHistory == true,
+                                    enabled = saveHistory != null,
+                                    role = Role.Switch,
+                                    onValueChange = onHistorySavingChange
+                                ),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("번역 기록 저장", style = MaterialTheme.typography.bodyMedium)
+                                Text(savingState, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = saveHistory == true,
+                                onCheckedChange = null,
+                                enabled = saveHistory != null
+                            )
+                        }
+                        Text(
+                            "기본 꺼짐 · 최근 ${historyLimit}개를 기기에 저장하며, 초과하면 가장 오래된 기록부터 삭제합니다. " +
+                                "끄면 이후 저장을 중단하고 기존 기록은 유지합니다. 기존 기록은 개별 삭제하거나 전체 삭제할 수 있습니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
             history.error?.let { message ->
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Text(message, color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                    TextButton(onClick = { scope.launch { controller.retry() } }, enabled = !history.busy) {
-                        Text("다시 시도")
+                item(key = "history-error") {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text(message, color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                        TextButton(onClick = { scope.launch { controller.retry() } }, enabled = !history.busy) {
+                            Text("다시 시도")
+                        }
                     }
                 }
             }
             if (entries.isNotEmpty() || searchQuery.isNotBlank()) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    placeholder = { Text(t["Search transcripts…"]) },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Filled.Close, contentDescription = t["Clear search"], modifier = Modifier.size(20.dp))
+                item(key = "history-search") {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        placeholder = { Text(t["Search transcripts…"]) },
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Filled.Close, contentDescription = t["Clear search"], modifier = Modifier.size(20.dp))
+                                }
                             }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
-                )
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
             }
 
             if (entries.isEmpty() && (history.error != null || history.busy)) {
-                if (history.busy) Text("기록을 불러오는 중…", modifier = Modifier.padding(16.dp))
-            } else if (filteredEntries.isEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        if (entries.isNotEmpty() && searchQuery.isNotBlank()) t["No matching transcripts"]
-                        else t["No transcripts yet"],
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        if (entries.isNotEmpty() && searchQuery.isNotBlank()) t["Try a different search term."]
-                        else t["Transcripts will appear here as you use captioning."],
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
+                if (history.busy) {
+                    item(key = "history-loading") {
+                        Text("기록을 불러오는 중…", modifier = Modifier.padding(16.dp))
+                    }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(filteredEntries, key = { it.id }) { entry ->
-                        TranscriptCard(
-                            entry = entry,
-                            onDelete = { deleteTarget = entry },
-                            deleteEnabled = !history.busy
+            } else if (filteredEntries.isEmpty()) {
+                item(key = "history-empty") {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            if (entries.isNotEmpty() && searchQuery.isNotBlank()) t["No matching transcripts"]
+                            else t["No transcripts yet"],
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (entries.isNotEmpty() && searchQuery.isNotBlank()) t["Try a different search term."]
+                            else when (saveHistory) {
+                                true -> "이후 확정된 번역이 여기에 저장됩니다."
+                                false -> "위의 기록 저장을 켜면 이후 번역이 여기에 저장됩니다."
+                                null -> "기록 저장 설정을 확인하고 있습니다."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
                         )
                     }
-                    item { Spacer(Modifier.height(16.dp)) }
+                }
+            } else {
+                items(filteredEntries, key = { "entry:${it.id}" }) { entry ->
+                    TranscriptCard(
+                        entry = entry,
+                        onDelete = { deleteTarget = entry },
+                        deleteEnabled = !history.busy,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
+                    )
                 }
             }
+            item(key = "history-bottom-space") { Spacer(Modifier.height(16.dp)) }
         }
     }
 }
@@ -247,7 +302,8 @@ fun HistoryScreen(
 private fun TranscriptCard(
     entry: TranscriptEntry,
     onDelete: () -> Unit,
-    deleteEnabled: Boolean
+    deleteEnabled: Boolean,
+    modifier: Modifier = Modifier
 ) {
     val t = LocalUiStrings.current
     var expanded by rememberSaveable(entry.id) { mutableStateOf(false) }
@@ -259,7 +315,7 @@ private fun TranscriptCard(
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(Modifier.padding(14.dp)) {

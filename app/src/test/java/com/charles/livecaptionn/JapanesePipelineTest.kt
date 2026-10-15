@@ -10,6 +10,23 @@ import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class JapanesePipelineTest {
+    @Test fun processingTracksNativeDecodeAndAlwaysClearsAfterFailure() = runTest {
+        for (fails in listOf(false, true)) {
+            val events = mutableListOf<Boolean>()
+            val backend = FakeBackend().apply {
+                throwOnDecode = fails
+                beforeDecode = { assertEquals(listOf(true), events) }
+            }
+            val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), {},
+                workerContext = StandardTestDispatcher(testScheduler), onProcessing = events::add)
+            pipeline.feed(pcm(128000))
+            assertTrue(events.isEmpty())
+            try { pipeline.finish() } catch (failure: IllegalStateException) { assertTrue(fails) }
+            assertEquals(listOf(true, false), events)
+            assertEquals(1, backend.closed)
+        }
+    }
+
     @Test fun feedDoesNotDecodeInCallerAndFinishDrainsOnlyFinalResults() = runTest {
         val backend = FakeBackend()
         val results = mutableListOf<SpeechResult>()
@@ -150,10 +167,10 @@ class JapanesePipelineTest {
     @Test fun fatalMessageIsPublishedBeforeErrorStatusAndEarlierFailureIsPreserved() {
         var message: String? = null
         val events = mutableListOf<RecognitionStatus>()
-        val signals = CaptureSignalState({ message = it }) { status ->
+        val signals = CaptureSignalState({ message = it }, onStatus = { status ->
             if (status == RecognitionStatus.ERROR) assertEquals("capture failed", message)
             events.add(status)
-        }
+        })
         signals.fail("capture failed")
         signals.fail("tail failed")
         signals.hint(null)

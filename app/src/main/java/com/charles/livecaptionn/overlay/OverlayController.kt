@@ -56,6 +56,7 @@ class OverlayController(
     private var root: FrameLayout? = null
     private var statusText: TextView? = null
     private var statusDetail: TextView? = null
+    private var statusInformation: TextView? = null
     private var controls: LinearLayout? = null
     private var originalContainer: LinearLayout? = null
     private var originalText: TextView? = null
@@ -70,14 +71,14 @@ class OverlayController(
     private var minButton: ImageButton? = null
     private var closeButton: ImageButton? = null
     private var resizeHandle: ImageButton? = null
-    private var latestAction: LinearLayout? = null
-    private var latestIcon: ImageView? = null
-    private var latestLabel: TextView? = null
+    private var latestAction: ImageButton? = null
     private var suggestionBar: LinearLayout? = null
     private var suggestionLabel: TextView? = null
     private var suggestionCode: String? = null
+    private val suggestionChoices = mutableListOf<TextView>()
     private val buttons = mutableListOf<ImageButton>()
     private val buttonStyles = mutableMapOf<ImageButton, Pair<Int, Boolean>>()
+    private val controlLabels = mutableMapOf<ImageButton, TextView>()
     private val chatRows = linkedMapOf<Long, ChatRow>()
     private var params: WindowManager.LayoutParams? = null
     // Only explicit move/resize actions change the preference; fitting is presentation-only.
@@ -100,7 +101,11 @@ class OverlayController(
         val showOriginal: Boolean
     )
     private data class CaptionAppearance(val themeId: String, val fontId: String, val sizeSp: Float)
-    private data class PendingViewport(val following: Boolean, val position: OverlayScrollPosition)
+    private data class PendingViewport(
+        val following: Boolean,
+        val position: OverlayScrollPosition,
+        val revealLatest: Boolean = false
+    )
 
     private val configurationCallbacks = object : ComponentCallbacks {
         override fun onConfigurationChanged(newConfig: Configuration) {
@@ -182,7 +187,13 @@ class OverlayController(
                 scope.launch { settingsRepository.update { it.copy(overlayControlsExpanded = expanded) } }
             }
         }
+        latestAction = makeButton(R.drawable.ic_overlay_latest, "Latest captions") {
+            cancelPendingScroll()
+            pendingViewport = PendingViewport(true, OverlayScrollPosition(null, 0, 0), revealLatest = true)
+            restoreViewportAfterLayout()
+        }.apply { visibility = View.GONE }
         header.addView(statusText)
+        header.addView(latestAction)
         header.addView(pauseButton)
         header.addView(expandButton)
 
@@ -208,25 +219,33 @@ class OverlayController(
             scope.launch { settingsRepository.update { it.copy(showOriginal = showOriginal) } }
         }
         minButton = makeButton(R.drawable.ic_overlay_minimize, "Minimize overlay", onToggleMinimize)
-        closeButton = makeButton(R.drawable.ic_overlay_close, "Close overlay", onClose)
-        controlStrip.addView(modeButton)
-        controlStrip.addView(sourceButton)
-        controlStrip.addView(minButton)
-        controlStrip.addView(closeButton)
+        closeButton = makeButton(R.drawable.ic_overlay_close, "번역 종료", onClose)
+        listOf(modeButton to "대화형", sourceButton to "원문 보기", minButton to "최소화", closeButton to "번역 종료")
+            .forEach { (button, label) ->
+                button?.let { controlStrip.addView(makeLabeledControl(it, label)) }
+            }
         controls?.addView(HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
             addView(controlStrip)
-            layoutParams = LinearLayout.LayoutParams(-1, dp(44))
+            layoutParams = LinearLayout.LayoutParams(-1, -2)
         })
         statusDetail = TextView(context).apply {
             textSize = 12f
-            // Status-only updates cannot alter the caption viewport's height.
+            // Present only for an actionable hint/error, with bounded height while visible.
             minLines = 2
             maxLines = 2
+            visibility = View.GONE
             ellipsize = TextUtils.TruncateAt.END
             setPadding(0, dp(2), 0, dp(4))
         }
-        controls?.addView(statusDetail)
+        statusInformation = TextView(context).apply {
+            textSize = 12f
+            minLines = 3
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            visibility = View.GONE
+        }
+        controls?.addView(statusInformation)
         controls?.addView(createLanguageSuggestionBar())
 
         originalText = makeCaptionText(14f)
@@ -271,44 +290,10 @@ class OverlayController(
             }
         }
         container.addView(header)
+        container.addView(statusDetail)
         container.addView(controls)
         container.addView(body)
         frame.addView(container)
-
-        latestIcon = ImageView(context).apply {
-            setImageResource(R.drawable.ic_overlay_latest)
-            layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }
-        latestLabel = TextView(context).apply {
-            textSize = 12f
-            setSingleLine(true)
-            ellipsize = TextUtils.TruncateAt.END
-            setPadding(dp(4), 0, 0, 0)
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }
-        latestAction = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            minimumHeight = dp(44)
-            setPadding(dp(10), 0, dp(12), 0)
-            addView(latestIcon)
-            addView(latestLabel)
-            visibility = View.GONE
-            isFocusable = true
-            layoutParams = FrameLayout.LayoutParams(-2, dp(44), Gravity.BOTTOM or Gravity.START).apply {
-                bottomMargin = dp(4)
-                marginStart = dp(12)
-                marginEnd = dp(52)
-            }
-            setOnClickListener {
-                followingLatest = true
-                cancelPendingScroll()
-                body?.let { it.scrollTo(0, maximumScrollY()) }
-                updateLatestAction()
-            }
-        }
-        frame.addView(latestAction)
 
         resizeHandle = makeButton(R.drawable.ic_overlay_resize, "Resize caption window") { resizeBy(dp(24)) }.apply {
             layoutParams = FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END)
@@ -363,8 +348,9 @@ class OverlayController(
         val suggestionVisibilityChanged = previous != null && ui.controlsExpanded && !ui.minimized &&
             (previous.suggestedLanguageCode != null) != (ui.suggestedLanguageCode != null)
         val layoutChanged = previous == null || previous.minimized != ui.minimized ||
-            previous.controlsExpanded != ui.controlsExpanded || suggestionVisibilityChanged
-        val modeChanged = previous != null && previous.displayMode != ui.displayMode
+            previous.controlsExpanded != ui.controlsExpanded || suggestionVisibilityChanged ||
+            showsOverlayNotice(previous) != showsOverlayNotice(ui) ||
+            (ui.controlsExpanded && !ui.minimized && previous.information.isNullOrBlank() != ui.information.isNullOrBlank())
         if (layoutChanged) preserveViewport()
         latestUi = ui
         val theme = OverlayThemeCatalog.find(ui.themeId)
@@ -375,16 +361,7 @@ class OverlayController(
         statusText?.apply {
             setTextColor(theme.textRgb)
             setTypefaceIfChanged(this, font.typeface)
-            val suggestion = when (ui.suggestedLanguageCode) {
-                "en" -> "영어 전환 추천"
-                "ja" -> "일본어 전환 추천"
-                else -> null
-            }
-            val label = when {
-                ui.skippedTranslations > 0 || ui.skippedSpeechSegments > 0 -> "${s[ui.status.displayName]} · 일부 자막 생략"
-                suggestion != null -> "${s[ui.status.displayName]} · $suggestion"
-                else -> s[ui.status.displayName]
-            }
+            val label = overlayStatusLabel(ui)
             setTextIfChanged(this, label)
             contentDescription = "${s["Status"]}: $label. ${s["Move caption window"]}"
         }
@@ -393,6 +370,20 @@ class OverlayController(
             setTextColor(withAlpha(theme.textRgb, 200))
             setTypefaceIfChanged(this, font.typeface)
             setTextIfChanged(this, detail)
+            visibility = if (showsOverlayNotice(ui)) View.VISIBLE else View.GONE
+            contentDescription = detail
+        }
+        statusInformation?.apply {
+            val information = ui.information.orEmpty()
+            setTextColor(withAlpha(theme.textRgb, 200))
+            setTypefaceIfChanged(this, font.typeface)
+            setTextIfChanged(this, information)
+            visibility = if (information.isNotBlank()) View.VISIBLE else View.GONE
+            contentDescription = information
+        }
+        for (button in listOf(pauseButton, closeButton)) {
+            button?.isEnabled = !ui.stopping
+            button?.alpha = if (ui.stopping) 0.4f else 1f
         }
         controls?.visibility = if (ui.controlsExpanded && !ui.minimized) View.VISIBLE else View.GONE
         body?.visibility = if (ui.minimized) View.GONE else View.VISIBLE
@@ -413,31 +404,33 @@ class OverlayController(
         modeButton?.isSelected = ui.displayMode == CaptionDisplayMode.CHAT
         sourceButton?.isSelected = ui.showOriginal
         setButton(sourceButton, R.drawable.ic_overlay_source, if (ui.showOriginal) "Hide original text" else "Show original text")
+        setControlLabel(modeButton, if (ui.displayMode == CaptionDisplayMode.CHAT) "자막형" else "대화형")
+        setControlLabel(sourceButton, if (ui.showOriginal) "원문 숨김" else "원문 보기")
         for (button in buttons) applyButtonStyle(button, theme.textRgb, button.isSelected || button === resizeHandle)
-        latestAction?.background = roundedBackground(withAlpha(theme.backgroundRgb, 245))
-        latestIcon?.setColorFilter(theme.textRgb)
-        latestLabel?.apply {
-            setTextColor(theme.textRgb)
-            setTextIfChanged(this, s["Latest captions"])
+        for ((button, label) in controlLabels) {
+            label.setTextColor(theme.textRgb)
+            setTypefaceIfChanged(label, font.typeface)
+            label.isEnabled = button.isEnabled
+            label.alpha = button.alpha
+            (label.parent as? View)?.isEnabled = button.isEnabled
         }
-        latestAction?.contentDescription = s["Latest captions"]
-        suggestionCode = ui.suggestedLanguageCode
+        latestAction?.background = roundedBackground(withAlpha(theme.backgroundRgb, 245))
+        setButton(latestAction, R.drawable.ic_overlay_latest, "Latest captions")
+        suggestionCode = ui.suggestedLanguageCode.takeUnless { ui.stopping }
         suggestionLabel?.apply {
             setTextColor(theme.textRgb)
             setTextIfChanged(this, when (ui.suggestedLanguageCode) {
-                "en" -> "영어 음성 감지 (2회)"
-                "ja" -> "일본어 음성 감지 (2회)"
+                "en" -> "영어 음성 감지 (2회)\n변경 시 종료됩니다.\n앱에서 다시 시작하세요."
+                "ja" -> "일본어 음성 감지 (2회)\n변경 시 종료됩니다.\n앱에서 다시 시작하세요."
                 else -> ""
             })
         }
         suggestionBar?.visibility = if (ui.suggestedLanguageCode != null) View.VISIBLE else View.GONE
-        suggestionBar?.let { bar ->
-            for (index in 0 until bar.childCount) {
-                (bar.getChildAt(index) as? TextView)?.let {
-                    it.setTextColor(theme.textRgb)
-                    setTypefaceIfChanged(it, font.typeface)
-                }
-            }
+        (listOfNotNull(suggestionLabel) + suggestionChoices).forEach {
+            it.setTextColor(theme.textRgb)
+            setTypefaceIfChanged(it, font.typeface)
+            it.isEnabled = !ui.stopping
+            it.alpha = if (ui.stopping) 0.4f else 1f
         }
 
         val display = computeOverlayTextDisplay(ui).let {
@@ -445,13 +438,14 @@ class OverlayController(
                 it.copy(translatedText = s["Captions appear in short speech segments"])
             } else it
         }
-        val content = CaptionContent(ui.displayMode, display,
-            if (ui.displayMode == CaptionDisplayMode.CHAT) visibleOverlayMessages(ui) else emptyList(), ui.showOriginal)
+        val content = CaptionContent(ui.displayMode, display, visibleOverlayMessages(ui), ui.showOriginal)
         val appearance = CaptionAppearance(ui.themeId, ui.fontId, ui.textSizeSp)
         // A recognizer status/detail update must not rewrite caption text or move its viewport.
         if (content != lastContent || appearance != lastAppearance) {
             preserveViewport()
-            if (modeChanged) pendingViewport = PendingViewport(true, OverlayScrollPosition(null, 0, 0))
+            if (content.messages.lastOrNull() != lastContent?.messages?.lastOrNull()) {
+                pendingViewport = pendingViewport?.let { it.copy(revealLatest = it.following) }
+            }
             renderCaptions(content, theme.textRgb, font.typeface)
             lastContent = content
             lastAppearance = appearance
@@ -532,10 +526,12 @@ class OverlayController(
                 val viewport = pendingViewport ?: return true
                 val scroll = body ?: return true
                 if (latestUi?.minimized == true) return true // Keep the anchor until restoration.
-                val target = if (viewport.following) maximumScrollY()
+                val target = if (viewport.revealLatest) latestOverlayScrollY(rowBounds(), maximumScrollY())
                 else restoreOverlayScrollY(viewport.position, rowBounds(), maximumScrollY())
                 scroll.scrollTo(0, target)
-                followingLatest = viewport.following || isAtBottom()
+                // Long captions stop at their beginning and hold the reading anchor until
+                // the user scrolls to the bottom or explicitly asks for the newest message.
+                followingLatest = shouldFollowOverlayAfterRestore(viewport.following, isAtBottom())
                 pendingViewport = null
                 updateLatestAction()
                 return true
@@ -556,12 +552,57 @@ class OverlayController(
     }
 
     private fun rowBounds(): List<OverlayRowBounds> {
-        if (latestUi?.displayMode != CaptionDisplayMode.CHAT) return emptyList()
+        // Use the rendered content: latestUi may already describe the next layout.
+        val content = lastContent ?: return emptyList()
+        if (content.mode != CaptionDisplayMode.CHAT) return captionRowBounds(content)
         val parent = chatContainer ?: return emptyList()
         return (0 until parent.childCount).mapNotNull { index ->
             val child = parent.getChildAt(index)
-            val id = chatRows.entries.firstOrNull { it.value.container === child }?.key ?: return@mapNotNull null
-            OverlayRowBounds(id, parent.top + child.top, parent.top + child.bottom)
+            val entry = chatRows.entries.firstOrNull { it.value.container === child } ?: return@mapNotNull null
+            val rowTop = parent.top + child.top
+            val row = entry.value
+            val translated = messageLines(row.translated, rowTop + row.translated.top, 0, row.translated.length())
+            val source = if (row.source.visibility == View.VISIBLE) {
+                messageLines(row.source, rowTop + row.source.top, 0, row.source.length(), source = true)
+            } else emptyList()
+            OverlayRowBounds(entry.key, translated.firstOrNull()?.top ?: rowTop,
+                parent.top + child.bottom, translated + source)
+        }
+    }
+
+    private fun captionRowBounds(content: CaptionContent): List<OverlayRowBounds> {
+        val translatedView = translatedText ?: return emptyList()
+        var translatedStart = 0
+        var originalStart = 0
+        return content.messages.map { message ->
+            val translated = messageLines(translatedView, translatedView.top, translatedStart,
+                translatedStart + message.translatedText.length)
+            val source = originalText?.takeIf { content.display.showOriginal }?.let { view ->
+                messageLines(view, (originalContainer?.top ?: 0) + view.top, originalStart,
+                    originalStart + message.originalText.length, source = true)
+            }.orEmpty()
+            translatedStart += message.translatedText.length + 1 // Joined newline.
+            originalStart += message.originalText.length + 1
+            OverlayRowBounds(message.id, translated.firstOrNull()?.top ?: translatedView.top,
+                translated.lastOrNull()?.bottom ?: translatedView.bottom, translated + source)
+        }
+    }
+
+    private fun messageLines(
+        view: TextView,
+        viewTop: Int,
+        start: Int,
+        end: Int,
+        source: Boolean = false
+    ): List<OverlayLineBounds> {
+        val layout = view.layout ?: return emptyList()
+        if (start >= end || start >= view.length()) return emptyList()
+        val firstLine = layout.getLineForOffset(start)
+        val lastLine = layout.getLineForOffset((end - 1).coerceAtMost(view.length() - 1))
+        val top = viewTop + view.totalPaddingTop
+        return (firstLine..lastLine).map { line ->
+            OverlayLineBounds((layout.getLineStart(line) - start).coerceAtLeast(0),
+                top + layout.getLineTop(line), top + layout.getLineBottom(line), source)
         }
     }
 
@@ -599,6 +640,7 @@ class OverlayController(
         followingLatest = true
         statusText = null
         statusDetail = null
+        statusInformation = null
         controls = null
         originalContainer = null
         originalText = null
@@ -615,13 +657,13 @@ class OverlayController(
         closeButton = null
         resizeHandle = null
         latestAction = null
-        latestIcon = null
-        latestLabel = null
         buttons.clear()
         buttonStyles.clear()
+        controlLabels.clear()
         suggestionBar = null
         suggestionLabel = null
         suggestionCode = null
+        suggestionChoices.clear()
     }
 
     private fun makeCaptionText(sizeSp: Float) = TextView(context).apply {
@@ -671,6 +713,34 @@ class OverlayController(
         button.tooltipText = button.contentDescription
     }
 
+    private fun makeLabeledControl(button: ImageButton, text: String) = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        minimumWidth = dp(64)
+        setPadding(dp(6), 0, dp(6), dp(4))
+        layoutParams = LinearLayout.LayoutParams(-2, -2)
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        isFocusable = false
+        setOnClickListener { if (button.isEnabled) button.performClick() }
+        addView(button) // Keep the original 44dp button and its single accessibility target.
+        val label = TextView(context).apply {
+            this.text = text
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setSingleLine(true)
+            layoutParams = LinearLayout.LayoutParams(-2, -2)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            isFocusable = false
+        }
+        addView(label)
+        controlLabels[button] = label
+    }
+
+    private fun setControlLabel(button: ImageButton?, text: String) {
+        button?.let { controlLabels[it] }?.let { setTextIfChanged(it, text) }
+    }
+
     private fun applyButtonStyle(button: ImageButton, color: Int, selected: Boolean) {
         val style = color to selected
         if (buttonStyles[button] == style) return
@@ -681,28 +751,36 @@ class OverlayController(
 
     private fun createLanguageSuggestionBar(): LinearLayout {
         val bar = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.VERTICAL
             visibility = View.GONE
         }
         suggestionLabel = TextView(context).apply {
             textSize = 12f
+            minLines = 3
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(-1, -2)
+        }
+        val choices = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
         }
         fun choice(label: String, description: String, action: (String) -> Unit) = TextView(context).apply {
             text = label
             textSize = 12f
             gravity = Gravity.CENTER
-            minWidth = dp(44)
             minHeight = dp(44)
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
             setTextColor(Color.WHITE)
             contentDescription = description
+            isFocusable = true
             setOnClickListener { suggestionCode?.let(action) }
+            suggestionChoices.add(this)
         }
         bar.addView(suggestionLabel)
-        bar.addView(choice("변경", "추천 음성 언어로 변경", onAcceptLanguageSuggestion))
-        bar.addView(choice("유지", "기존 음성 언어 유지", onDismissLanguageSuggestion))
+        choices.addView(choice("변경·앱 열기", "추천 음성 언어로 변경하고 현재 번역 종료 후 앱 열기. 앱에서 번역을 다시 시작해야 합니다.", onAcceptLanguageSuggestion))
+        choices.addView(choice("유지", "기존 음성 언어 유지", onDismissLanguageSuggestion))
+        bar.addView(choices)
         suggestionBar = bar
         return bar
     }
@@ -743,7 +821,7 @@ class OverlayController(
     private fun displayGeometry(): OverlayGeometry? = geometryState?.display(
         usableBounds(), minimumWidth, minimumHeight,
         minimizedHeight = if (latestUi?.minimized == true) dp(56) else null,
-        expandedMinHeight = if (latestUi?.controlsExpanded == true) dp(220) else null)
+        expandedMinHeight = overlayExpandedMinHeightDp(latestUi)?.let(::dp))
 
     private fun clampWindow() {
         val view = root ?: return
@@ -780,7 +858,7 @@ class OverlayController(
     private fun moveBy(dx: Int, dy: Int) {
         geometryState?.moveBy(dx, dy, usableBounds(), minimumWidth, minimumHeight,
             minimizedHeight = if (latestUi?.minimized == true) dp(56) else null,
-            expandedMinHeight = if (latestUi?.controlsExpanded == true) dp(220) else null) ?: return
+            expandedMinHeight = overlayExpandedMinHeightDp(latestUi)?.let(::dp)) ?: return
         clampWindow()
         persistGeometry()
     }
@@ -788,7 +866,7 @@ class OverlayController(
     private fun moveTo(x: Int, y: Int) {
         geometryState?.moveTo(x, y, usableBounds(), minimumWidth, minimumHeight,
             minimizedHeight = if (latestUi?.minimized == true) dp(56) else null,
-            expandedMinHeight = if (latestUi?.controlsExpanded == true) dp(220) else null)
+            expandedMinHeight = overlayExpandedMinHeightDp(latestUi)?.let(::dp))
         clampWindow()
     }
 

@@ -22,13 +22,55 @@ data class CaptionRuntimeState(
     val status: RecognitionStatus = RecognitionStatus.IDLE,
     val running: Boolean = false,
     val paused: Boolean = false,
+    /** Remains running while the owning native worker and final translations finish. */
+    val stopping: Boolean = false,
+    val recognizing: Boolean = false,
+    val translating: Boolean = false,
+    val captureHint: String? = null,
+    val infoMessage: String? = null,
     val lastError: String? = null,
     /** Number of pending translations skipped to keep up during this session. */
     val skippedTranslations: Int = 0,
     /** Audio segments skipped before recognition during a slow-device backlog. */
     val skippedSpeechSegments: Int = 0,
-    val suggestedLanguageCode: String? = null
-)
+    val suggestedLanguageCode: String? = null,
+    val changingLanguageCode: String? = null,
+    val restartLanguageCode: String? = null
+) {
+    val phase: CaptionPhase get() = when {
+        stopping -> CaptionPhase.STOPPING
+        status == RecognitionStatus.ERROR || !lastError.isNullOrBlank() -> CaptionPhase.ERROR
+        paused || status == RecognitionStatus.PAUSED -> CaptionPhase.PAUSED
+        recognizing || translating -> CaptionPhase.PROCESSING
+        running && status != RecognitionStatus.LISTENING -> CaptionPhase.PREPARING
+        running -> CaptionPhase.WAITING
+        else -> CaptionPhase.IDLE
+    }
+
+    /** Only actionable capture hints/errors need space in the collapsed overlay. */
+    val actionableNotice: String? get() = lastError?.takeIf { it.isNotBlank() }
+        ?: captureHint?.takeIf { !stopping && !paused && it.isNotBlank() }
+
+    val restartNotice: String? get() = restartLanguageCode?.let { code ->
+        val label = if (code == "ja") "일본어" else "영어"
+        "$label 음성으로 변경했습니다. " +
+            if (stopping) "종료 후 번역 다시 시작을 눌러 주세요." else "번역 다시 시작을 눌러 주세요."
+    }
+
+    val information: String? get() = listOfNotNull(infoMessage,
+        captionBacklogMessage(skippedTranslations, skippedSpeechSegments))
+        .takeIf { it.isNotEmpty() }?.joinToString("\n")
+}
+
+enum class CaptionPhase(val label: String) {
+    IDLE("대기"), PREPARING("음성 인식 준비 중"), WAITING("음성 대기 중"),
+    PROCESSING("자막 처리 중"), PAUSED("일시정지"), STOPPING("종료 중 · 남은 자막 처리 중"), ERROR("실행 오류")
+}
+
+internal fun stoppingCaptionSession(runtime: CaptionRuntimeState, error: String? = null): CaptionRuntimeState =
+    runtime.copy(running = true, stopping = true, lastError = error ?: runtime.lastError, captureHint = null,
+        suggestedLanguageCode = null)
+
 
 class CaptionRuntimeStore {
     private val mutable = MutableStateFlow(CaptionRuntimeState())
@@ -36,6 +78,18 @@ class CaptionRuntimeStore {
 
     fun update(transform: (CaptionRuntimeState) -> CaptionRuntimeState) {
         mutable.update(transform)
+    }
+
+    /** Claim before launching settings I/O; detection cannot turn a second tap into another write. */
+    internal fun claimLanguageSuggestion(code: String): Boolean {
+        if (code !in setOf("en", "ja")) return false
+        while (true) {
+            val current = mutable.value
+            if (!current.running || current.stopping || current.changingLanguageCode != null ||
+                current.suggestedLanguageCode != code) return false
+            if (mutable.compareAndSet(current, current.copy(suggestedLanguageCode = null,
+                    changingLanguageCode = code))) return true
+        }
     }
 }
 
@@ -46,13 +100,16 @@ internal fun completedCaptionSession(
     drained: Boolean,
     completionMessage: String? = null,
     skippedTranslations: Int = 0,
-    skippedSpeechSegments: Int = 0
+    skippedSpeechSegments: Int = 0,
+    restartLanguageCode: String? = null
 ): CaptionRuntimeState {
     val error = terminalFailure ?: previousFailure ?: if (!drained)
         "번역 종료 시간이 초과되어 마지막 일부 문장이 저장되지 않았습니다." else null
     return CaptionRuntimeState(
         status = if (error == null) RecognitionStatus.IDLE else RecognitionStatus.ERROR,
-        lastError = error ?: listOfNotNull(completionMessage,
+        lastError = error,
+        restartLanguageCode = restartLanguageCode,
+        infoMessage = listOfNotNull(completionMessage,
             captionBacklogMessage(skippedTranslations, skippedSpeechSegments))
             .takeIf { it.isNotEmpty() }?.joinToString("\n")
     )
@@ -67,27 +124,28 @@ internal fun recordDroppedTranslation(runtime: CaptionRuntimeState, lineId: Long
     val skipped = (runtime.skippedTranslations.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     return runtime.copy(
         transcriptLines = runtime.transcriptLines.filterNot { it.id == lineId },
-        skippedTranslations = skipped,
-        lastError = retainedRuntimeError(runtime) ?: captionBacklogMessage(skipped, runtime.skippedSpeechSegments)
+        skippedTranslations = skipped
     )
 }
 
 internal fun withRuntimeError(runtime: CaptionRuntimeState, message: String?): CaptionRuntimeState =
-    runtime.copy(lastError = message ?: captionBacklogMessage(runtime.skippedTranslations, runtime.skippedSpeechSegments))
+    if (runtime.stopping && message == null) runtime else runtime.copy(lastError = message)
 
 internal fun captionBacklogMessage(translations: Int, speech: Int): String? = listOfNotNull(
     if (speech > 0) "음성 인식이 밀려 대기 중인 음성 구간 ${speech}개를 생략했습니다." else null,
     translationBacklogMessage(translations)
 ).takeIf { it.isNotEmpty() }?.joinToString("\n")
 
-private fun retainedRuntimeError(runtime: CaptionRuntimeState): String? = runtime.lastError?.takeUnless {
-    it == captionBacklogMessage(runtime.skippedTranslations, runtime.skippedSpeechSegments)
-}
-
 internal fun recordSkippedSpeechSegment(runtime: CaptionRuntimeState): CaptionRuntimeState {
     val skipped = (runtime.skippedSpeechSegments.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     return runtime.copy(
-        skippedSpeechSegments = skipped,
-        lastError = retainedRuntimeError(runtime) ?: captionBacklogMessage(runtime.skippedTranslations, skipped)
+        skippedSpeechSegments = skipped
     )
 }
+
+/** An explicit start owns clearing the one-time restart prompt; permission handling stays in Activity. */
+internal fun preparedCaptionStart(runtime: CaptionRuntimeState): CaptionRuntimeState =
+    runtime.copy(status = RecognitionStatus.IDLE, lastError = null, restartLanguageCode = null, infoMessage = null)
+
+internal fun manuallySelectedCaptionLanguage(runtime: CaptionRuntimeState, code: String): CaptionRuntimeState =
+    if (!runtime.running && runtime.restartLanguageCode != code) runtime.copy(restartLanguageCode = null) else runtime

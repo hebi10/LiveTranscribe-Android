@@ -17,7 +17,8 @@ internal class JapaneseSpeechPipeline(
     private val onResult: (SpeechResult) -> Unit,
     private val onSkippedAudio: () -> Unit = {},
     private val onFailure: (String) -> Unit = {},
-    workerContext: CoroutineContext = Dispatchers.IO
+    workerContext: CoroutineContext = Dispatchers.IO,
+    private val onProcessing: (Boolean) -> Unit = {}
 ) {
     private val lock = Any()
     private val finishMutex = Mutex()
@@ -74,6 +75,7 @@ internal class JapaneseSpeechPipeline(
     }
 
     private fun decode(audio: ByteArray) {
+        onProcessing(true)
         try {
             val text = session.transcribe(audio)
             if (text.isNotBlank()) onResult(SpeechResult(text, isFinal = true))
@@ -88,6 +90,8 @@ internal class JapaneseSpeechPipeline(
             }
             queue.cancel()
             if (notify) onFailure(message)
+        } finally {
+            onProcessing(false)
         }
     }
 }
