@@ -167,7 +167,9 @@ class CaptionForegroundService : Service() {
         if (stopping || !captionSessionActive.compareAndSet(false, true)) return
         failureMessage = null
         app.container.runtimeStore.update {
-            it.copy(running = true, paused = paused,
+            it.copy(running = true, paused = paused, stopping = false,
+                recognizing = false, translating = false, captureHint = null, infoMessage = null,
+                changingLanguageCode = null, restartLanguageCode = null,
                 status = if (paused) RecognitionStatus.PAUSED else RecognitionStatus.PROCESSING,
                 lastError = null, skippedTranslations = 0, skippedSpeechSegments = 0)
         }
@@ -224,7 +226,8 @@ class CaptionForegroundService : Service() {
                     val suggestion = languageTracker?.observe(detected)
                     if (suggestion != null && captionSessionActive.get()) {
                         app.container.runtimeStore.update {
-                            it.copy(suggestedLanguageCode = suggestion)
+                            if (it.stopping || it.changingLanguageCode != null) it
+                            else it.copy(suggestedLanguageCode = suggestion)
                         }
                     }
                 }
@@ -236,6 +239,7 @@ class CaptionForegroundService : Service() {
                     app.container.runtimeStore.update { recordDroppedTranslation(it, request.lineId) }
                 },
                 translate = { request ->
+                    app.container.runtimeStore.update { it.copy(translating = true) }
                     try {
                         translateSnapshot(request)
                     } catch (e: CancellationException) {
@@ -244,6 +248,8 @@ class CaptionForegroundService : Service() {
                         val message = "번역 기록 처리에 실패했습니다. 저장 공간을 확인해 주세요."
                         failureMessage = failureMessage ?: message
                         app.container.runtimeStore.update { it.copy(lastError = message) }
+                    } finally {
+                        app.container.runtimeStore.update { it.copy(translating = false) }
                     }
                 }
             )
@@ -312,6 +318,10 @@ class CaptionForegroundService : Service() {
                 scope = serviceScope,
                 onResult = onSpeechResult,
                 onError = errorSink,
+                onHint = { hint -> app.container.runtimeStore.update { it.copy(captureHint = hint) } },
+                onRecognitionProcessing = { busy ->
+                    app.container.runtimeStore.update { it.copy(recognizing = busy) }
+                },
                 onUtteranceAudio = { audio -> languageSamples?.trySend(audio) }
             )
             speechEngine = engine
@@ -398,8 +408,6 @@ class CaptionForegroundService : Service() {
                 lineId = request.lineId,
                 translatedText = translatedWithGlossary,
                 isFinalTranslation = request.isFinal
-            ).copy(
-                status = if (paused) RecognitionStatus.PAUSED else RecognitionStatus.LISTENING
             )
         }
         if (request.isFinal) {
@@ -480,17 +488,28 @@ class CaptionForegroundService : Service() {
     }
 
     private fun acceptLanguageSuggestion(code: String) {
-        if (code !in LanguageRecommendationTracker.SUPPORTED) return
-        if (app.container.runtimeStore.state.value.suggestedLanguageCode != code) return
+        if (stopping || !captionSessionActive.get()) return
+        val store = app.container.runtimeStore
+        if (!store.claimLanguageSuggestion(code)) return
         serviceScope.launch {
-            app.container.settingsRepository.update { it.copy(sourceLanguageCode = code) }
-            val label = LanguageRecommendationTracker.label(code)
-            stopFlow(completionMessage = "$label 음성으로 변경했습니다. 앱에서 번역 시작을 다시 눌러 주세요.")
-            Toast.makeText(
-                this@CaptionForegroundService,
-                "$label 음성으로 변경했습니다. 앱에서 다시 시작해 주세요.",
-                Toast.LENGTH_LONG
-            ).show()
+            applyClaimedLanguageSuggestion(
+                store = store,
+                code = code,
+                writeLanguage = { language ->
+                    app.container.settingsRepository.update { it.copy(sourceLanguageCode = language) }
+                },
+                stopSession = { stopFlow() },
+                openMain = {
+                    startActivity(Intent(this@CaptionForegroundService, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        putExtra(MainActivity.EXTRA_OPEN_MAIN, true)
+                    })
+                },
+                onNavigationFailure = { message ->
+                    failureMessage = failureMessage ?: message
+                    Toast.makeText(this@CaptionForegroundService, message, Toast.LENGTH_LONG).show()
+                }
+            )
         }
     }
 
@@ -505,6 +524,7 @@ class CaptionForegroundService : Service() {
     private fun finishSession(error: String? = null, completionMessage: String? = null) {
         if (stopping) return
         stopping = true
+        app.container.runtimeStore.update { stoppingCaptionSession(it, error) }
         if (error != null) failureMessage = error
         captionSessionActive.set(false)
         serviceScope.launch {
@@ -531,7 +551,8 @@ class CaptionForegroundService : Service() {
             app.container.runtimeStore.update {
                 completedCaptionSession(failureMessage, error, drained, completionMessage,
                     skippedTranslations = it.skippedTranslations,
-                    skippedSpeechSegments = it.skippedSpeechSegments)
+                    skippedSpeechSegments = it.skippedSpeechSegments,
+                    restartLanguageCode = it.restartLanguageCode)
             }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -562,7 +583,7 @@ class CaptionForegroundService : Service() {
         serviceScope.cancel()
         MediaProjectionHolder.clear()
         app.container.runtimeStore.update {
-            if (it.running) it.copy(running = false, paused = false,
+            if (it.running) it.copy(running = false, paused = false, stopping = false, recognizing = false, translating = false,
                 status = if (it.status == RecognitionStatus.ERROR) RecognitionStatus.ERROR else RecognitionStatus.IDLE) else it
         }
         super.onDestroy()

@@ -61,7 +61,10 @@ fun MainScreen(
     modifier: Modifier = Modifier
 ) {
     val ui by viewModel.state.collectAsStateWithLifecycle()
-    val sessionBusy = ui.runtime.running || startPending
+    val sessionBusy = ui.runtime.running || ui.runtime.stopping || startPending
+    val setup = ui.setupState(startPending, audioPermissionSettingsRequired)
+    val languageLabel = if (ui.settings.sourceLanguageCode == "ja") "일본어" else "영어"
+    val inputLabel = if (ui.settings.audioSource == AudioSource.SYSTEM) "동영상 음성" else "마이크"
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -98,6 +101,7 @@ fun MainScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
+                    Text("$languageLabel → 한국어 · $inputLabel", fontWeight = FontWeight.Medium)
                     Text(
                         "영상 음성과 번역 문장을 외부 서버로 전송하지 않습니다. " +
                             "캡처를 허용하는 영상 앱에서만 시스템 오디오를 인식할 수 있습니다.",
@@ -105,10 +109,9 @@ fun MainScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     val statusText = when {
+                        ui.runtime.stopping -> ui.runtime.phase.label
                         startPending -> "권한 확인 및 시작 준비 중"
-                        ui.runtime.running && ui.runtime.paused -> "일시정지"
-                        ui.runtime.running -> "실시간 자막 실행 중"
-                        ui.runtime.status == RecognitionStatus.ERROR -> "실행 오류"
+                        ui.runtime.running || ui.runtime.status == RecognitionStatus.ERROR -> ui.runtime.phase.label
                         ui.canStart -> "번역 준비 완료"
                         else -> "설정 확인 필요"
                     }
@@ -116,10 +119,30 @@ fun MainScreen(
                     ui.runtime.lastError?.takeIf { it.isNotBlank() }?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)
                     }
+                    ui.runtime.captureHint?.takeIf { ui.runtime.lastError.isNullOrBlank() && !ui.runtime.stopping && !ui.runtime.paused && it.isNotBlank() }?.let {
+                        Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    ui.runtime.restartNotice?.let {
+                        Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    ui.runtime.information?.let {
+                        Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (setup.isVisible) {
+                        StartSetupGuidance(
+                            setup = setup,
+                            languageLabel = languageLabel,
+                            onRequestAudioPermission = onRequestAudioPermission,
+                            onOpenOverlaySettings = onOpenOverlaySettings,
+                            onPrepareTranslationModel = viewModel::prepareSelectedTranslationModel
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onStart, enabled = !sessionBusy && ui.canStart,
-                            modifier = Modifier.weight(1f)) { Text("번역 시작") }
-                        OutlinedButton(onClick = onStop, enabled = sessionBusy,
+                            modifier = Modifier.weight(1f)) {
+                            Text(if (ui.runtime.restartLanguageCode != null) "번역 다시 시작" else "번역 시작")
+                        }
+                        OutlinedButton(onClick = onStop, enabled = sessionBusy && !ui.runtime.stopping,
                             modifier = Modifier.weight(1f)) { Text("중지") }
                     }
                 }
@@ -139,7 +162,9 @@ fun MainScreen(
                         else OutlinedButton(onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
                             enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text("마이크") }
                     }
-                    Text("번역 시작 시 Android에서 화면 캡처 권한을 요청합니다.",
+                    Text(if (ui.settings.audioSource == AudioSource.SYSTEM)
+                        "번역 시작 시 Android에서 화면 캡처 권한을 요청합니다."
+                        else "마이크로 들리는 주변 음성을 번역합니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -171,36 +196,10 @@ fun MainScreen(
                         color = if (ui.modelReady) MaterialTheme.colorScheme.onSurfaceVariant
                             else MaterialTheme.colorScheme.error
                     )
-                    val preparation = ui.translationModel
-                    val preparationStatus = if (preparation.sourceCode != ui.settings.sourceLanguageCode) {
-                        "선택 언어의 번역 모델 확인 중"
-                    } else when (preparation.stage) {
-                        ModelSetupStage.CHECKING -> "번역 모델 확인 중"
-                        ModelSetupStage.NOT_DOWNLOADED -> "번역 모델 준비 필요"
-                        ModelSetupStage.DOWNLOADING -> "번역 모델 다운로드 중"
-                        ModelSetupStage.READY -> "한국어 번역 모델 준비 완료"
-                        ModelSetupStage.ERROR -> preparation.message ?: "번역 모델 오류"
+                    if (ui.translationReady) {
+                        Text("한국어 번역 모델 준비 완료", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text(preparationStatus, style = MaterialTheme.typography.bodyMedium,
-                        color = if (ui.translationReady) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.error)
-                    if (!ui.translationReady && preparation.stage != ModelSetupStage.DOWNLOADING &&
-                        preparation.stage != ModelSetupStage.CHECKING &&
-                        preparation.sourceCode == ui.settings.sourceLanguageCode
-                    ) {
-                        FilledTonalButton(onClick = viewModel::prepareSelectedTranslationModel,
-                            enabled = !sessionBusy) {
-                            Text("번역 모델 준비")
-                        }
-                    }
-                    Text(
-                        "버튼을 누르면 Google ML Kit이 Wi-Fi 또는 모바일 데이터로 번역 모델을 내려받습니다. " +
-                            "모바일 데이터 사용 시 요금이 발생할 수 있습니다. " +
-                            "음성과 번역 문장은 외부 서버에 전송하지 않지만 " +
-                            "Google SDK에서 기기·앱·언어 등의 진단 데이터를 수집할 수 있습니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                     Text(
                         "언어가 다르면 서로 다른 음성 구간 2개를 독립적으로 분석한 뒤 " +
                             "영어·일본어 전환을 추천합니다. 언어는 자동 변경되지 않습니다.",
@@ -260,24 +259,7 @@ fun MainScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("권한 및 개인정보", style = MaterialTheme.typography.titleMedium)
                     Text(if (ui.overlayPermissionGranted) "화면 표시: 허용됨" else "화면 표시: 권한 필요")
-                    if (!ui.overlayPermissionGranted) {
-                        FilledTonalButton(onClick = onOpenOverlaySettings) {
-                            Text("화면 표시 권한 허용")
-                        }
-                    }
                     Text(if (ui.micPermissionGranted) "음성 캡처: 허용됨" else "음성 캡처: 권한 필요")
-                    if (!ui.micPermissionGranted) {
-                        Text(
-                            if (audioPermissionSettingsRequired)
-                                "권한 요청이 차단되었습니다. 앱 설정의 권한에서 마이크를 허용해 주세요."
-                            else "동영상 내부 음성을 인식할 때도 Android의 마이크(녹음) 권한이 필요합니다.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        FilledTonalButton(onClick = onRequestAudioPermission, enabled = !sessionBusy) {
-                            Text(if (audioPermissionSettingsRequired) "앱 설정에서 권한 허용" else "음성 캡처 권한 허용")
-                        }
-                    }
                     SettingToggle("번역 기록 저장 (기본 꺼짐)", ui.settings.saveHistory,
                         viewModel::updateSaveHistory)
                     Text(
@@ -290,6 +272,73 @@ fun MainScreen(
                 }
             }
             Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun StartSetupGuidance(
+    setup: MainSetupState,
+    languageLabel: String,
+    onRequestAudioPermission: () -> Unit,
+    onOpenOverlaySettings: () -> Unit,
+    onPrepareTranslationModel: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("시작 전 준비", fontWeight = FontWeight.SemiBold)
+        if (setup.speechModelMissing) {
+            Text("$languageLabel 음성 모델이 없습니다. 모델이 포함된 APK를 설치해 주세요.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+        if (setup.audioPermissionAction != AudioPermissionAction.GRANTED) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("음성 캡처: 권한 필요")
+                val settingsRequired = setup.audioPermissionAction == AudioPermissionAction.OPEN_SETTINGS
+                Text(
+                    if (settingsRequired)
+                        "권한 요청이 차단되었습니다. 앱 설정의 권한에서 마이크를 허용해 주세요."
+                    else "동영상 음성을 인식할 때도 Android의 마이크(녹음) 권한이 필요합니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FilledTonalButton(onClick = onRequestAudioPermission) {
+                    Text(if (settingsRequired) "앱 설정에서 권한 허용" else "음성 캡처 권한 허용")
+                }
+            }
+        }
+        if (setup.overlayPermissionNeeded) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("영상 위 자막 표시: 권한 필요")
+                FilledTonalButton(onClick = onOpenOverlaySettings) { Text("화면 표시 권한 허용") }
+            }
+        }
+        setup.translationStage?.let { stage ->
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val preparationStatus = when (stage) {
+                    ModelSetupStage.CHECKING -> "$languageLabel → 한국어 번역 모델 확인 중"
+                    ModelSetupStage.NOT_DOWNLOADED -> "$languageLabel → 한국어 번역 모델 준비 필요"
+                    ModelSetupStage.DOWNLOADING -> "$languageLabel → 한국어 번역 모델 다운로드 중"
+                    ModelSetupStage.READY -> "한국어 번역 모델 준비 완료"
+                    ModelSetupStage.ERROR -> setup.translationError ?: "번역 모델 준비에 실패했습니다. 다시 시도해 주세요."
+                }
+                Text(preparationStatus, style = MaterialTheme.typography.bodyMedium,
+                    color = if (stage == ModelSetupStage.ERROR) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant)
+                if (setup.canPrepareTranslationModel) {
+                    Text(
+                        "버튼을 누르면 Google ML Kit이 Wi-Fi 또는 모바일 데이터로 번역 모델을 내려받습니다. " +
+                            "모바일 데이터 사용 시 요금이 발생할 수 있습니다. " +
+                            "음성과 번역 문장은 외부 서버에 전송하지 않지만 " +
+                            "Google SDK에서 기기·앱·언어 등의 진단 데이터를 수집할 수 있습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    FilledTonalButton(onClick = onPrepareTranslationModel) {
+                        Text(if (stage == ModelSetupStage.ERROR) "$languageLabel 번역 모델 다시 준비"
+                            else "$languageLabel 번역 모델 준비")
+                    }
+                }
+            }
         }
     }
 }

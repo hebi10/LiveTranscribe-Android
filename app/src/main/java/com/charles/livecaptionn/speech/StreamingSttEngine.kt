@@ -37,14 +37,16 @@ class StreamingSttEngine(
     private val onResult: (SpeechResult) -> Unit,
     private val onError: (String?) -> Unit = {},
     private val onUtteranceAudio: ((ByteArray) -> Unit)? = null,
-    private val onSkippedAudio: () -> Unit = {}
+    private val onSkippedAudio: () -> Unit = {},
+    private val onHint: (String?) -> Unit = {},
+    private val onRecognitionProcessing: (Boolean) -> Unit = {}
 ) : SpeechEngine {
 
     private val statusMutable = MutableStateFlow(RecognitionStatus.IDLE)
     val status: StateFlow<RecognitionStatus> = statusMutable
 
     private val lifecycle = CaptureLifecycle(scope, Dispatchers.IO)
-    private val signals = CaptureSignalState(onError) { statusMutable.value = it }
+    private val signals = CaptureSignalState(onError, { statusMutable.value = it }, onHint)
 
     override fun start() {
         lifecycle.start { owner ->
@@ -83,6 +85,7 @@ class StreamingSttEngine(
                     session = openedSession,
                     onResult = onResult,
                     onSkippedAudio = onSkippedAudio,
+                    onProcessing = onRecognitionProcessing,
                     onFailure = { message ->
                         if (ownerContext.isActive) signals.fail(message)
                     }
@@ -132,7 +135,9 @@ class StreamingSttEngine(
             try { record?.stop() } catch (_: Throwable) {}
             try {
                 if (captureStarted) {
-                    localSession?.finish()?.let {
+                    localSession?.let { session ->
+                        withRecognitionProgress(onRecognitionProcessing) { session.finish() }
+                    }?.let {
                         onResult(SpeechResult(it, isFinal = true))
                     }
                 }
@@ -169,7 +174,9 @@ class StreamingSttEngine(
         var voicedChunks = 0
         val audioBoundary = CaptureAudioBoundary(signals, resumeGenerationAtStart) {
             japanesePipeline?.pauseBoundary()
-            localSession?.pauseBoundary()?.let(resultEmitter::emit)
+            localSession?.let { session ->
+                withRecognitionProgress(onRecognitionProcessing) { session.pauseBoundary() }
+            }?.let(resultEmitter::emit)
             intervalPcm.reset()
             voicedChunks = 0
             silentChunkStreak = 0
@@ -228,7 +235,9 @@ class StreamingSttEngine(
             val boundary = if (japanesePipeline != null) {
                 japanesePipeline.feed(buffer, read)
             } else {
-                val result = checkNotNull(localSession).feed(buffer, read)
+                val result = withRecognitionProgress(onRecognitionProcessing) {
+                    checkNotNull(localSession).feed(buffer, read)
+                }
                 resultEmitter.emit(result)
                 result.accepted
             }
@@ -326,7 +335,7 @@ class StreamingSttEngine(
         private const val SILENCE_AVERAGE_ABS_THRESHOLD = 120
         private const val SILENT_CHUNKS_BEFORE_SYSTEM_HINT = 30 // ~3s of silence
         private const val NO_CAPTURABLE_AUDIO_MESSAGE =
-            "캡처 가능한 시스템 오디오가 없습니다. 캡처를 허용하는 앱에서 음소거를 해제하고 재생해 주세요."
+            "영상 앱을 재생하고 음소거를 해제해 주세요. 캡처가 허용된 앱만 지원합니다."
 
         private fun averageAbsAmplitude(pcmData: ByteArray, length: Int): Int {
             var sum = 0L

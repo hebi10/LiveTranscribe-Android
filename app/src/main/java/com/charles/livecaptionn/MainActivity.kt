@@ -30,6 +30,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ViewModelProvider
 import com.charles.livecaptionn.service.CaptionForegroundService
 import com.charles.livecaptionn.service.MediaProjectionHolder
+import com.charles.livecaptionn.service.preparedCaptionStart
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.ui.AudioPermissionAction
@@ -89,6 +90,7 @@ class MainActivity : ComponentActivity() {
         refreshAudioPermissionAction()
         showHistory = savedInstanceState?.getBoolean("show_history") ?: false
         startGate = CaptionStartGate(savedInstanceState?.getString("start_stage"))
+        consumeOpenMainIntent(intent)
         syncStartPending()
         val app = application as LiveCaptionApp
         mainViewModel = ViewModelProvider(this, MainViewModelFactory(app.container, application))[MainViewModel::class.java]
@@ -148,6 +150,8 @@ class MainActivity : ComponentActivity() {
                             if (showHistory) {
                                 HistoryScreen(
                                     historyStore = app.container.transcriptHistory,
+                                    historySavingEnabled = vm.historySavingEnabled,
+                                    onHistorySavingChange = vm::updateSaveHistory,
                                     onBack = { showHistory = false },
                                     modifier = Modifier.weight(1f)
                                 )
@@ -170,6 +174,21 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (startGate.checking) continueStartCaptioning()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeOpenMainIntent(intent)
+    }
+
+    private fun consumeOpenMainIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_MAIN, false) != true) return
+        intent.removeExtra(EXTRA_OPEN_MAIN)
+        showHistory = false
+        // Cancel the existing gate, retaining canceled pending permission results until delivered.
+        startGate.cancel()
+        syncStartPending()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -216,7 +235,7 @@ class MainActivity : ComponentActivity() {
     private fun startCaptioning() {
         val container = (application as LiveCaptionApp).container
         if (container.runtimeStore.state.value.running || !startGate.begin()) return
-        container.runtimeStore.update { it.copy(status = RecognitionStatus.IDLE, lastError = null) }
+        container.runtimeStore.update(::preparedCaptionStart)
         syncStartPending()
         continueStartCaptioning()
     }
@@ -297,5 +316,9 @@ class MainActivity : ComponentActivity() {
             action = CaptionForegroundService.ACTION_STOP
         })
     }
+    companion object {
+        const val EXTRA_OPEN_MAIN = "com.charles.livecaptionn.OPEN_MAIN"
+    }
+
 }
 

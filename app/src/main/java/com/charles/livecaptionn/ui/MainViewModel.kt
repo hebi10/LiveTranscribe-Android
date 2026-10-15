@@ -11,8 +11,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.charles.livecaptionn.di.AppContainer
+import com.charles.livecaptionn.service.manuallySelectedCaptionLanguage
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.CaptionDisplayMode
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +30,9 @@ class MainViewModel(
 ) : AndroidViewModel(application) {
     private val mutable = MutableStateFlow(MainUiState())
     val state: StateFlow<MainUiState> = mutable.asStateFlow()
+    val historySavingEnabled: Flow<Boolean> = container.settingsRepository.settingsFlow
+        .map { it.saveHistory }
+        .distinctUntilChanged()
 
     init {
         viewModelScope.launch {
@@ -76,6 +81,9 @@ class MainViewModel(
         viewModelScope.launch {
             container.settingsRepository.update {
                 if (container.runtimeStore.state.value.running) it else it.copy(sourceLanguageCode = code)
+            }
+            container.runtimeStore.update {
+                manuallySelectedCaptionLanguage(it, code)
             }
         }
     }

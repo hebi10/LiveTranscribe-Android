@@ -5,7 +5,6 @@ import com.charles.livecaptionn.overlay.MAX_OVERLAY_MESSAGES
 import com.charles.livecaptionn.overlay.OverlayUiState
 import com.charles.livecaptionn.overlay.overlayCaptionMessages
 import com.charles.livecaptionn.settings.CaptionSettings
-import com.charles.livecaptionn.speech.RecognitionStatus
 
 /**
  * Pure functions extracted from [CaptionForegroundService] for testability.
@@ -143,7 +142,10 @@ internal fun buildOverlayUiState(runtime: CaptionRuntimeState, settings: Caption
         stableCaptions = settings.stableCaptions,
         controlsExpanded = settings.overlayControlsExpanded,
         status = runtime.status,
-        statusDetail = runtime.lastError,
+        phase = runtime.phase,
+        stopping = runtime.stopping,
+        statusDetail = runtime.actionableNotice,
+        information = runtime.information,
         skippedTranslations = runtime.skippedTranslations,
         skippedSpeechSegments = runtime.skippedSpeechSegments,
         textSizeSp = settings.textSizeSp,
@@ -174,6 +176,5 @@ internal fun applyTranscriptResult(
     // the capture failure that the engine reported immediately before it.
     // Error text arrives before Main observes ERROR; only the capture error sink
     // may clear that text after capture resumes successfully.
-    if (text.isBlank() || runtime.status == RecognitionStatus.ERROR) return recorded
-    return withRuntimeError(recorded.copy(status = if (runtime.paused) RecognitionStatus.PAUSED else RecognitionStatus.PROCESSING), runtime.lastError)
+    return recorded
 }

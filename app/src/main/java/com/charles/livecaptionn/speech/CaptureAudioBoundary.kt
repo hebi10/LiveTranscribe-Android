@@ -6,7 +6,8 @@ import kotlinx.coroutines.ensureActive
 
 internal class CaptureSignalState(
     private val onError: (String?) -> Unit,
-    private val onStatus: (RecognitionStatus) -> Unit
+    private val onStatus: (RecognitionStatus) -> Unit,
+    private val onHint: (String?) -> Unit = onError
 ) {
     private val lock = Any()
     @Volatile var paused = false
@@ -27,12 +28,13 @@ internal class CaptureSignalState(
     }
 
     fun hint(message: String?) = synchronized(lock) {
-        if (fatalError == null) onError(message)
+        if (fatalError == null) onHint(message)
     }
 
     fun ready() = synchronized(lock) {
         if (fatalError == null) {
             onError(null)
+            onHint(null)
             onStatus(if (paused) RecognitionStatus.PAUSED else RecognitionStatus.LISTENING)
         }
     }

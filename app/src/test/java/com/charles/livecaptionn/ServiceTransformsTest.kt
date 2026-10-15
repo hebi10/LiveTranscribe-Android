@@ -309,7 +309,7 @@ class ServiceTransformsTest {
         val result = recordDroppedTranslation(runtime, 2L)
         assertEquals(listOf(committed, latest), result.transcriptLines)
         assertEquals(1, result.skippedTranslations)
-        assertTrue(result.lastError?.isNotBlank() == true)
+        assertTrue(result.information?.isNotBlank() == true)
         assertEquals(result, applyTranscriptTranslation(result, 2L, "late stale result", true))
         assertEquals(result, recordDroppedTranslation(result, 1L))
     }
@@ -321,7 +321,7 @@ class ServiceTransformsTest {
         val failed = withRuntimeError(runtime, "capture failure")
         assertEquals("capture failure", failed.lastError)
         val recovered = withRuntimeError(failed, null)
-        assertTrue(recovered.lastError?.isNotBlank() == true)
+        assertTrue(recovered.information?.isNotBlank() == true)
         assertEquals(1, recovered.skippedTranslations)
         assertEquals(recovered.lastError, buildOverlayUiState(recovered, CaptionSettings()).statusDetail)
     }
@@ -371,8 +371,8 @@ class ServiceTransformsTest {
         val skipped = recordSkippedSpeechSegment(runtime)
         assertEquals(1, skipped.skippedSpeechSegments)
         assertEquals(listOf(committed), skipped.transcriptLines)
-        assertTrue(skipped.lastError?.isNotBlank() == true)
-        assertTrue(withRuntimeError(skipped, null).lastError?.isNotBlank() == true)
+        assertTrue(skipped.information?.isNotBlank() == true)
+        assertTrue(withRuntimeError(skipped, null).information?.isNotBlank() == true)
         assertEquals("안녕", overlayTranscriptText(skipped))
         val failed = recordSkippedSpeechSegment(runtime.copy(lastError = "specific capture failure"))
         assertEquals("specific capture failure", failed.lastError)
@@ -388,9 +388,9 @@ class ServiceTransformsTest {
     fun successfulStop_preservesLatestSpeechAndTranslationSkipCounts() {
         val completion = completedCaptionSession(null, null, true, "language changed", 3, 2)
         assertEquals(RecognitionStatus.IDLE, completion.status)
-        assertTrue(completion.lastError!!.contains("language changed"))
-        assertTrue(completion.lastError!!.contains("음성 구간 2개"))
-        assertTrue(completion.lastError!!.contains("자막 3개"))
+        assertTrue(completion.infoMessage!!.contains("language changed"))
+        assertTrue(completion.infoMessage!!.contains("음성 구간 2개"))
+        assertTrue(completion.infoMessage!!.contains("자막 3개"))
         assertEquals("specific failure", completedCaptionSession("specific failure", null, true, null, 3, 2).lastError)
     }
 }
