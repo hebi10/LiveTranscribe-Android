@@ -2,8 +2,11 @@ package com.charles.livecaptionn.ui
 
 import com.charles.livecaptionn.translation.ModelSetupStage
 
-/** Only unfinished setup is shown, and permission actions never request a caption session. */
+internal enum class SetupStep { AUDIO_PERMISSION, OVERLAY_PERMISSION, MODELS }
+
+/** Completed requirements remain reviewable; permission actions never request a caption session. */
 internal data class MainSetupState(
+    val isVisible: Boolean = false,
     val modelStage: ModelSetupStage? = null,
     val modelMessage: String? = null,
     val downloadedBytes: Long = 0,
@@ -12,8 +15,20 @@ internal data class MainSetupState(
     val audioPermissionAction: AudioPermissionAction = AudioPermissionAction.GRANTED,
     val overlayPermissionNeeded: Boolean = false
 ) {
-    val isVisible: Boolean get() = modelStage != null ||
-        audioPermissionAction != AudioPermissionAction.GRANTED || overlayPermissionNeeded
+    val completedSteps: Int get() = listOf(
+        audioPermissionAction == AudioPermissionAction.GRANTED,
+        !overlayPermissionNeeded,
+        modelStage == ModelSetupStage.READY
+    ).count { it }
+    val remainingSteps: Int get() = 3 - completedSteps
+    val isComplete: Boolean get() = remainingSteps == 0
+    val nextStep: SetupStep? get() = when {
+        !isVisible -> null
+        audioPermissionAction != AudioPermissionAction.GRANTED -> SetupStep.AUDIO_PERMISSION
+        overlayPermissionNeeded -> SetupStep.OVERLAY_PERMISSION
+        modelStage != ModelSetupStage.READY -> SetupStep.MODELS
+        else -> null
+    }
 
     val canPrepareModels: Boolean get() =
         modelStage == ModelSetupStage.NOT_DOWNLOADED || modelStage == ModelSetupStage.ERROR
@@ -28,10 +43,11 @@ internal fun MainUiState.setupState(
     audioPermissionSettingsRequired: Boolean = false
 ): MainSetupState {
     if (runtime.running || runtime.stopping || startPending) return MainSetupState()
-    val stage = translationModel.stage.takeUnless { it == ModelSetupStage.READY }
+    val stage = translationModel.stage
     return MainSetupState(
+        isVisible = true,
         modelStage = stage,
-        modelMessage = translationModel.message.takeIf { stage != null },
+        modelMessage = translationModel.message.takeUnless { stage == ModelSetupStage.READY },
         downloadedBytes = translationModel.downloadedBytes.coerceAtLeast(0),
         totalBytes = translationModel.totalBytes.coerceAtLeast(0),
         currentFile = translationModel.currentFile.takeIf { stage == ModelSetupStage.DOWNLOADING },

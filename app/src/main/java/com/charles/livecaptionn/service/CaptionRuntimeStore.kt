@@ -1,5 +1,6 @@
 package com.charles.livecaptionn.service
 
+import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.speech.RecognitionStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,7 +13,8 @@ data class CaptionRuntimeLine(
     val translatedText: String = "",
     val isFinal: Boolean = false,
     /** Only the translation requested at the recognizer's final boundary is permanent. */
-    val finalTranslationCommitted: Boolean = isFinal && translatedText.isNotBlank()
+    val finalTranslationCommitted: Boolean = isFinal && translatedText.isNotBlank(),
+    val sourceLanguageCode: String = RecognitionLanguages.UNKNOWN
 )
 
 data class CaptionRuntimeState(
@@ -52,7 +54,7 @@ data class CaptionRuntimeState(
         ?: captureHint?.takeIf { !stopping && !paused && it.isNotBlank() }
 
     val restartNotice: String? get() = restartLanguageCode?.let { code ->
-        val label = if (code == "ja") "일본어" else "영어"
+        val label = RecognitionLanguages.koreanLabel(code)
         "$label 음성으로 변경했습니다. " +
             if (stopping) "종료 후 번역 다시 시작을 눌러 주세요." else "번역 다시 시작을 눌러 주세요."
     }

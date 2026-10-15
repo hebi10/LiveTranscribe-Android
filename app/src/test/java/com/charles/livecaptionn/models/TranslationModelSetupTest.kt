@@ -41,6 +41,21 @@ class TranslationModelSetupTest {
         } finally { scope.cancel() }
     }
 
+    @Test fun automaticPreparationSharesReadinessWithBothManualModes() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            val setup = TranslationModelSetup(store(ByteArrayInputStream(bytes)), scope)
+            assertEquals("auto", setup.state.value.sourceCode)
+            setup.prepare("auto")
+            assertTrue(setup.isReady("auto"))
+            assertTrue(setup.isReady("en"))
+            assertTrue(setup.isReady("ja"))
+            setup.refresh("auto")
+            assertEquals(ModelSetupStage.READY, setup.state.value.stage)
+            assertEquals("auto", setup.state.value.sourceCode)
+        } finally { scope.cancel() }
+    }
+
     @Test fun changingLanguageDuringPreparePreservesActiveProgressAndReadiness() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val entered = CountDownLatch(1)

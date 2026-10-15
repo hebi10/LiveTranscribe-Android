@@ -40,7 +40,8 @@ class StreamingSttEngine(
     private val onSkippedAudio: () -> Unit = {},
     private val onHint: (String?) -> Unit = {},
     private val onRecognitionProcessing: (Boolean) -> Unit = {},
-    private val onRecognitionLimit: () -> Unit = {}
+    private val onRecognitionLimit: () -> Unit = {},
+    private val detectLanguage: ((ByteArray) -> String?)? = null
 ) : SpeechEngine {
 
     private val statusMutable = MutableStateFlow(RecognitionStatus.IDLE)
@@ -77,8 +78,9 @@ class StreamingSttEngine(
         val ownerContext = currentCoroutineContext()
         var record: AudioRecord? = null
         try {
-            check(languageCode.lowercase(java.util.Locale.ROOT).substringBefore('-') in setOf("en", "ja")) {
-                "지원하지 않는 음성 언어입니다. 영어 또는 일본어를 선택해 주세요."
+            val sourceMode = languageCode.lowercase(java.util.Locale.ROOT).substringBefore('-')
+            check(sourceMode in setOf("auto", "en", "ja")) {
+                "지원하지 않는 음성 인식 모드입니다. 자동 감지·영어·일본어 중에서 선택해 주세요."
             }
             val openedSession = localSttClient.openSession()
             localSession = openedSession
@@ -88,6 +90,8 @@ class StreamingSttEngine(
                 onSkippedAudio = onSkippedAudio,
                 onProcessing = onRecognitionProcessing,
                 onRecognitionLimit = onRecognitionLimit,
+                sourceLanguageCode = sourceMode,
+                detectLanguage = if (sourceMode == "auto") detectLanguage else null,
                 onFailure = { message ->
                     if (ownerContext.isActive) signals.fail(message)
                 }

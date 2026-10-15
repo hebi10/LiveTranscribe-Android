@@ -4,6 +4,8 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +16,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -26,12 +32,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -45,10 +55,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.CaptionDisplayMode
+import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.translation.ModelSetupStage
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MainScreen(
     viewModel: MainViewModel,
@@ -65,7 +76,8 @@ fun MainScreen(
     val ui by viewModel.state.collectAsStateWithLifecycle()
     val sessionBusy = ui.runtime.running || ui.runtime.stopping || startPending
     val setup = ui.setupState(startPending, audioPermissionSettingsRequired)
-    val languageLabel = if (ui.settings.sourceLanguageCode == "ja") "일본어" else "영어"
+    val languageLabel = if (ui.settings.sourceLanguageCode == RecognitionLanguages.AUTO)
+        "언어 자동 감지" else "${RecognitionLanguages.koreanLabel(ui.settings.sourceLanguageCode)} 고정"
     val inputLabel = if (ui.settings.audioSource == AudioSource.SYSTEM) "동영상 음성" else "마이크"
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -107,20 +119,13 @@ fun MainScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
                     Text("$languageLabel → 한국어 · $inputLabel", fontWeight = FontWeight.Medium)
-                    Text(
-                        "영상 음성과 번역 문장을 외부 서버로 전송하지 않습니다. " +
-                            "캡처를 허용하는 영상 앱에서만 시스템 오디오를 인식할 수 있습니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                     val statusText = when {
                         ui.runtime.stopping -> ui.runtime.phase.label
                         startPending -> "권한 확인 및 시작 준비 중"
                         ui.runtime.running || ui.runtime.status == RecognitionStatus.ERROR -> ui.runtime.phase.label
-                        ui.canStart -> "번역 준비 완료"
-                        else -> "설정 확인 필요"
+                        else -> null
                     }
-                    Text(statusText, fontWeight = FontWeight.SemiBold)
+                    statusText?.let { Text(it, fontWeight = FontWeight.SemiBold) }
                     ui.runtime.lastError?.takeIf { it.isNotBlank() }?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)
                     }
@@ -142,13 +147,21 @@ fun MainScreen(
                             onCancelModelPreparation = onCancelModelPreparation
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onStart, enabled = !sessionBusy && ui.canStart,
-                            modifier = Modifier.weight(1f)) {
+                    if (sessionBusy) {
+                        OutlinedButton(onClick = onStop, enabled = !ui.runtime.stopping,
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text(if (ui.runtime.stopping) "종료 중" else if (startPending) "요청 취소" else "번역 중지")
+                        }
+                    } else if (ui.canStart) {
+                        if (ui.settings.audioSource == AudioSource.SYSTEM) {
+                            Text("시작할 때마다 Android의 화면 공유 확인에서 허용해 주세요. " +
+                                "캡처를 허용하는 영상 앱의 소리만 인식합니다.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
                             Text(if (ui.runtime.restartLanguageCode != null) "번역 다시 시작" else "번역 시작")
                         }
-                        OutlinedButton(onClick = onStop, enabled = sessionBusy && !ui.runtime.stopping,
-                            modifier = Modifier.weight(1f)) { Text("중지") }
                     }
                 }
             }
@@ -156,19 +169,20 @@ fun MainScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("음성 입력", style = MaterialTheme.typography.titleMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         val system = ui.settings.audioSource == AudioSource.SYSTEM
                         if (system) Button(onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
-                            enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text("동영상 음성") }
+                            enabled = !sessionBusy, modifier = Modifier.semantics { selected = true }) { Text("동영상 음성") }
                         else OutlinedButton(onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
-                            enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text("동영상 음성") }
+                            enabled = !sessionBusy, modifier = Modifier.semantics { selected = false }) { Text("동영상 음성") }
                         if (!system) Button(onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
-                            enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text("마이크") }
+                            enabled = !sessionBusy, modifier = Modifier.semantics { selected = true }) { Text("마이크") }
                         else OutlinedButton(onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
-                            enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text("마이크") }
+                            enabled = !sessionBusy, modifier = Modifier.semantics { selected = false }) { Text("마이크") }
                     }
                     Text(if (ui.settings.audioSource == AudioSource.SYSTEM)
-                        "번역 시작 시 Android에서 화면 캡처 권한을 요청합니다."
+                        "동영상 앱의 소리를 번역합니다. 화면 공유는 시작할 때마다 확인합니다."
                         else "마이크로 들리는 주변 음성을 번역합니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -177,35 +191,28 @@ fun MainScreen(
 
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("번역 언어", style = MaterialTheme.typography.titleMedium)
-                    Text("음성 언어 (영어·일본어)")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for ((code, label) in listOf("en" to "영어", "ja" to "일본어")) {
+                    Text("음성 언어", style = MaterialTheme.typography.titleMedium)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for ((code, label) in listOf(RecognitionLanguages.AUTO to "자동 감지", "ja" to "일본어", "en" to "영어")) {
                             val selected = ui.settings.sourceLanguageCode == code
                             if (selected) Button(onClick = { viewModel.selectSourceLanguage(code) },
-                                enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text(label) }
+                                enabled = !sessionBusy, modifier = Modifier.semantics { this.selected = true }) { Text(label) }
                             else OutlinedButton(onClick = { viewModel.selectSourceLanguage(code) },
-                                enabled = !sessionBusy, modifier = Modifier.weight(1f)) { Text(label) }
+                                enabled = !sessionBusy, modifier = Modifier.semantics { this.selected = false }) { Text(label) }
                         }
                     }
                     Text("번역 결과: 한국어", fontWeight = FontWeight.Medium)
                     Text(
-                        if (ui.modelReady) "Qwen3-ASR 0.6B 음성 모델 준비 완료"
-                        else "음성·번역 모델 다운로드가 필요합니다.",
+                        if (ui.settings.sourceLanguageCode == RecognitionLanguages.AUTO)
+                            "영어·일본어 등 지원 언어를 구간마다 감지해 한국어로 번역합니다. " +
+                                "짧은 말이나 여러 언어가 섞인 음성은 감지가 어려울 수 있습니다."
+                        else "${RecognitionLanguages.koreanLabel(ui.settings.sourceLanguageCode)}로 고정해 인식합니다. " +
+                            "여러 언어를 들으려면 자동 감지를 선택하세요.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (ui.modelReady) MaterialTheme.colorScheme.onSurfaceVariant
-                            else MaterialTheme.colorScheme.error
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (ui.translationReady) {
-                        Text("HY-MT2-1.8B Q4_K_M 한국어 번역 모델 준비 완료", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Text("한 번 받은 모델을 영어·일본어에서 함께 사용합니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        "언어가 다르면 서로 다른 음성 구간 2개를 독립적으로 분석한 뒤 " +
-                            "영어·일본어 전환을 추천합니다. 언어는 자동 변경되지 않습니다.",
+                    Text("모든 모드는 같은 모델을 사용하므로 추가 다운로드가 없습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -256,9 +263,7 @@ fun MainScreen(
 
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("권한 및 개인정보", style = MaterialTheme.typography.titleMedium)
-                    Text(if (ui.overlayPermissionGranted) "화면 표시: 허용됨" else "화면 표시: 권한 필요")
-                    Text(if (ui.micPermissionGranted) "음성 캡처: 허용됨" else "음성 캡처: 권한 필요")
+                    Text("기록 및 개인정보", style = MaterialTheme.typography.titleMedium)
                     SettingToggle("번역 기록 저장 (기본 꺼짐)", ui.settings.saveHistory,
                         viewModel::updateSaveHistory)
                     Text(
@@ -283,83 +288,160 @@ private fun StartSetupGuidance(
     onPrepareModels: () -> Unit,
     onCancelModelPreparation: () -> Unit
 ) {
+    var showCompletedDetails by rememberSaveable(setup.isComplete) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("시작 전 준비", fontWeight = FontWeight.SemiBold)
-        if (setup.audioPermissionAction != AudioPermissionAction.GRANTED) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("음성 캡처: 권한 필요")
-                val settingsRequired = setup.audioPermissionAction == AudioPermissionAction.OPEN_SETTINGS
-                Text(
-                    if (settingsRequired)
-                        "권한 요청이 차단되었습니다. 앱 설정의 권한에서 마이크를 허용해 주세요."
-                    else "동영상 음성을 인식할 때도 Android의 마이크(녹음) 권한이 필요합니다.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                FilledTonalButton(onClick = onRequestAudioPermission) {
-                    Text(if (settingsRequired) "앱 설정에서 권한 허용" else "음성 캡처 권한 허용")
-                }
+        Text(if (setup.isComplete) "시작 준비 완료 · 3/3"
+            else "시작 준비 · ${setup.completedSteps}/3 완료", fontWeight = FontWeight.SemiBold)
+        if (setup.isComplete) {
+            TextButton(onClick = { showCompletedDetails = !showCompletedDetails }) {
+                Text(if (showCompletedDetails) "준비 항목 접기" else "준비 항목 확인")
+                Icon(if (showCompletedDetails) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = null)
             }
+        } else {
+            Text("${setup.remainingSteps}개 남았어요. 다음 항목부터 준비해 주세요.",
+                style = MaterialTheme.typography.bodyMedium)
+            NextSetupAction(setup, onRequestAudioPermission, onOpenOverlaySettings, onPrepareModels)
         }
-        if (setup.overlayPermissionNeeded) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("영상 위 자막 표시: 권한 필요")
-                FilledTonalButton(onClick = onOpenOverlaySettings) { Text("화면 표시 권한 허용") }
-            }
-        }
-        setup.modelStage?.let { stage ->
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                val preparationStatus = when (stage) {
-                    ModelSetupStage.CHECKING -> "음성·번역 모델 확인 중"
-                    ModelSetupStage.NOT_DOWNLOADED -> if (setup.canResumeModelPreparation)
-                        "모델 다운로드를 이어서 진행할 수 있습니다." else "음성·번역 모델 준비 필요"
-                    ModelSetupStage.DOWNLOADING -> "음성·번역 모델 다운로드 중"
-                    ModelSetupStage.READY -> "음성·번역 모델 준비 완료"
-                    ModelSetupStage.ERROR -> setup.modelMessage ?: "모델 준비에 실패했습니다. 다시 시도해 주세요."
+        if (!setup.isComplete || showCompletedDetails) {
+            val audioReady = setup.audioPermissionAction == AudioPermissionAction.GRANTED
+            val settingsRequired = setup.audioPermissionAction == AudioPermissionAction.OPEN_SETTINGS
+            SetupChecklistItem(
+                title = "1. 음성 캡처 권한",
+                status = if (audioReady) "완료" else if (settingsRequired) "앱 설정에서 허용 필요" else "허용 필요",
+                completed = audioReady,
+                next = setup.nextStep == SetupStep.AUDIO_PERMISSION
+            )
+            SetupChecklistItem(
+                title = "2. 다른 앱 위에 자막 표시",
+                status = if (setup.overlayPermissionNeeded) "허용 필요" else "완료",
+                completed = !setup.overlayPermissionNeeded,
+                next = setup.nextStep == SetupStep.OVERLAY_PERMISSION
+            )
+            val stage = setup.modelStage
+            SetupChecklistItem(
+                title = "3. 음성·번역 모델",
+                status = when (stage) {
+                    ModelSetupStage.READY -> "완료"
+                    ModelSetupStage.CHECKING -> "다운로드한 파일 확인 중"
+                    ModelSetupStage.DOWNLOADING -> "다운로드 중"
+                    ModelSetupStage.ERROR -> "다시 시도 필요"
+                    else -> if (setup.canResumeModelPreparation) "다운로드 이어받기 필요" else "다운로드 필요 · 약 2.1GB"
+                },
+                completed = stage == ModelSetupStage.READY,
+                next = setup.nextStep == SetupStep.MODELS
+            ) {
+                if (stage == ModelSetupStage.ERROR) {
+                    Text(setup.modelMessage ?: "모델 준비에 실패했습니다. 다시 시도해 주세요.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
-                Text(preparationStatus, style = MaterialTheme.typography.bodyMedium,
-                    color = if (stage == ModelSetupStage.ERROR) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Qwen3-ASR 0.6B (음성 인식) · HY-MT2-1.8B Q4_K_M (한국어 번역)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (setup.canPrepareModels || setup.canCancelModelPreparation) {
-                    Text(
-                        "전체 다운로드는 약 2.1GB이며 영어·일본어가 같은 모델을 사용합니다. " +
-                            "모델 다운로드 버튼을 누르면 Wi-Fi 또는 모바일 데이터로 내려받습니다. " +
-                            "모바일 데이터 사용 시 요금이 발생할 수 있습니다. " +
-                            "다운로드 중에는 앱을 화면에 열어 두세요. 취소하거나 중단되어도 다음에 이어받을 수 있습니다.",
+                if (stage == ModelSetupStage.CHECKING) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                } else if (stage != ModelSetupStage.READY &&
+                    (setup.downloadedBytes > 0 || setup.canCancelModelPreparation)) {
+                    ModelDownloadProgress(setup)
+                }
+                if (stage == ModelSetupStage.READY) {
+                    Text("자동 감지·일본어·영어에서 같은 모델을 함께 사용합니다.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (setup.downloadedBytes > 0 || setup.canCancelModelPreparation) {
-                    val downloadedMb = setup.downloadedBytes / 1_000_000
-                    val totalMb = setup.totalBytes / 1_000_000
-                    Text(if (totalMb > 0) "$downloadedMb / $totalMb MB 다운로드"
-                        else "$downloadedMb MB 다운로드",
-                        style = MaterialTheme.typography.bodySmall)
-                    val progress = setup.downloadProgress
-                    if (progress != null) {
-                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                    } else if (setup.canCancelModelPreparation) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else if (setup.canCancelModelPreparation) {
+                    Text("다운로드 중에는 앱을 열어 두세요. 중단해도 이어받을 수 있습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (setup.canCancelModelPreparation) {
-                    OutlinedButton(onClick = onCancelModelPreparation) { Text("다운로드 취소") }
-                }
-                if (setup.canPrepareModels) {
-                    FilledTonalButton(onClick = onPrepareModels) {
-                        Text(when {
-                            setup.canResumeModelPreparation -> "모델 다운로드 이어받기"
-                            stage == ModelSetupStage.ERROR -> "모델 다운로드 다시 시도"
-                            else -> "모델 다운로드 (약 2.1GB)"
-                        })
-                    }
+                    OutlinedButton(onClick = onCancelModelPreparation) { Text("다운로드 일시 중지") }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NextSetupAction(
+    setup: MainSetupState,
+    onRequestAudioPermission: () -> Unit,
+    onOpenOverlaySettings: () -> Unit,
+    onPrepareModels: () -> Unit
+) {
+    when (setup.nextStep) {
+        SetupStep.AUDIO_PERMISSION -> {
+            Text(if (setup.audioPermissionAction == AudioPermissionAction.OPEN_SETTINGS)
+                "앱 설정 → 권한 → 마이크에서 허용해 주세요."
+                else "동영상 소리 인식에도 Android의 마이크(녹음) 권한이 필요합니다.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = onRequestAudioPermission, modifier = Modifier.fillMaxWidth()) {
+                Text(if (setup.audioPermissionAction == AudioPermissionAction.OPEN_SETTINGS)
+                    "앱 설정에서 마이크 허용" else "음성 캡처 권한 허용")
+            }
+        }
+        SetupStep.OVERLAY_PERMISSION -> {
+            Text("설정 화면에서 이 앱의 ‘다른 앱 위에 표시’를 켜 주세요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = onOpenOverlaySettings, modifier = Modifier.fillMaxWidth()) {
+                Text("자막 표시 권한 허용")
+            }
+        }
+        SetupStep.MODELS -> if (setup.canPrepareModels) {
+            Text("최초 1회 약 2.1GB · Wi-Fi·모바일 데이터 모두 가능\n" +
+                "모바일 데이터 요금이 발생할 수 있습니다. 다운로드 중에는 앱을 열어 두세요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = onPrepareModels, modifier = Modifier.fillMaxWidth()) {
+                Text(when {
+                    setup.canResumeModelPreparation -> "모델 다운로드 이어받기"
+                    setup.modelStage == ModelSetupStage.ERROR -> "모델 다운로드 다시 시도"
+                    else -> "모델 다운로드 (약 2.1GB)"
+                })
+            }
+        }
+        null -> Unit
+    }
+}
+
+@Composable
+private fun SetupChecklistItem(
+    title: String,
+    status: String,
+    completed: Boolean,
+    next: Boolean,
+    content: @Composable () -> Unit = {}
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Icon(if (completed) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+            contentDescription = null, modifier = Modifier.padding(top = 2.dp),
+            tint = if (completed || next) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(modifier = Modifier.semantics(mergeDescendants = true) {}) {
+                Text(title, style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (next) FontWeight.SemiBold else FontWeight.Normal)
+                Text(status, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            content()
+        }
+    }
+}
+
+@Composable
+private fun ModelDownloadProgress(setup: MainSetupState) {
+    val downloadedMb = setup.downloadedBytes / 1_000_000
+    val totalMb = setup.totalBytes / 1_000_000
+    Text(if (totalMb > 0) "$downloadedMb / $totalMb MB 다운로드" else "$downloadedMb MB 다운로드",
+        style = MaterialTheme.typography.bodySmall)
+    val progress = setup.downloadProgress
+    if (progress != null) {
+        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+        if (progress >= 1f && setup.canCancelModelPreparation) {
+            Text("파일 확인을 마치면 준비가 완료됩니다.", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    } else if (setup.canCancelModelPreparation) {
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
     }
 }
 

@@ -19,7 +19,9 @@ internal class OfflineSpeechPipeline(
     private val onFailure: (String) -> Unit = {},
     workerContext: CoroutineContext = Dispatchers.IO,
     private val onProcessing: (Boolean) -> Unit = {},
-    private val onRecognitionLimit: () -> Unit = {}
+    private val onRecognitionLimit: () -> Unit = {},
+    private val sourceLanguageCode: String = "auto",
+    private val detectLanguage: ((ByteArray) -> String?)? = null
 ) {
     private val lock = Any()
     private val finishMutex = Mutex()
@@ -78,8 +80,19 @@ internal class OfflineSpeechPipeline(
     private fun decode(audio: ByteArray) {
         onProcessing(true)
         try {
-            val text = session.transcribe(audio)
-            if (text.isNotBlank()) onResult(SpeechResult(text, isFinal = true))
+            val text = session.transcribe(audio, sourceLanguageCode)
+            if (text.isNotBlank()) {
+                val detectedLanguage = if (sourceLanguageCode == "auto") {
+                    try {
+                        detectLanguage?.invoke(audio)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Throwable) {
+                        null
+                    }
+                } else null
+                onResult(SpeechResult(text, isFinal = true, detectedLanguageCode = detectedLanguage))
+            }
         } catch (_: RecognitionOutputLimitException) {
             onRecognitionLimit()
         } catch (failure: CancellationException) {

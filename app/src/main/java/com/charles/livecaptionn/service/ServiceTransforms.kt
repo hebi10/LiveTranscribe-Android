@@ -5,6 +5,7 @@ import com.charles.livecaptionn.overlay.MAX_OVERLAY_MESSAGES
 import com.charles.livecaptionn.overlay.OverlayUiState
 import com.charles.livecaptionn.overlay.overlayCaptionMessages
 import com.charles.livecaptionn.settings.CaptionSettings
+import com.charles.livecaptionn.settings.RecognitionLanguages
 
 /**
  * Pure functions extracted from [CaptionForegroundService] for testability.
@@ -48,26 +49,30 @@ internal fun recordTranscriptResult(
     lines: List<CaptionRuntimeLine>,
     originalText: String,
     isFinal: Boolean,
-    newLineId: Long
+    newLineId: Long,
+    sourceLanguageCode: String = RecognitionLanguages.UNKNOWN
 ): List<CaptionRuntimeLine> {
     if (originalText.isBlank()) return if (isFinal) lines.filter { it.isFinal } else lines
     val last = lines.lastOrNull()
     val lastIsOpen = last != null && !last.isFinal
 
     if (lastIsOpen) {
-        if (last!!.originalText == originalText && last.isFinal == isFinal) return lines
-        val updatedLine = if (last.originalText == originalText) {
+        val sameSnapshot = last!!.originalText == originalText && last.sourceLanguageCode == sourceLanguageCode
+        if (sameSnapshot && last.isFinal == isFinal) return lines
+        val updatedLine = if (sameSnapshot) {
             // A provisional translation is never promoted to a permanent caption.
             // Keep this utterance's id, but wait for its own final translation.
             if (isFinal) last.copy(isFinal = true, translatedText = "", finalTranslationCommitted = false)
             else last
         } else {
-            CaptionRuntimeLine(id = newLineId, originalText = originalText, isFinal = isFinal)
+            CaptionRuntimeLine(id = newLineId, originalText = originalText, isFinal = isFinal,
+                sourceLanguageCode = sourceLanguageCode)
         }
         return trimTranscriptLines(lines.dropLast(1) + updatedLine)
     }
 
-    return trimTranscriptLines(lines + CaptionRuntimeLine(id = newLineId, originalText = originalText, isFinal = isFinal))
+    return trimTranscriptLines(lines + CaptionRuntimeLine(id = newLineId, originalText = originalText,
+        isFinal = isFinal, sourceLanguageCode = sourceLanguageCode))
 }
 
 /**
@@ -164,9 +169,10 @@ internal fun applyTranscriptResult(
     runtime: CaptionRuntimeState,
     text: String,
     isFinal: Boolean,
-    newLineId: Long
+    newLineId: Long,
+    sourceLanguageCode: String = RecognitionLanguages.UNKNOWN
 ): CaptionRuntimeState {
-    val lines = recordTranscriptResult(runtime.transcriptLines, text, isFinal, newLineId)
+    val lines = recordTranscriptResult(runtime.transcriptLines, text, isFinal, newLineId, sourceLanguageCode)
     val recorded = runtime.copy(
         originalText = if (text.isBlank()) lines.lastOrNull()?.originalText.orEmpty() else text,
         translatedText = lines.lastOrNull { it.translatedText.isNotBlank() }?.translatedText.orEmpty(),

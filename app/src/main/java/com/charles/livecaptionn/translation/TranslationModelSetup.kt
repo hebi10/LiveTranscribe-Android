@@ -1,5 +1,6 @@
 package com.charles.livecaptionn.translation
 
+import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.models.OfflineModelStore
 import com.charles.livecaptionn.models.OfflineModelState
 import kotlinx.coroutines.CoroutineStart
@@ -14,7 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class ModelSetupStage { CHECKING, NOT_DOWNLOADED, DOWNLOADING, READY, ERROR }
 
 data class TranslationModelState(
-    val sourceCode: String = "en",
+    val sourceCode: String = RecognitionLanguages.AUTO,
     val stage: ModelSetupStage = ModelSetupStage.CHECKING,
     val message: String? = null,
     val downloadedBytes: Long = 0,
@@ -22,12 +23,12 @@ data class TranslationModelState(
     val currentFile: String? = null
 )
 
-/** UI compatibility facade. English and Japanese require the same local speech/translation files. */
+/** UI compatibility facade. All recognition modes require the same local speech/translation files. */
 class TranslationModelSetup(
     private val models: OfflineModelStore,
     observerScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
-    @Volatile private var selectedSource = "en"
+    @Volatile private var selectedSource = RecognitionLanguages.AUTO
     private val mutable = MutableStateFlow(asTranslationState(models.state.value))
     val state: StateFlow<TranslationModelState> = mutable.asStateFlow()
 
@@ -38,7 +39,7 @@ class TranslationModelSetup(
         }
     }
 
-    fun isReady(sourceCode: String): Boolean = sourceCode in SUPPORTED_SOURCES && models.isReady()
+    fun isReady(sourceCode: String): Boolean = RecognitionLanguages.isValidMode(sourceCode) && models.isReady()
 
     suspend fun refresh(sourceCode: String) {
         if (!selectSource(sourceCode)) return
@@ -53,11 +54,11 @@ class TranslationModelSetup(
     fun cancel() = models.cancel()
 
     private fun selectSource(sourceCode: String): Boolean {
-        selectedSource = sourceCode
-        if (sourceCode !in SUPPORTED_SOURCES) {
+        if (!RecognitionLanguages.isValidMode(sourceCode)) {
             mutable.value = TranslationModelState(sourceCode, ModelSetupStage.ERROR, "지원하지 않는 원문 언어입니다.")
             return false
         }
+        selectedSource = RecognitionLanguages.normalizeMode(sourceCode)
         mutable.value = asTranslationState(models.state.value)
         return true
     }
@@ -71,5 +72,4 @@ class TranslationModelSetup(
         currentFile = model.currentFile
     )
 
-    companion object { private val SUPPORTED_SOURCES = setOf("en", "ja") }
 }

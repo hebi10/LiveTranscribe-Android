@@ -15,9 +15,9 @@ class MainUiStateFilterTest {
         translationModel = TranslationModelState("en", ModelSetupStage.READY)
     )
 
-    @Test fun oneCompletedDownloadEnablesBothSupportedLanguages() {
-        for (selected in listOf("en", "ja")) {
-            for (lastRequested in listOf("en", "ja")) {
+    @Test fun oneCompletedDownloadEnablesAutomaticAndBothFixedModes() {
+        for (selected in listOf("auto", "en", "ja")) {
+            for (lastRequested in listOf("auto", "en", "ja")) {
                 val state = ready.copy(
                     settings = ready.settings.copy(sourceLanguageCode = selected),
                     translationModel = TranslationModelState(lastRequested, ModelSetupStage.READY)

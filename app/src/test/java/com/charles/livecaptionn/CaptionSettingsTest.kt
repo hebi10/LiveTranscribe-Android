@@ -9,9 +9,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class CaptionSettingsTest {
-    @Test fun defaults_sourceIsEnglishAndTargetIsKorean() {
+    @Test fun defaults_sourceIsAutomaticAndTargetIsKorean() {
         val s = CaptionSettings()
-        assertEquals("en", s.sourceLanguageCode)
+        assertEquals("auto", s.sourceLanguageCode)
         assertEquals("ko", s.targetLanguageCode)
     }
 

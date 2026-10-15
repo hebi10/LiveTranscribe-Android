@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import com.charles.livecaptionn.data.HistoryPolicy
 import com.charles.livecaptionn.data.TranscriptEntry
 import com.charles.livecaptionn.data.TranscriptHistoryStore
+import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.ui.l10n.LocalUiStrings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
@@ -385,10 +386,4 @@ private fun TranscriptCard(
 }
 
 
-internal fun historyLanguageLabel(code: String): String = when (code.lowercase()) {
-    "en" -> "영어"
-    "ja" -> "일본어"
-    "ko" -> "한국어"
-    "auto" -> "자동 감지"
-    else -> "알 수 없음"
-}
+internal fun historyLanguageLabel(code: String): String = RecognitionLanguages.koreanLabel(code)

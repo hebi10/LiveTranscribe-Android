@@ -10,6 +10,74 @@ import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class OfflineSpeechPipelineTest {
+    @Test fun autoDetectionUsesOnlyTheExactSegmentsThatSurviveTheBoundedQueue() = runTest {
+        val backend = FakeBackend()
+        val results = mutableListOf<SpeechResult>()
+        val detectedFirstSamples = mutableListOf<Int>()
+        val detectedLengths = mutableListOf<Int>()
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), results::add,
+            workerContext = StandardTestDispatcher(testScheduler), sourceLanguageCode = "auto",
+            detectLanguage = { audio ->
+                detectedLengths += audio.size
+                val first = (pcmSamples(audio, audio.size).first() * 32768).toInt()
+                detectedFirstSamples += first
+                if (first == 1008) "ja" else "en"
+            })
+        repeat(10) { pipeline.feed(pcm(128000, 1000 + it)) }
+        assertTrue(detectedFirstSamples.isEmpty())
+        pipeline.finish()
+        assertEquals(listOf(1008, 1009), backend.firstSamples)
+        assertEquals(backend.firstSamples, detectedFirstSamples)
+        assertEquals(listOf(256000, 256000), detectedLengths)
+        assertEquals(listOf("ja", "en"), results.map { it.detectedLanguageCode })
+        assertEquals(listOf("日本語1", "日本語2"), results.map { it.text })
+    }
+
+    @Test fun failedOrUnknownDetectionCannotReuseThePreviousUtteranceLanguage() = runTest {
+        val results = mutableListOf<SpeechResult>()
+        var detections = 0
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(FakeBackend(), FakeGate()), results::add,
+            workerContext = StandardTestDispatcher(testScheduler), sourceLanguageCode = "auto",
+            detectLanguage = {
+                when (++detections) { 1 -> "ja"; 2 -> error("detector unavailable"); else -> null }
+            })
+        repeat(3) { pipeline.feed(pcm(128000)); runCurrent() }
+        pipeline.finish()
+        assertEquals(listOf("ja", null, null), results.map { it.detectedLanguageCode })
+        assertNull(pipeline.failureMessage)
+    }
+
+    @Test fun manualModeDoesNotRunAutomaticDetector() = runTest {
+        for (mode in listOf("ja", "en")) {
+            val results = mutableListOf<SpeechResult>()
+            var detections = 0
+            val backend = FakeBackend()
+            val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), results::add,
+                workerContext = StandardTestDispatcher(testScheduler), sourceLanguageCode = mode,
+                detectLanguage = { detections++; "fr" })
+            pipeline.feed(pcm(128000))
+            pipeline.finish()
+            assertEquals(0, detections)
+            assertEquals(listOf(if (mode == "ja") "Japanese" else "English"), backend.forcedLanguages)
+            assertNull(results.single().detectedLanguageCode)
+        }
+    }
+
+    @Test fun detectorIsNotRunForBlankOrDiscardedRecognition() = runTest {
+        for (limited in listOf(false, true)) {
+            var detections = 0
+            val backend = FakeBackend().apply { outputLimitOnce = limited; blankResult = !limited }
+            val results = mutableListOf<SpeechResult>()
+            val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), results::add,
+                workerContext = StandardTestDispatcher(testScheduler), sourceLanguageCode = "auto",
+                detectLanguage = { detections++; "ja" })
+            pipeline.feed(pcm(128000))
+            pipeline.finish()
+            assertEquals(0, detections)
+            assertTrue(results.isEmpty())
+        }
+    }
+
     @Test fun outputLimitSkipsOnlyThatResultAndNextSegmentStillCompletes() = runTest {
         val backend = FakeBackend().apply { outputLimitOnce = true }
         val results = mutableListOf<SpeechResult>()
@@ -302,9 +370,11 @@ class OfflineSpeechPipelineTest {
         var outputLimitOnce = false
         var beforeDecode: () -> Unit = {}
         val firstSamples = mutableListOf<Int>()
+        val forcedLanguages = mutableListOf<String>()
         val sampleCounts = mutableListOf<Int>()
         private var samples = FloatArray(0)
         override fun createStream() = object : OfflineRecognizerStream {
+            override fun setOption(name: String, value: String) { if (name == "language") forcedLanguages += value }
             override fun acceptWaveform(samples: FloatArray, sampleRate: Int) { this@FakeBackend.samples = samples }
             override fun close() {}
         }

@@ -2,7 +2,8 @@ package com.charles.livecaptionn.speech
 
 data class SpeechResult(
     val text: String,
-    val isFinal: Boolean
+    val isFinal: Boolean,
+    val detectedLanguageCode: String? = null
 )
 
 /** Bracket synchronous native work without changing which capture worker owns it. */
