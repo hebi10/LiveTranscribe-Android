@@ -44,7 +44,8 @@ jobs:
           python scripts/prepare_speech_support.py --verify-only
           python scripts/prepare_language_id.py --verify-only
       - name: Install pinned native build tools
-        run: sdkmanager 'ndk;28.2.13676358' 'cmake;3.22.1'
+        run: |
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358' 'cmake;3.22.1'
       - name: Prepare pinned local translation runtime source
         run: python scripts/prepare_native_translation.py
       - name: Unit tests and debug APK
