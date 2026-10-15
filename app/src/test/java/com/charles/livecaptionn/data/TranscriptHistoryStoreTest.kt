@@ -21,6 +21,46 @@ class TranscriptHistoryStoreTest {
     private fun store(file: File) = TranscriptHistoryStore(file, forTesting = true)
     private fun sidecar(file: File, suffix: String) = File(file.parentFile, file.name + suffix)
 
+    @Test fun absentCommittedCopiesAreAnEmptyHistory() = runBlocking {
+        assertTrue(store(File(temporary.root, "history.json")).getAll().isEmpty())
+    }
+
+    @Test fun readableBackupRecoversWhenExistingPrimaryCannotBeRead() = runBlocking {
+        val file = File(temporary.root, "history.json")
+        val history = store(file)
+        history.add(entry("saved"))
+        assertTrue(file.delete())
+        assertTrue(file.mkdir())
+        assertEquals(listOf("saved"), history.getAll().map { it.id })
+    }
+
+    @Test fun existingCorruptCopiesRaiseInsteadOfBecomingAnEmptySnapshot() = runBlocking {
+        val file = File(temporary.root, "history.json")
+        file.writeText("broken-primary")
+        sidecar(file, ".bak").writeText("broken-backup")
+        try {
+            store(file).getAll()
+            throw AssertionError("Expected recoverable read error")
+        } catch (_: IOException) { }
+        assertEquals("broken-primary", file.readText())
+        assertEquals("broken-backup", sidecar(file, ".bak").readText())
+    }
+
+    @Test fun unreadableExistingHistoryCannotBeOverwrittenByANewEntry() = runBlocking {
+        val file = File(temporary.root, "history.json")
+        val history = store(file)
+        history.add(entry("saved"))
+        file.writeText("broken-primary")
+        sidecar(file, ".bak").writeText("broken-backup")
+        try {
+            history.add(entry("new"))
+            throw AssertionError("Expected recoverable write precondition error")
+        } catch (_: IOException) { }
+        assertEquals("broken-primary", file.readText())
+        assertEquals("broken-backup", sidecar(file, ".bak").readText())
+        assertEquals(1L, history.revisions.value)
+    }
+
     @Test fun deletedIdCannotReturnWhenPrimaryIsCorrupted() = runBlocking {
         val file = File(temporary.root, "history.json")
         val history = store(file)

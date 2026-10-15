@@ -88,6 +88,45 @@ class JapanesePcmSegmenterTest {
         assertNull(segmenter.finish())
     }
 
+    @Test fun shortSpeechTailsAfterEightSecondsSurviveStopPauseAndSilence() {
+        for (tailSamples in listOf(1600, 3200)) {
+            for (end in listOf("stop", "pause", "silence")) {
+                val segmenter = JapanesePcmSegmenter()
+                val opening = pcm(128000, 1000)
+                val tail = pcm(tailSamples, 2000)
+                val outputs = segmenter.feed(opening + tail).toMutableList()
+                when (end) {
+                    "stop" -> segmenter.finish()?.let(outputs::add)
+                    "pause" -> segmenter.pauseBoundary()?.let(outputs::add)
+                    "silence" -> outputs.addAll(segmenter.feed(pcm(16000, 0)))
+                }
+                val expectedTail = if (end == "silence") tail + pcm(16000, 0) else tail
+                assertEquals("$tailSamples samples ending at $end", listOf(256000, expectedTail.size), outputs.map { it.size })
+                assertArrayEquals(opening + expectedTail, outputs.fold(ByteArray(0)) { all, next -> all + next })
+                assertNull(segmenter.finish())
+            }
+        }
+    }
+
+    @Test fun forcedBoundaryDoesNotLetIndependentShortNoiseBypassMinimumSpeech() {
+        for (end in listOf("pause", "silence")) {
+            val segmenter = JapanesePcmSegmenter()
+            segmenter.feed(pcm(128000, 1000))
+            if (end == "pause") segmenter.pauseBoundary() else segmenter.feed(pcm(16000, 0))
+            segmenter.feed(pcm(1600, 3000))
+            assertNull("Independent noise after $end", segmenter.finish())
+        }
+    }
+
+    @Test fun silenceAcrossForcedBoundaryStillEndsUtteranceAfterOneSecond() {
+        val segmenter = JapanesePcmSegmenter()
+        segmenter.feed(pcm(126400, 1000))
+        assertEquals(256000, segmenter.feed(pcm(1600, 0)).single().size)
+        assertTrue(segmenter.feed(pcm(14400, 0)).isEmpty())
+        segmenter.feed(pcm(1600, 3000))
+        assertNull(segmenter.finish())
+    }
+
     @Test fun consumedSegmentCannotBeReplayedThroughLeadingBuffer() {
         val segmenter = JapanesePcmSegmenter()
         segmenter.feed(pcm(16000, 1000))

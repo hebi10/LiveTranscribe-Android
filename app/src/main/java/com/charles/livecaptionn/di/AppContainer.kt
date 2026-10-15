@@ -12,6 +12,8 @@ import com.charles.livecaptionn.data.CaptionProfileRepository
 import com.charles.livecaptionn.data.SettingsDataStore
 import com.charles.livecaptionn.data.SettingsRepository
 import com.charles.livecaptionn.data.TranscriptHistoryStore
+import com.charles.livecaptionn.data.HistoryRecordingGate
+import kotlinx.coroutines.flow.first
 import com.charles.livecaptionn.service.CaptionRuntimeStore
 import com.charles.livecaptionn.speech.LocalVoskSttClient
 import com.charles.livecaptionn.speech.VoskModelRegistry
@@ -28,6 +30,10 @@ class AppContainer(context: Context) {
     val translationModels = TranslationModelSetup(mlKitTranslator)
     val languageIdentifier = OfflineSpokenLanguageIdentifier(context.applicationContext)
     val transcriptHistory = TranscriptHistoryStore(context.applicationContext)
+    val historyRecordingGate = HistoryRecordingGate(
+        readEnabled = { settingsRepository.settingsFlow.first().saveHistory },
+        persistEnabled = { enabled -> settingsRepository.update { it.copy(saveHistory = enabled) } }
+    )
     val captionProfiles: CaptionProfileRepository = FileCaptionProfileRepository(context.applicationContext)
     val glossary: GlossaryRepository = FileGlossaryRepository(context.applicationContext)
     val voskRegistry = VoskModelRegistry(context.applicationContext)

@@ -123,7 +123,8 @@ class LocalVoskSttClient(private val registry: VoskModelRegistry) {
  * partial/final text after each feed. Native calls are serialized. Silence
  * boundaries keep Vosk's normal endpoint settings; uninterrupted audio is
  * finalized after six seconds so captions can be translated while speech
- * continues. Only [finish] is terminal, and each resource closes once.
+ * continues. [pauseBoundary] flushes an utterance while keeping the session
+ * usable. Only [finish] is terminal, and each resource closes once.
  */
 class VoskStreamingSession internal constructor(
     recognizer: StreamingRecognizer,
@@ -168,6 +169,14 @@ class VoskStreamingSession internal constructor(
             if (boundary) segmentBytes = 0L
             FeedResult(text, boundary)
         }
+
+    /** Separate pre-pause speech from resumed PCM without closing the recognizer. */
+    fun pauseBoundary(): FeedResult? = owner.feed(null) { recognizer ->
+        if (segmentBytes == 0L) return@feed null
+        val text = LocalVoskSttClient.extractText(recognizer.finalResult)
+        segmentBytes = 0L
+        FeedResult(text, accepted = true)
+    }
 
     /** Flush buffered audio exactly once; no feed is accepted after this call. */
     fun finish(): String = owner.finish("") { recognizer ->

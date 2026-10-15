@@ -47,6 +47,17 @@ class JapanesePipelineTest {
         assertEquals(listOf(24000, 24000), backend.sampleCounts)
     }
 
+    @Test fun finishDecodesTheShortTailAfterAnEightSecondSegment() = runTest {
+        val backend = FakeBackend()
+        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), {},
+            workerContext = StandardTestDispatcher(testScheduler))
+        pipeline.feed(pcm(128000, 1000) + pcm(1600, 2000))
+        pipeline.finish()
+        assertEquals(listOf(1000, 2000), backend.firstSamples)
+        assertEquals(listOf(136000, 9600), backend.sampleCounts)
+        assertEquals(1, backend.closed)
+    }
+
     @Test fun silenceAndRejectedSpeechCannotHallucinateCaptions() = runTest {
         val backend = FakeBackend()
         val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate(false)), {},
@@ -175,7 +186,7 @@ class JapanesePipelineTest {
 
     @Test fun resumeDuringPausedDelayMustDiscardUnreadPcmBeforeCaptureContinues() {
         val signals = CaptureSignalState({}, {})
-        val boundary = JapaneseResumeAudioBoundary(signals.resumeGeneration)
+        val boundary = ResumeAudioBoundary(signals.resumeGeneration)
         signals.pause()
         // Audio continues entering the recorder after a paused-loop drain.
         val unread = java.util.ArrayDeque(listOf(3200, 6400, 0))
@@ -195,7 +206,7 @@ class JapanesePipelineTest {
     }
 
     @Test fun incompleteResumeDrainCannotMarkStaleRecorderCurrent() {
-        val boundary = JapaneseResumeAudioBoundary(0)
+        val boundary = ResumeAudioBoundary(0)
         assertFalse(boundary.ensureCurrent(1) { false })
         assertFalse(boundary.isCurrent(1))
         assertTrue(boundary.ensureCurrent(1) { true })
@@ -207,7 +218,7 @@ class JapanesePipelineTest {
 
     @Test fun pauseAndResumeDuringInFlightReadInvalidateThatRead() {
         val signals = CaptureSignalState({}, {})
-        val boundary = JapaneseResumeAudioBoundary(signals.resumeGeneration)
+        val boundary = ResumeAudioBoundary(signals.resumeGeneration)
         val generationWhenReadStarted = signals.resumeGeneration
         signals.pause(); signals.resume()
         assertNotEquals(generationWhenReadStarted, signals.resumeGeneration)

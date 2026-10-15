@@ -32,6 +32,7 @@ import com.charles.livecaptionn.LiveCaptionApp
 import com.charles.livecaptionn.MainActivity
 import com.charles.livecaptionn.R
 import com.charles.livecaptionn.data.TranscriptEntry
+import com.charles.livecaptionn.data.HistoryRecordingGate
 import com.charles.livecaptionn.data.applyGlossary
 import com.charles.livecaptionn.overlay.OverlayController
 import com.charles.livecaptionn.ui.l10n.KoreanUiStrings
@@ -64,8 +65,11 @@ class CaptionForegroundService : Service() {
     private val overlayReady = MutableStateFlow(0)
 
     private var speechEngine: SpeechEngine? = null
+    /** Owned here until an engine actually starts and takes responsibility for projection cleanup. */
+    private var preparedMediaProjection: MediaProjection? = null
     private var overlayController: OverlayController? = null
-    private var paused = false
+    private val pauseController = CaptionPauseController()
+    private val paused: Boolean get() = pauseController.paused
     @Volatile private var failureMessage: String? = null
     private val lineIdCounter = java.util.concurrent.atomic.AtomicLong(0)
     private var translationQueue: CaptionTranslationQueue<TranslationRequest>? = null
@@ -163,7 +167,8 @@ class CaptionForegroundService : Service() {
         if (stopping || !captionSessionActive.compareAndSet(false, true)) return
         failureMessage = null
         app.container.runtimeStore.update {
-            it.copy(running = true, paused = false, status = RecognitionStatus.PROCESSING,
+            it.copy(running = true, paused = paused,
+                status = if (paused) RecognitionStatus.PAUSED else RecognitionStatus.PROCESSING,
                 lastError = null, skippedTranslations = 0, skippedSpeechSegments = 0)
         }
         if (!Settings.canDrawOverlays(this)) {
@@ -177,6 +182,7 @@ class CaptionForegroundService : Service() {
             // prior run was hiding the caption body entirely.
             app.container.settingsRepository.update { it.copy(overlayMinimized = false) }
             val settings = app.container.settingsRepository.settingsFlow.first()
+            app.container.historyRecordingGate.initialize()
             stableCaptions = settings.stableCaptions
 
             // If the activity sent the wrong audio source in the intent extra
@@ -196,7 +202,8 @@ class CaptionForegroundService : Service() {
             }
 
             app.container.runtimeStore.update {
-                it.copy(running = true, paused = false, status = RecognitionStatus.PROCESSING)
+                it.copy(running = true, paused = paused,
+                    status = if (paused) RecognitionStatus.PAUSED else RecognitionStatus.PROCESSING)
             }
 
             if (!app.container.translationModels.isReady(sttLanguageCode)) {
@@ -276,6 +283,7 @@ class CaptionForegroundService : Service() {
             } else {
                 null
             }
+            preparedMediaProjection = mediaProjection
 
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
@@ -308,7 +316,7 @@ class CaptionForegroundService : Service() {
             )
             speechEngine = engine
             observeEngineStatus(engine.status)
-            engine.start()
+            pauseController.attach(engine)
 
             showOverlay()
             observeOverlayUpdates()
@@ -319,7 +327,9 @@ class CaptionForegroundService : Service() {
         serviceScope.launch {
             statusFlow.collectLatest { status ->
                 if (!stopping) {
-                    app.container.runtimeStore.update { it.copy(status = status) }
+                    app.container.runtimeStore.update {
+                        it.copy(status = if (paused && status != RecognitionStatus.ERROR) RecognitionStatus.PAUSED else status)
+                    }
                     if (status == RecognitionStatus.ERROR) {
                         failAndStop(app.container.runtimeStore.state.value.lastError
                             ?: "음성 인식을 시작하지 못했습니다. 권한과 음성 모델을 확인해 주세요.")
@@ -351,7 +361,7 @@ class CaptionForegroundService : Service() {
 
     private fun queueTranslation(text: String, lineId: Long, isFinal: Boolean = false) {
         if (text.isBlank() || !shouldTranslateCaption(isFinal, stableCaptions)) return
-        val request = TranslationRequest(text, lineId, isFinal)
+        val request = TranslationRequest(text, lineId, isFinal, app.container.historyRecordingGate.captureConsent())
         if (isFinal) translationQueue?.submitFinal(request)
         else translationQueue?.submitPartial(request)
     }
@@ -392,19 +402,26 @@ class CaptionForegroundService : Service() {
                 status = if (paused) RecognitionStatus.PAUSED else RecognitionStatus.LISTENING
             )
         }
-        if (request.isFinal && captionSettings.saveHistory) {
-            app.container.transcriptHistory.add(
-                TranscriptEntry(
-                    originalText = request.text,
-                    translatedText = translatedWithGlossary,
-                    sourceLanguage = sessionSourceCode,
-                    targetLanguage = "ko"
+        if (request.isFinal) {
+            app.container.historyRecordingGate.recordIfAllowed(request.historyConsent) {
+                app.container.transcriptHistory.add(
+                    TranscriptEntry(
+                        originalText = request.text,
+                        translatedText = translatedWithGlossary,
+                        sourceLanguage = sessionSourceCode,
+                        targetLanguage = "ko"
+                    )
                 )
-            )
+            }
         }
     }
 
-    private data class TranslationRequest(val text: String, val lineId: Long, val isFinal: Boolean)
+    private data class TranslationRequest(
+        val text: String,
+        val lineId: Long,
+        val isFinal: Boolean,
+        val historyConsent: HistoryRecordingGate.Consent?
+    )
 
     private fun showOverlay() {
         if (overlayController != null) return
@@ -435,12 +452,16 @@ class CaptionForegroundService : Service() {
     }
 
     private fun togglePause() {
-        paused = !paused
-        if (paused) speechEngine?.pause() else speechEngine?.resume()
+        if (!captionSessionActive.get() || stopping) return
+        pauseController.toggle()
         app.container.runtimeStore.update {
             it.copy(
                 paused = paused,
-                status = if (paused) RecognitionStatus.PAUSED else RecognitionStatus.LISTENING
+                status = when {
+                    paused -> RecognitionStatus.PAUSED
+                    pauseController.hasStarted -> RecognitionStatus.LISTENING
+                    else -> RecognitionStatus.PROCESSING
+                }
             )
         }
     }
@@ -500,6 +521,7 @@ class CaptionForegroundService : Service() {
                 failureMessage = failureMessage ?: "음성 인식 종료 중 오류가 발생했습니다."
             }
             speechEngine = null
+            releaseUnstartedProjection()
             val drained = translationQueue?.finish() ?: true
             translationQueue = null
             overlayController?.hide()
@@ -526,6 +548,7 @@ class CaptionForegroundService : Service() {
         overlayController = null
         val engine = speechEngine
         speechEngine = null
+        releaseUnstartedProjection()
         if (engine != null) {
             serviceScope.launch(NonCancellable) {
                 stopSpeechEngineSafely({ engine.stop() }) {
@@ -543,6 +566,15 @@ class CaptionForegroundService : Service() {
                 status = if (it.status == RecognitionStatus.ERROR) RecognitionStatus.ERROR else RecognitionStatus.IDLE) else it
         }
         super.onDestroy()
+    }
+
+    private fun releaseUnstartedProjection() {
+        val projection = preparedMediaProjection
+        preparedMediaProjection = null
+        // An engine that never started has no owning capture worker/finally block.
+        if (!pauseController.hasStarted) {
+            try { projection?.stop() } catch (_: RuntimeException) { }
+        }
     }
 
     private fun buildNotification(): Notification {

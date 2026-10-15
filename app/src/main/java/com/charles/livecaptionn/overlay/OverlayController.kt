@@ -80,8 +80,8 @@ class OverlayController(
     private val buttonStyles = mutableMapOf<ImageButton, Pair<Int, Boolean>>()
     private val chatRows = linkedMapOf<Long, ChatRow>()
     private var params: WindowManager.LayoutParams? = null
-    // This always describes the full caption window. Presentation-only heights are never saved.
-    private var normalGeometry: OverlayGeometry? = null
+    // Only explicit move/resize actions change the preference; fitting is presentation-only.
+    private var geometryState: OverlayGeometryState? = null
     private var lastSettingsGeometry: OverlayGeometry? = null
     private var geometryJob: Job? = null
     private var latestUi: OverlayUiState? = null
@@ -108,7 +108,6 @@ class OverlayController(
                 preserveViewport()
                 clampWindow()
                 restoreViewportAfterLayout()
-                persistGeometry()
             }
         }
         override fun onLowMemory() = Unit
@@ -116,9 +115,10 @@ class OverlayController(
 
     fun show(initialX: Int, initialY: Int, widthDp: Int, heightDp: Int) {
         if (root != null) return
-        normalGeometry = clampNormalGeometry(OverlayGeometry(initialX, initialY, dp(widthDp), dp(heightDp)))
-        lastSettingsGeometry = normalGeometry
-        val geometry = normalGeometry ?: return
+        val preferred = OverlayGeometry(initialX, initialY, dp(widthDp), dp(heightDp))
+        geometryState = OverlayGeometryState(preferred)
+        lastSettingsGeometry = preferred
+        val geometry = normalDisplayGeometry() ?: return
         val p = WindowManager.LayoutParams(
             geometry.width, geometry.height, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -149,7 +149,28 @@ class OverlayController(
             ellipsize = TextUtils.TruncateAt.END
             layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
             tooltipText = uiStrings()["Move caption window"]
+            isFocusable = true
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
             setOnTouchListener(DragTouchListener())
+            accessibilityDelegate = object : View.AccessibilityDelegate() {
+                override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction(R.id.overlay_move_left, "자막 창 왼쪽으로 이동"))
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction(R.id.overlay_move_right, "자막 창 오른쪽으로 이동"))
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction(R.id.overlay_move_up, "자막 창 위로 이동"))
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction(R.id.overlay_move_down, "자막 창 아래로 이동"))
+                }
+                override fun performAccessibilityAction(host: View, action: Int, args: Bundle?): Boolean {
+                    when (action) {
+                        R.id.overlay_move_left -> moveBy(-dp(24), 0)
+                        R.id.overlay_move_right -> moveBy(dp(24), 0)
+                        R.id.overlay_move_up -> moveBy(0, -dp(24))
+                        R.id.overlay_move_down -> moveBy(0, dp(24))
+                        else -> return super.performAccessibilityAction(host, action, args)
+                    }
+                    return true
+                }
+            }
         }
         pauseButton = makeButton(R.drawable.ic_overlay_pause, "Pause captioning", onPauseResume)
         expandButton = makeButton(R.drawable.ic_overlay_expand, "Expand controls") {
@@ -317,12 +338,12 @@ class OverlayController(
             context.registerComponentCallbacks(configurationCallbacks)
             geometryJob = scope.launch {
                 settingsRepository.settingsFlow.collect { settings ->
-                    val next = clampNormalGeometry(OverlayGeometry(settings.overlayX, settings.overlayY,
-                        dp(settings.overlayWidthDp), dp(settings.overlayHeightDp)))
+                    val next = OverlayGeometry(settings.overlayX, settings.overlayY,
+                        dp(settings.overlayWidthDp), dp(settings.overlayHeightDp))
                     if (next != lastSettingsGeometry) {
                         lastSettingsGeometry = next
                         preserveViewport()
-                        normalGeometry = next
+                        geometryState?.preferred = next
                         clampWindow()
                         restoreViewportAfterLayout()
                     }
@@ -568,7 +589,7 @@ class OverlayController(
         root?.let { try { wm.removeViewImmediate(it) } catch (_: IllegalArgumentException) { } }
         root = null
         params = null
-        normalGeometry = null
+        geometryState = null
         lastSettingsGeometry = null
         latestUi = null
         lastContent = null
@@ -713,23 +734,21 @@ class OverlayController(
             metrics.heightPixels - navigation)
     }
 
-    private fun clampNormalGeometry(geometry: OverlayGeometry): OverlayGeometry = clampOverlayGeometry(
-        geometry, usableBounds(), dp(maxOf(CaptionSettings.MIN_OVERLAY_WIDTH_DP, 220)),
-        dp(maxOf(CaptionSettings.MIN_OVERLAY_HEIGHT_DP, 108)))
+    private val minimumWidth get() = dp(maxOf(CaptionSettings.MIN_OVERLAY_WIDTH_DP, 220))
+    private val minimumHeight get() = dp(maxOf(CaptionSettings.MIN_OVERLAY_HEIGHT_DP, 108))
+
+    private fun normalDisplayGeometry(): OverlayGeometry? = geometryState?.display(
+        usableBounds(), minimumWidth, minimumHeight)
+
+    private fun displayGeometry(): OverlayGeometry? = geometryState?.display(
+        usableBounds(), minimumWidth, minimumHeight,
+        minimizedHeight = if (latestUi?.minimized == true) dp(56) else null,
+        expandedMinHeight = if (latestUi?.controlsExpanded == true) dp(220) else null)
 
     private fun clampWindow() {
         val view = root ?: return
         val lp = params ?: return
-        val normal = normalGeometry?.let(::clampNormalGeometry) ?: return
-        normalGeometry = normal
-        val ui = latestUi
-        val height = when {
-            ui?.minimized == true -> dp(56)
-            ui?.controlsExpanded == true -> maxOf(normal.height, dp(220))
-            else -> normal.height
-        }
-        val display = clampOverlayGeometry(normal.copy(height = height), usableBounds(),
-            dp(220), if (ui?.minimized == true) dp(56) else dp(108))
+        val display = displayGeometry() ?: return
         lp.x = display.x
         lp.y = display.y
         lp.width = display.width
@@ -738,7 +757,7 @@ class OverlayController(
     }
 
     private fun persistGeometry() {
-        val geometry = normalGeometry ?: return
+        val geometry = geometryState?.preferred ?: return
         scope.launch {
             settingsRepository.update {
                 it.copy(overlayX = geometry.x, overlayY = geometry.y,
@@ -749,12 +768,28 @@ class OverlayController(
     }
 
     private fun resizeBy(delta: Int) {
-        val normal = normalGeometry ?: return
+        val normal = normalDisplayGeometry() ?: return
         preserveViewport()
-        normalGeometry = normal.copy(width = normal.width + delta, height = normal.height + delta)
+        geometryState?.resizeTo(normal.width + delta, normal.height + delta,
+            usableBounds(), minimumWidth, minimumHeight)
         clampWindow()
         restoreViewportAfterLayout()
         persistGeometry()
+    }
+
+    private fun moveBy(dx: Int, dy: Int) {
+        geometryState?.moveBy(dx, dy, usableBounds(), minimumWidth, minimumHeight,
+            minimizedHeight = if (latestUi?.minimized == true) dp(56) else null,
+            expandedMinHeight = if (latestUi?.controlsExpanded == true) dp(220) else null) ?: return
+        clampWindow()
+        persistGeometry()
+    }
+
+    private fun moveTo(x: Int, y: Int) {
+        geometryState?.moveTo(x, y, usableBounds(), minimumWidth, minimumHeight,
+            minimizedHeight = if (latestUi?.minimized == true) dp(56) else null,
+            expandedMinHeight = if (latestUi?.controlsExpanded == true) dp(220) else null)
+        clampWindow()
     }
 
     private inner class DragTouchListener : View.OnTouchListener {
@@ -762,6 +797,8 @@ class OverlayController(
         private var startY = 0
         private var touchX = 0f
         private var touchY = 0f
+        private var moved = false
+        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
         override fun onTouch(v: View, event: MotionEvent): Boolean {
             val lp = params ?: return false
             if (root == null) return false
@@ -771,18 +808,20 @@ class OverlayController(
                     startY = lp.y
                     touchX = event.rawX
                     touchY = event.rawY
+                    moved = false
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val normal = normalGeometry ?: return false
-                    normalGeometry = normal.copy(x = startX + (event.rawX - touchX).roundToInt(),
-                        y = startY + (event.rawY - touchY).roundToInt())
-                    clampWindow()
-                    normalGeometry = normalGeometry?.copy(x = lp.x, y = lp.y)
+                    val dx = (event.rawX - touchX).roundToInt()
+                    val dy = (event.rawY - touchY).roundToInt()
+                    if (!moved && abs(dx) <= touchSlop && abs(dy) <= touchSlop) return true
+                    moved = true
+                    moveTo(startX + dx, startY + dy)
                     return true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    persistGeometry()
+                    if (moved) persistGeometry()
+                    moved = false
                     return true
                 }
             }
@@ -798,13 +837,14 @@ class OverlayController(
         private var resized = false
         private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
         override fun onTouch(v: View, event: MotionEvent): Boolean {
-            val lp = params ?: return false
+            if (params == null) return false
             if (root == null || latestUi?.minimized == true) return false
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    startW = lp.width
-                    // Expanded controls temporarily enlarge lp.height; resize from the saved body height.
-                    startH = normalGeometry?.height ?: lp.height
+                    val normal = normalDisplayGeometry() ?: return false
+                    startW = normal.width
+                    // Expanded controls temporarily enlarge lp.height; resize from fitted normal size.
+                    startH = normal.height
                     touchX = event.rawX
                     touchY = event.rawY
                     resized = false
@@ -815,9 +855,9 @@ class OverlayController(
                     val dy = (event.rawY - touchY).roundToInt()
                     if (!resized && abs(dx) <= touchSlop && abs(dy) <= touchSlop) return true
                     resized = true
-                    val normal = normalGeometry ?: return false
                     preserveViewport()
-                    normalGeometry = normal.copy(width = startW + dx, height = startH + dy)
+                    geometryState?.resizeTo(startW + dx, startH + dy,
+                        usableBounds(), minimumWidth, minimumHeight)
                     clampWindow()
                     restoreViewportAfterLayout()
                     return true

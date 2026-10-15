@@ -42,18 +42,17 @@ jobs:
       - name: Bundle offline acoustic language ID (build-time only)
         run: python scripts/prepare_language_id.py
       - name: Verify language-ID binaries
+        run: python scripts/prepare_language_id.py --verify-only
+      - name: Verify packaged speech asset integrity
         run: |
-          test -s app/libs/sherpa-onnx-1.13.8.aar
-          test -s app/src/main/assets/language-id/sherpa-onnx-whisper-tiny/tiny-encoder.int8.onnx
-          test -s app/src/main/assets/language-id/sherpa-onnx-whisper-tiny/tiny-decoder.int8.onnx
-      - name: Check packaged speech assets
-        run: |
-          test -s app/src/main/assets/models/vosk-model-small-en-us-0.15/conf/model.conf
-          test -s app/src/main/assets/models/reazonspeech-k2-v2/encoder.int8.onnx
-          test -s app/src/main/assets/models/reazonspeech-k2-v2/decoder.int8.onnx
-          test -s app/src/main/assets/models/reazonspeech-k2-v2/joiner.int8.onnx
-          test -s app/src/main/assets/models/reazonspeech-k2-v2/tokens.txt
-          test -s app/src/main/assets/models/reazonspeech-k2-v2/silero_vad.onnx
+          python scripts/prepare_vosk_models.py --verify-only
+          python - <<'PY'
+          from scripts import prepare_japanese_asr as japanese
+          for model in japanese.MODEL_FILES:
+              if not japanese.is_verified(japanese.DEST / model.filename, model):
+                  raise SystemExit(f"Japanese ASR integrity verification failed: {model.filename}")
+          print("Verified Japanese ASR and VAD files")
+          PY
       - name: Unit tests and debug APK
         run: |
           chmod +x ./gradlew

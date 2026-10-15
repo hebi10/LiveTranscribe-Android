@@ -103,17 +103,22 @@ class StreamingSttEngine(
             }
             owner.setInterrupt { try { localRecord.stop() } catch (_: Throwable) {} }
             val captureContext = currentCoroutineContext()
-            if (!owner.whenActive {
+            var resumeGenerationAtStart = signals.resumeGeneration
+            val started = signals.startWhenResumed {
+                owner.whenActive {
                     captureContext.ensureActive()
+                    resumeGenerationAtStart = signals.resumeGeneration
                     localRecord.startRecording()
                     captureStarted = true
-                }) return
+                }
+            }
+            if (!started) return
             currentCoroutineContext().ensureActive()
             check(localRecord.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 "오디오 캡처를 시작하지 못했습니다. 다시 시작해 주세요."
             }
             signals.ready()
-            captureLoop(localRecord, localSession, japanesePipeline)
+            captureLoop(localRecord, localSession, japanesePipeline, resumeGenerationAtStart)
         } catch (t: CancellationException) {
             throw t
         } catch (t: Throwable) {
@@ -153,7 +158,8 @@ class StreamingSttEngine(
     private suspend fun captureLoop(
         record: AudioRecord,
         localSession: VoskStreamingSession?,
-        japanesePipeline: JapaneseSpeechPipeline?
+        japanesePipeline: JapaneseSpeechPipeline?,
+        resumeGenerationAtStart: Long
     ) {
         val buffer = ByteArray(CHUNK_BYTES)
         var silentChunkStreak = 0
@@ -161,29 +167,21 @@ class StreamingSttEngine(
         var sawAnyAudioEver = false
         val intervalPcm = ByteArrayOutputStream()
         var voicedChunks = 0
-        var observedPauseGeneration = signals.pauseGeneration
-        val resumeBoundary = JapaneseResumeAudioBoundary(signals.resumeGeneration)
+        val audioBoundary = CaptureAudioBoundary(signals, resumeGenerationAtStart) {
+            japanesePipeline?.pauseBoundary()
+            localSession?.pauseBoundary()?.let(resultEmitter::emit)
+            intervalPcm.reset()
+            voicedChunks = 0
+            silentChunkStreak = 0
+        }
         val captureContext = currentCoroutineContext()
 
         while (currentCoroutineContext().isActive) {
             signals.fatalError?.let { throw IllegalStateException(it) }
-            if (japanesePipeline != null && observedPauseGeneration != signals.pauseGeneration) {
-                japanesePipeline.pauseBoundary()
-                observedPauseGeneration = signals.pauseGeneration
-                intervalPcm.reset()
-                voicedChunks = 0
-            }
-            if (japanesePipeline != null && !resumeBoundary.ensureCurrent(signals.resumeGeneration) {
+            if (!audioBoundary.prepareRead {
                     discardPendingAudio(record, buffer, captureContext)
                 }) {
-                delay(10)
-                continue
-            }
-            if (signals.paused) {
-                if (japanesePipeline != null) discardPendingAudio(record, buffer, captureContext)
-                intervalPcm.reset()
-                voicedChunks = 0
-                delay(120)
+                delay(if (signals.paused) 120 else 10)
                 continue
             }
 
@@ -193,16 +191,7 @@ class StreamingSttEngine(
             if (read < 0) {
                 throw IllegalStateException("오디오 읽기에 실패했습니다 ($read). 오디오 소스를 확인하고 다시 시작해 주세요.")
             }
-            if (japanesePipeline != null &&
-                (observedPauseGeneration != signals.pauseGeneration || !resumeBoundary.isCurrent(signals.resumeGeneration))
-            ) {
-                japanesePipeline.pauseBoundary()
-                observedPauseGeneration = signals.pauseGeneration
-                intervalPcm.reset()
-                voicedChunks = 0
-                continue
-            }
-            if (japanesePipeline != null && signals.paused) continue
+            if (!audioBoundary.acceptRead()) continue
             if (read == 0) {
                 delay(10)
                 continue
