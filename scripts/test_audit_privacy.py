@@ -29,6 +29,37 @@ class PrivacyAuditTest(unittest.TestCase):
         return subprocess.run([sys.executable, str(self.root / "scripts/audit_privacy.py")],
                               text=True, capture_output=True)
 
+    def test_mlkit_dependency_is_rejected(self):
+        path = self.root / "app/build.gradle.kts"
+        path.write_text(path.read_text() + '\nimplementation("com.google.mlkit:translate:17.0.3")\n')
+        result = self.audit()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Forbidden runtime dependency", result.stderr)
+
+    def test_fixed_model_get_transport_is_permitted(self):
+        path = self.root / "app/src/main/java/com/charles/livecaptionn/models/ModelDownloadTransport.kt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('import java.net.URL\nimport javax.net.ssl.HttpsURLConnection\n'
+                        'connection.requestMethod = "GET"\nconnection.doOutput = false\n')
+        result = self.audit()
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_model_transport_cannot_send_request_body(self):
+        path = self.root / "app/src/main/java/com/charles/livecaptionn/models/ModelDownloadTransport.kt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('import java.net.URL\nconnection.requestMethod = "POST"\n'
+                        'connection.doOutput = true\nconnection.outputStream.write(text.toByteArray())\n')
+        result = self.audit()
+        self.assertNotEqual(0, result.returncode)
+
+    def test_cleartext_network_is_rejected(self):
+        path = self.root / "app/src/main/AndroidManifest.xml"
+        path.write_text(path.read_text().replace('android:usesCleartextTraffic="false"',
+                                                'android:usesCleartextTraffic="true"'))
+        result = self.audit()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Cleartext", result.stderr)
+
     def test_missing_file_domain_is_rejected_even_with_root_exclusion(self):
         path = self.root / "app/src/main/res/xml/data_extraction_rules.xml"
         path.write_text('<data-extraction-rules><cloud-backup><exclude domain="root" path="." />'

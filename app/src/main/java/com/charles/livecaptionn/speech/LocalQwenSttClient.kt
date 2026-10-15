@@ -6,8 +6,8 @@ import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OfflineQwen3AsrModelConfig
 import com.k2fsa.sherpa.onnx.OfflineStream
-import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.SileroVadModelConfig
 import com.k2fsa.sherpa.onnx.Vad
 import com.k2fsa.sherpa.onnx.VadModelConfig
@@ -16,15 +16,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import java.io.File
 
-internal class LocalJapaneseSttClient internal constructor(
-    private val createSession: () -> JapaneseSttSession,
+class LocalQwenSttClient internal constructor(
+    private val createSession: () -> OfflineSttSession,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
-    constructor(context: Context) : this({ createNativeSession(context.applicationContext.assets) })
+    constructor(context: Context, modelDirectory: File) : this({
+        createNativeSession(context.applicationContext.assets, modelDirectory)
+    })
 
-    suspend fun openSession(): JapaneseSttSession {
-        var created: JapaneseSttSession? = null
+    internal suspend fun openSession(): OfflineSttSession {
+        var created: OfflineSttSession? = null
         try {
             return withContext(dispatcher) {
                 currentCoroutineContext().ensureActive()
@@ -37,20 +40,23 @@ internal class LocalJapaneseSttClient internal constructor(
     }
 
     private companion object {
-        const val MODEL_ROOT = "models/reazonspeech-k2-v2"
-        fun createNativeSession(assets: AssetManager): JapaneseSttSession {
+        fun createNativeSession(assets: AssetManager, modelDirectory: File): OfflineSttSession {
+            requireQwenModelFiles(modelDirectory)
             val recognizer = OfflineRecognizer(
-                assetManager = assets,
                 config = OfflineRecognizerConfig(
-                    featConfig = FeatureConfig(sampleRate = 16000, featureDim = 80),
+                    featConfig = FeatureConfig(sampleRate = 16000, featureDim = 128),
                     modelConfig = OfflineModelConfig(
-                        transducer = OfflineTransducerModelConfig(
-                            encoder = "$MODEL_ROOT/encoder.int8.onnx",
-                            decoder = "$MODEL_ROOT/decoder.int8.onnx",
-                            joiner = "$MODEL_ROOT/joiner.int8.onnx"
+                        qwen3Asr = OfflineQwen3AsrModelConfig(
+                            convFrontend = File(modelDirectory, "conv_frontend.onnx").absolutePath,
+                            encoder = File(modelDirectory, "encoder.int8.onnx").absolutePath,
+                            decoder = File(modelDirectory, "decoder.int8.onnx").absolutePath,
+                            tokenizer = File(modelDirectory, "tokenizer").absolutePath,
+                            maxTotalLen = 512,
+                            maxNewTokens = QWEN_MAX_NEW_TOKENS,
+                            temperature = 1e-6f,
+                            topP = .8f,
+                            seed = 42
                         ),
-                        tokens = "$MODEL_ROOT/tokens.txt",
-                        modelType = "zipformer",
                         numThreads = 2,
                         provider = "cpu",
                         debug = false
@@ -64,7 +70,7 @@ internal class LocalJapaneseSttClient internal constructor(
                     assetManager = assets,
                     config = VadModelConfig(
                         sileroVadModelConfig = SileroVadModelConfig(
-                            model = "$MODEL_ROOT/silero_vad.onnx",
+                            model = "speech/silero_vad.onnx",
                             threshold = .5f,
                             minSilenceDuration = 1f,
                             minSpeechDuration = .25f,
@@ -77,7 +83,7 @@ internal class LocalJapaneseSttClient internal constructor(
                         debug = false
                     )
                 )
-                return JapaneseSttSession(NativeJapaneseBackend(recognizer), JapaneseVadSpeechGate(NativeVadProbabilityModel(vad)))
+                return OfflineSttSession(NativeOfflineBackend(recognizer), VadSpeechGate(NativeVadProbabilityModel(vad)))
             } catch (failure: Throwable) {
                 try { vad?.release() } finally { recognizer.release() }
                 throw failure
@@ -86,25 +92,49 @@ internal class LocalJapaneseSttClient internal constructor(
     }
 }
 
-internal interface JapaneseRecognizerStream {
+internal const val QWEN_MAX_NEW_TOKENS = 128
+private const val QWEN_MAX_STRIPPED_PREFIX_TOKENS = 16
+
+internal class RecognitionOutputLimitException : IllegalStateException()
+
+internal fun validateQwenResult(text: String, tokenCount: Int): String {
+    // sherpa strips up to 16 scaffold tokens and does not expose a finish reason.
+    // Reject results near the generation cap rather than publishing a cut sentence.
+    if (tokenCount >= QWEN_MAX_NEW_TOKENS - QWEN_MAX_STRIPPED_PREFIX_TOKENS) {
+        throw RecognitionOutputLimitException()
+    }
+    return text
+}
+
+internal fun requireQwenModelFiles(directory: File) {
+    val paths = listOf(
+        "conv_frontend.onnx", "encoder.int8.onnx", "decoder.int8.onnx",
+        "tokenizer/merges.txt", "tokenizer/tokenizer_config.json", "tokenizer/vocab.json"
+    )
+    check(paths.all { File(directory, it).let { file -> file.isFile && file.length() > 0 } }) {
+        "음성 인식 모델이 준비되지 않았습니다. 앱에서 AI 모델을 준비해 주세요."
+    }
+}
+
+internal interface OfflineRecognizerStream {
     fun acceptWaveform(samples: FloatArray, sampleRate: Int)
     fun close()
 }
 
-internal interface JapaneseRecognizerBackend {
-    fun createStream(): JapaneseRecognizerStream
-    fun decode(stream: JapaneseRecognizerStream)
-    fun result(stream: JapaneseRecognizerStream): String
+internal interface OfflineRecognizerBackend {
+    fun createStream(): OfflineRecognizerStream
+    fun decode(stream: OfflineRecognizerStream)
+    fun result(stream: OfflineRecognizerStream): String
     fun close()
 }
 
-internal interface JapaneseSpeechGate {
+internal interface SpeechGate {
     fun isSpeech(pcm: ByteArray, length: Int): Boolean
     fun reset()
     fun close()
 }
 
-internal class JapaneseSttSession(backend: JapaneseRecognizerBackend, gate: JapaneseSpeechGate) {
+internal class OfflineSttSession(backend: OfflineRecognizerBackend, gate: SpeechGate) {
     private val recognizer = NativeSessionOwner(backend)
     private val speechGate = NativeSessionOwner(gate)
 
@@ -139,31 +169,34 @@ internal fun pcmSamples(pcm: ByteArray, length: Int, trailingSamples: Int = 0): 
     sample / 32768f
 }
 
-private class NativeJapaneseBackend(private val recognizer: OfflineRecognizer) : JapaneseRecognizerBackend {
-    override fun createStream(): JapaneseRecognizerStream = NativeJapaneseStream(recognizer.createStream())
-    override fun decode(stream: JapaneseRecognizerStream) = recognizer.decode((stream as NativeJapaneseStream).stream)
-    override fun result(stream: JapaneseRecognizerStream): String = recognizer.getResult((stream as NativeJapaneseStream).stream).text
+private class NativeOfflineBackend(private val recognizer: OfflineRecognizer) : OfflineRecognizerBackend {
+    override fun createStream(): OfflineRecognizerStream = NativeOfflineStream(recognizer.createStream())
+    override fun decode(stream: OfflineRecognizerStream) = recognizer.decode((stream as NativeOfflineStream).stream)
+    override fun result(stream: OfflineRecognizerStream): String {
+        val result = recognizer.getResult((stream as NativeOfflineStream).stream)
+        return validateQwenResult(result.text, result.tokens.size)
+    }
     override fun close() = recognizer.release()
 }
 
-private class NativeJapaneseStream(val stream: OfflineStream) : JapaneseRecognizerStream {
+private class NativeOfflineStream(val stream: OfflineStream) : OfflineRecognizerStream {
     override fun acceptWaveform(samples: FloatArray, sampleRate: Int) = stream.acceptWaveform(samples, sampleRate)
     override fun close() = stream.release()
 }
 
-internal interface JapaneseSpeechProbabilityModel {
+internal interface SpeechProbabilityModel {
     fun probability(samples: FloatArray): Float
     fun reset()
     fun close()
 }
 
-private class NativeVadProbabilityModel(private val vad: Vad) : JapaneseSpeechProbabilityModel {
+private class NativeVadProbabilityModel(private val vad: Vad) : SpeechProbabilityModel {
     override fun probability(samples: FloatArray) = vad.compute(samples)
     override fun reset() = vad.reset()
     override fun close() = vad.release()
 }
 
-internal class JapaneseVadSpeechGate(private val model: JapaneseSpeechProbabilityModel) : JapaneseSpeechGate {
+internal class VadSpeechGate(private val model: SpeechProbabilityModel) : SpeechGate {
     private val window = FloatArray(512)
     private var count = 0
     private var lastSpeech = false

@@ -3,7 +3,7 @@ package com.charles.livecaptionn.speech
 import java.io.ByteArrayOutputStream
 import kotlin.math.abs
 
-internal class JapanesePcmSegmenter {
+internal class SpeechPcmSegmenter {
     private val audio = ByteArrayOutputStream(MAX_BYTES)
     private var leadingSilence = ByteArray(0)
     private var voicedBytes = 0

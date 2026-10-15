@@ -76,6 +76,7 @@ class CaptionForegroundService : Service() {
     private var setupJob: Job? = null
     private var stopping = false
     private var sessionSourceCode = "en"
+    private var translationReleased = false
     /** Read by capture callbacks; initialized before speech starts. */
     @Volatile private var stableCaptions = true
 
@@ -165,6 +166,7 @@ class CaptionForegroundService : Service() {
 
     private fun startFlow() {
         if (stopping || !captionSessionActive.compareAndSet(false, true)) return
+        translationReleased = false
         failureMessage = null
         app.container.runtimeStore.update {
             it.copy(running = true, paused = paused, stopping = false,
@@ -197,9 +199,8 @@ class CaptionForegroundService : Service() {
             val sttLanguageCode = settings.sourceLanguageCode.ifBlank { "en" }
             sessionSourceCode = sttLanguageCode
 
-            val model = app.container.voskRegistry.installedModelFor(sttLanguageCode)
-            if (model == null) {
-                failAndStop("음성 모델을 찾을 수 없습니다. 모델이 포함된 APK를 설치해 주세요.")
+            if (!app.container.offlineModels.isReady()) {
+                failAndStop("음성 인식·번역 모델을 먼저 준비해 주세요.")
                 return@launch
             }
 
@@ -209,7 +210,15 @@ class CaptionForegroundService : Service() {
             }
 
             if (!app.container.translationModels.isReady(sttLanguageCode)) {
-                failAndStop("한국어 번역 모델을 먼저 준비해 주세요.")
+                failAndStop("음성 인식·번역 모델을 먼저 준비해 주세요.")
+                return@launch
+            }
+            try {
+                app.container.translationRepository.prewarm(sttLanguageCode, "ko")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                failAndStop("번역 모델을 불러오지 못했습니다. 저장 공간과 모델 준비 상태를 확인해 주세요.")
                 return@launch
             }
 
@@ -314,7 +323,7 @@ class CaptionForegroundService : Service() {
                 onSkippedAudio = {
                     app.container.runtimeStore.update { recordSkippedSpeechSegment(it) }
                 },
-                localSttClient = app.container.localVoskClient,
+                localSttClient = app.container.localQwenClient,
                 scope = serviceScope,
                 onResult = onSpeechResult,
                 onError = errorSink,
@@ -322,7 +331,14 @@ class CaptionForegroundService : Service() {
                 onRecognitionProcessing = { busy ->
                     app.container.runtimeStore.update { it.copy(recognizing = busy) }
                 },
-                onUtteranceAudio = { audio -> languageSamples?.trySend(audio) }
+                onUtteranceAudio = { audio -> languageSamples?.trySend(audio) },
+                onRecognitionLimit = {
+                    app.container.runtimeStore.update {
+                        recordSkippedSpeechSegment(it).copy(
+                            infoMessage = "인식 결과가 처리 길이 한도에 가까워 해당 구간을 생략했습니다."
+                        )
+                    }
+                }
             )
             speechEngine = engine
             observeEngineStatus(engine.status)
@@ -544,6 +560,7 @@ class CaptionForegroundService : Service() {
             releaseUnstartedProjection()
             val drained = translationQueue?.finish() ?: true
             translationQueue = null
+            releaseTranslation()
             overlayController?.hide()
             overlayController = null
             overlayReady.value = 0
@@ -565,6 +582,7 @@ class CaptionForegroundService : Service() {
         languageSamples = null
         translationQueue?.cancel()
         translationQueue = null
+        releaseTranslation()
         overlayController?.hide()
         overlayController = null
         val engine = speechEngine
@@ -596,6 +614,12 @@ class CaptionForegroundService : Service() {
         if (!pauseController.hasStarted) {
             try { projection?.stop() } catch (_: RuntimeException) { }
         }
+    }
+
+    private fun releaseTranslation() {
+        if (translationReleased) return
+        translationReleased = true
+        app.container.translationRepository.close()
     }
 
     private fun buildNotification(): Notification {

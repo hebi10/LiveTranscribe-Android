@@ -1,9 +1,7 @@
 package com.charles.livecaptionn.ui
 
 import com.charles.livecaptionn.service.CaptionRuntimeState
-import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.CaptionSettings
-import com.charles.livecaptionn.speech.VoskModelInfo
 import com.charles.livecaptionn.translation.TranslationModelState
 import com.charles.livecaptionn.translation.ModelSetupStage
 
@@ -12,15 +10,12 @@ data class MainUiState(
     val runtime: CaptionRuntimeState = CaptionRuntimeState(),
     val micPermissionGranted: Boolean = false,
     val overlayPermissionGranted: Boolean = false,
-    val voskModels: List<VoskModelInfo> = emptyList(),
     val translationModel: TranslationModelState = TranslationModelState()
 ) {
-    val sourceModels: List<VoskModelInfo> get() = voskModels.filter { it.installed }
-    val modelReady: Boolean get() =
-        sourceModels.any { it.languageCode == settings.sourceLanguageCode }
-    val translationReady: Boolean get() =
-        translationModel.sourceCode == settings.sourceLanguageCode &&
-            translationModel.stage == ModelSetupStage.READY
+    /** Both supported languages share the same speech and translation model files. */
+    val modelReady: Boolean get() = settings.sourceLanguageCode in setOf("en", "ja") &&
+        translationModel.stage == ModelSetupStage.READY
+    val translationReady: Boolean get() = modelReady
     val canStart: Boolean get() =
         modelReady && translationReady && overlayPermissionGranted && micPermissionGranted
 }

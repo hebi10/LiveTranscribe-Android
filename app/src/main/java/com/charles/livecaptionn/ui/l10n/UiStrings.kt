@@ -7,8 +7,7 @@ import java.util.Locale
  *
  * Each map key is the canonical English source string; when a key has no
  * translation yet the English text is returned, so the UI degrades gracefully
- * while ML Kit downloads a model / translates in the background — the UI never
- * renders blank or half-localized text.
+ * until a translation is supplied — the UI never renders blank text.
  */
 class UiStrings(private val map: Map<String, String> = emptyMap()) {
 

@@ -26,20 +26,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
 
-/** Captures PCM continuously; Japanese decoding runs in a separate bounded worker. */
+/** Captures PCM continuously; local recognition runs in a separate bounded worker. */
 class StreamingSttEngine(
     private val context: Context,
     private val audioSource: AudioSource,
     private val mediaProjection: MediaProjection?,
     private val languageCode: String,
-    private val localSttClient: LocalVoskSttClient,
+    private val localSttClient: LocalQwenSttClient,
     private val scope: CoroutineScope,
     private val onResult: (SpeechResult) -> Unit,
     private val onError: (String?) -> Unit = {},
     private val onUtteranceAudio: ((ByteArray) -> Unit)? = null,
     private val onSkippedAudio: () -> Unit = {},
     private val onHint: (String?) -> Unit = {},
-    private val onRecognitionProcessing: (Boolean) -> Unit = {}
+    private val onRecognitionProcessing: (Boolean) -> Unit = {},
+    private val onRecognitionLimit: () -> Unit = {}
 ) : SpeechEngine {
 
     private val statusMutable = MutableStateFlow(RecognitionStatus.IDLE)
@@ -71,31 +72,26 @@ class StreamingSttEngine(
     }
 
     private suspend fun runCapture(owner: CaptureLifecycle.Owner) {
-        var localSession: VoskStreamingSession? = null
-        var japaneseSession: JapaneseSttSession? = null
-        var japanesePipeline: JapaneseSpeechPipeline? = null
+        var localSession: OfflineSttSession? = null
+        var pipeline: OfflineSpeechPipeline? = null
         val ownerContext = currentCoroutineContext()
         var record: AudioRecord? = null
-        var captureStarted = false
         try {
-            if (languageCode.lowercase(java.util.Locale.ROOT).substringBefore('-') == "ja") {
-                val openedSession = LocalJapaneseSttClient(context).openSession()
-                japaneseSession = openedSession
-                japanesePipeline = JapaneseSpeechPipeline(
-                    session = openedSession,
-                    onResult = onResult,
-                    onSkippedAudio = onSkippedAudio,
-                    onProcessing = onRecognitionProcessing,
-                    onFailure = { message ->
-                        if (ownerContext.isActive) signals.fail(message)
-                    }
-                )
-            } else {
-                localSession = localSttClient.openSession(languageCode, SAMPLE_RATE)
-                    ?: throw IllegalStateException(
-                        "'$languageCode' 오프라인 음성 모델이 없습니다. 모델이 포함된 APK를 설치해 주세요."
-                    )
+            check(languageCode.lowercase(java.util.Locale.ROOT).substringBefore('-') in setOf("en", "ja")) {
+                "지원하지 않는 음성 언어입니다. 영어 또는 일본어를 선택해 주세요."
             }
+            val openedSession = localSttClient.openSession()
+            localSession = openedSession
+            pipeline = OfflineSpeechPipeline(
+                session = openedSession,
+                onResult = onResult,
+                onSkippedAudio = onSkippedAudio,
+                onProcessing = onRecognitionProcessing,
+                onRecognitionLimit = onRecognitionLimit,
+                onFailure = { message ->
+                    if (ownerContext.isActive) signals.fail(message)
+                }
+            )
             currentCoroutineContext().ensureActive()
             val localRecord = buildAudioRecord()
                 ?: throw IllegalStateException("오디오 캡처를 준비하지 못했습니다. 권한과 오디오 소스를 확인해 주세요.")
@@ -112,7 +108,6 @@ class StreamingSttEngine(
                     captureContext.ensureActive()
                     resumeGenerationAtStart = signals.resumeGeneration
                     localRecord.startRecording()
-                    captureStarted = true
                 }
             }
             if (!started) return
@@ -121,7 +116,7 @@ class StreamingSttEngine(
                 "오디오 캡처를 시작하지 못했습니다. 다시 시작해 주세요."
             }
             signals.ready()
-            captureLoop(localRecord, localSession, japanesePipeline, resumeGenerationAtStart)
+            captureLoop(localRecord, pipeline, resumeGenerationAtStart)
         } catch (t: CancellationException) {
             throw t
         } catch (t: Throwable) {
@@ -134,25 +129,17 @@ class StreamingSttEngine(
             owner.clearInterrupt()
             try { record?.stop() } catch (_: Throwable) {}
             try {
-                if (captureStarted) {
-                    localSession?.let { session ->
-                        withRecognitionProgress(onRecognitionProcessing) { session.finish() }
-                    }?.let {
-                        onResult(SpeechResult(it, isFinal = true))
-                    }
-                }
                 try {
-                    japanesePipeline?.finish()
+                    pipeline?.finish()
                 } catch (failure: CancellationException) {
                     throw failure
                 } catch (failure: Throwable) {
                     // join() does not propagate an owning launch job's failure to stop().
-                    signals.fail(failure.message ?: "일본어 마지막 음성 구간을 처리하지 못했습니다.")
+                    signals.fail(failure.message ?: "마지막 음성 구간을 처리하지 못했습니다.")
                 }
             } finally {
                 try { record?.release() } catch (_: Throwable) {}
-                localSession?.close()
-                if (japanesePipeline == null) japaneseSession?.close()
+                if (pipeline == null) localSession?.close()
                 if (audioSource == AudioSource.SYSTEM) {
                     try { mediaProjection?.stop() } catch (_: Throwable) {}
                 }
@@ -162,21 +149,16 @@ class StreamingSttEngine(
 
     private suspend fun captureLoop(
         record: AudioRecord,
-        localSession: VoskStreamingSession?,
-        japanesePipeline: JapaneseSpeechPipeline?,
+        pipeline: OfflineSpeechPipeline,
         resumeGenerationAtStart: Long
     ) {
         val buffer = ByteArray(CHUNK_BYTES)
         var silentChunkStreak = 0
-        val resultEmitter = StreamingSpeechResultEmitter(onResult)
         var sawAnyAudioEver = false
         val intervalPcm = ByteArrayOutputStream()
         var voicedChunks = 0
         val audioBoundary = CaptureAudioBoundary(signals, resumeGenerationAtStart) {
-            japanesePipeline?.pauseBoundary()
-            localSession?.let { session ->
-                withRecognitionProgress(onRecognitionProcessing) { session.pauseBoundary() }
-            }?.let(resultEmitter::emit)
+            pipeline.pauseBoundary()
             intervalPcm.reset()
             voicedChunks = 0
             silentChunkStreak = 0
@@ -232,18 +214,10 @@ class StreamingSttEngine(
                 if (!isSilent) voicedChunks++
             }
 
-            val boundary = if (japanesePipeline != null) {
-                japanesePipeline.feed(buffer, read)
-            } else {
-                val result = withRecognitionProgress(onRecognitionProcessing) {
-                    checkNotNull(localSession).feed(buffer, read)
-                }
-                resultEmitter.emit(result)
-                result.accepted
-            }
+            val boundary = pipeline.feed(buffer, read)
 
-            // Independently end acoustic intervals on silence, even when the
-            // currently selected Vosk model cannot recognize the language.
+            // Acoustic intervals remain independent of recognized text so language
+            // recommendations still work when the selected source is incorrect.
             if (boundary || (isSilent && silentChunkStreak == LANGUAGE_SILENCE_CHUNKS)) {
                 if (onUtteranceAudio != null &&
                     intervalPcm.size() >= MIN_LANGUAGE_AUDIO_BYTES && voicedChunks >= 8

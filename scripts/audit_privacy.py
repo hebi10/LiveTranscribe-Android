@@ -9,7 +9,7 @@ manifest = (app / "src/main/AndroidManifest.xml").read_text(encoding="utf-8")
 build = (app / "build.gradle.kts").read_text(encoding="utf-8")
 blocked_dependencies = (
     "firebase", "play-services-ads", "retrofit", "okhttp",
-    "billingclient", "work-runtime", "google-services"
+    "billingclient", "work-runtime", "google-services", "mlkit", "play-services"
 )
 for item in blocked_dependencies:
     if item in build.lower():
@@ -17,9 +17,9 @@ for item in blocked_dependencies:
 android = "{http://schemas.android.com/apk/res/android}"
 tools = "{http://schemas.android.com/tools}"
 manifest_xml = ET.fromstring(manifest)
-# Downloads are explicitly requested by the user and may use Wi-Fi or mobile data.
-# Network permissions do not restrict SDK traffic to downloads; audit direct app
-# upload/sharing paths separately below and disclose SDK diagnostics in the UI.
+# Downloads are explicitly requested and may use Wi-Fi or mobile data.
+# Network capability alone cannot prove that payloads stay local; audit the
+# only permitted model GET transport separately from all other application code.
 for permission in ("INTERNET", "ACCESS_NETWORK_STATE"):
     nodes = [node for node in manifest_xml if node.tag.startswith("uses-permission")
              and node.get(android + "name") == f"android.permission.{permission}"]
@@ -30,6 +30,8 @@ for permission in ("INTERNET", "ACCESS_NETWORK_STATE"):
 application = manifest_xml.find("application")
 if application is None or application.get(android + "allowBackup") != "false":
     raise SystemExit("App backups must be disabled")
+if application.get(android + "usesCleartextTraffic") != "false":
+    raise SystemExit("Cleartext network traffic must be disabled")
 if application.get(android + "fullBackupContent") != "false":
     raise SystemExit("Legacy full backups must be disabled")
 if application.get(android + "dataExtractionRules") != "@xml/data_extraction_rules":
@@ -55,7 +57,6 @@ history_store = app / "src/main/java/com/charles/livecaptionn/data/TranscriptHis
 if "context.noBackupFilesDir" not in history_store.read_text(encoding="utf-8"):
     raise SystemExit("Transcript history must use noBackupFilesDir")
 bad_patterns = (
-    r'\bjava\.net\.(URL|HttpURLConnection|Socket)\b',
     r'\bokhttp3\.',
     r'\bretrofit2\.',
     r'\bFirebaseApp\b',
@@ -64,8 +65,17 @@ bad_patterns = (
     r'\bBuildConfig\.UPDATE_REPO_OWNER\b',
     r'\bHttpLoggingInterceptor\b'
 )
+transport = app / "src/main/java/com/charles/livecaptionn/models/ModelDownloadTransport.kt"
+network_pattern = r'\b(?:java\.net\.(?:URL|HttpURLConnection|Socket)|javax\.net\.ssl\.HttpsURLConnection)\b'
 for path in (app / "src/main/java").rglob("*.kt"):
     text = path.read_text(encoding="utf-8")
+    if path == transport:
+        if not re.search(r'requestMethod\s*=\s*"GET"', text) or not re.search(r'doOutput\s*=\s*false', text):
+            raise SystemExit("Model transport must use GET without a request body")
+        if re.search(r'\b(?:getOutputStream|outputStream|Socket)\b|doOutput\s*=\s*true|requestMethod\s*=\s*"(?:POST|PUT|PATCH|DELETE)"', text):
+            raise SystemExit("Model transport cannot upload a request body")
+    elif re.search(network_pattern, text):
+        raise SystemExit(f"Forbidden behavior in {path.relative_to(root)}: direct network access")
     for pattern in bad_patterns:
         if re.search(pattern, text):
             raise SystemExit(f"Forbidden behavior in {path.relative_to(root)}: {pattern}")
@@ -73,6 +83,6 @@ assert (root / "scripts/prepare_language_id.py").exists(), "Language ID model in
 assert (root / "app/src/main/java/com/charles/livecaptionn/speech/OfflineSpokenLanguageIdentifier.kt").exists()
 assert (root / "app/src/main/java/com/charles/livecaptionn/translation/TranslationModelSetup.kt").exists()
 assert (root / "app/src/main/java/com/charles/livecaptionn/speech/LanguageRecommendationTracker.kt").exists()
-print("OK: model download network permissions declared; known direct app upload/sharing patterns blocked; backup domains excluded")
+print("OK: explicit model GET transport only; ML Kit removed; known upload/sharing patterns blocked; backup domains excluded")
 print("Static source audit only: SDK internals/telemetry, merged manifest and device traffic unverified")
 

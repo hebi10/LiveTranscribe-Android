@@ -1,6 +1,5 @@
 package com.charles.livecaptionn
 
-import com.charles.livecaptionn.speech.VoskModelInfo
 import com.charles.livecaptionn.ui.MainUiState
 import com.charles.livecaptionn.translation.ModelSetupStage
 import com.charles.livecaptionn.translation.TranslationModelState
@@ -10,40 +9,52 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MainUiStateFilterTest {
-    @Test fun modelIsAvailableOnlyIfBundled() {
-        val s = MainUiState(voskModels = listOf(
-            VoskModelInfo("en", "영어", "model-en", 40, installed = true),
-            VoskModelInfo("ja", "일본어", "model-ja", 48, installed = false)
-        ))
-        assertTrue(s.modelReady)
-        assertTrue(s.sourceModels.any { it.languageCode == "en" })
-        assertFalse(s.sourceModels.any { it.languageCode == "ja" })
+    private val ready = MainUiState(
+        micPermissionGranted = true,
+        overlayPermissionGranted = true,
+        translationModel = TranslationModelState("en", ModelSetupStage.READY)
+    )
+
+    @Test fun oneCompletedDownloadEnablesBothSupportedLanguages() {
+        for (selected in listOf("en", "ja")) {
+            for (lastRequested in listOf("en", "ja")) {
+                val state = ready.copy(
+                    settings = ready.settings.copy(sourceLanguageCode = selected),
+                    translationModel = TranslationModelState(lastRequested, ModelSetupStage.READY)
+                )
+                assertTrue(state.modelReady)
+                assertTrue(state.translationReady)
+                assertTrue(state.canStart)
+            }
+        }
+    }
+
+    @Test fun downloadedModelsDoNotEnableAnUnsupportedLanguage() {
+        val state = ready.copy(settings = ready.settings.copy(sourceLanguageCode = "fr"))
+        assertFalse(state.modelReady)
+        assertFalse(state.canStart)
     }
 
     @Test fun noModelDisablesStart() {
         assertFalse(MainUiState().canStart)
     }
 
-    @Test fun systemAudioAlsoRequiresRecordAudioPermission() {
-        val source = MainUiState(
-            micPermissionGranted = false,
-            overlayPermissionGranted = true,
-            translationModel = TranslationModelState("en", ModelSetupStage.READY),
-            voskModels = listOf(VoskModelInfo("en", "영어", "model-en", 40, installed = true))
-        )
-        assertFalse(source.copy(settings = source.settings.copy(audioSource = AudioSource.SYSTEM)).canStart)
-        assertTrue(source.copy(micPermissionGranted = true).canStart)
+    @Test fun everyIncompleteStateDisablesStartEvenAfterModelsWereReady() {
+        for (stage in ModelSetupStage.entries.filter { it != ModelSetupStage.READY }) {
+            val state = ready.copy(translationModel = TranslationModelState("en", stage,
+                downloadedBytes = 100, totalBytes = 100))
+            assertFalse("Start must wait for verified READY, including a full partial download: $stage", state.canStart)
+            assertFalse(state.modelReady)
+            assertFalse(state.translationReady)
+        }
     }
-    @Test fun startRequiresReadyTranslationForSelectedLanguage() {
-        val source = MainUiState(
-            micPermissionGranted = true,
-            overlayPermissionGranted = true,
-            translationModel = TranslationModelState("ja", ModelSetupStage.READY),
-            voskModels = listOf(VoskModelInfo("en", "영어", "model-en", 40, installed = true))
-        )
-        assertFalse(source.canStart)
-        assertFalse(source.copy(translationModel = TranslationModelState("en", ModelSetupStage.CHECKING)).canStart)
-        assertTrue(source.copy(translationModel = TranslationModelState("en", ModelSetupStage.READY)).canStart)
+
+    @Test fun bothAudioSourcesRequireRecordAudioAndOverlayPermissions() {
+        for (audioSource in AudioSource.entries) {
+            val state = ready.copy(settings = ready.settings.copy(audioSource = audioSource))
+            assertTrue(state.canStart)
+            assertFalse(state.copy(micPermissionGranted = false).canStart)
+            assertFalse(state.copy(overlayPermissionGranted = false).canStart)
+        }
     }
 }
-

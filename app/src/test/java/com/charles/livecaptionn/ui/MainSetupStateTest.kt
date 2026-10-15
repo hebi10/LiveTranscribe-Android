@@ -2,7 +2,6 @@ package com.charles.livecaptionn.ui
 
 import com.charles.livecaptionn.service.CaptionRuntimeState
 import com.charles.livecaptionn.speech.RecognitionStatus
-import com.charles.livecaptionn.speech.VoskModelInfo
 import com.charles.livecaptionn.translation.ModelSetupStage
 import com.charles.livecaptionn.translation.TranslationModelState
 import org.junit.Assert.assertEquals
@@ -15,63 +14,95 @@ class MainSetupStateTest {
     private val ready = MainUiState(
         micPermissionGranted = true,
         overlayPermissionGranted = true,
-        voskModels = listOf(VoskModelInfo("en", "영어", "model-en", 40, installed = true)),
         translationModel = TranslationModelState("en", ModelSetupStage.READY)
     )
 
-    @Test fun firstRunShowsTheThreePreparationsThatTheUserCanComplete() {
-        val setup = ready.copy(
+    @Test fun firstRunShowsPermissionsAndOneExplicitModelPreparation() {
+        val state = ready.copy(
             micPermissionGranted = false,
             overlayPermissionGranted = false,
             translationModel = TranslationModelState("en", ModelSetupStage.NOT_DOWNLOADED)
-        ).setupState()
+        )
+        val setup = state.setupState()
 
         assertTrue(setup.isVisible)
-        assertFalse(setup.speechModelMissing)
-        assertTrue(setup.canPrepareTranslationModel)
+        assertTrue(setup.canPrepareModels)
+        assertFalse(setup.canCancelModelPreparation)
+        assertFalse(setup.canResumeModelPreparation)
         assertEquals(AudioPermissionAction.REQUEST, setup.audioPermissionAction)
         assertTrue(setup.overlayPermissionNeeded)
+        assertFalse(state.canStart)
     }
 
-    @Test fun readyModelsForAnotherLanguageCannotOfferDownloadOrHidePreparation() {
-        val setup = ready.copy(
-            settings = ready.settings.copy(sourceLanguageCode = "ja")
-        ).setupState()
+    @Test fun preparedSharedModelsRemainReadyWhenTheSelectedLanguageChanges() {
+        val state = ready.copy(settings = ready.settings.copy(sourceLanguageCode = "ja"))
+        assertTrue(state.canStart)
+        assertFalse(state.setupState().isVisible)
+    }
+
+    @Test fun checkingDoesNotOfferADuplicateDownloadOrCancellation() {
+        val setup = ready.copy(translationModel = TranslationModelState("en", ModelSetupStage.CHECKING)).setupState()
 
         assertTrue(setup.isVisible)
-        assertTrue(setup.speechModelMissing)
-        assertEquals(ModelSetupStage.CHECKING, setup.translationStage)
-        assertFalse(setup.canPrepareTranslationModel)
+        assertEquals(ModelSetupStage.CHECKING, setup.modelStage)
+        assertFalse(setup.canPrepareModels)
+        assertFalse(setup.canCancelModelPreparation)
+        assertNull(setup.downloadProgress)
     }
 
-    @Test fun checkingAndDownloadingKeepTheProgressVisibleWithoutDuplicateActions() {
-        for (stage in listOf(ModelSetupStage.CHECKING, ModelSetupStage.DOWNLOADING)) {
-            val setup = ready.copy(translationModel = TranslationModelState("en", stage)).setupState()
-            assertTrue(setup.isVisible)
-            assertEquals(stage, setup.translationStage)
-            assertFalse(setup.canPrepareTranslationModel)
-            assertNull(setup.translationError)
-        }
+    @Test fun activeDownloadKeepsProgressAndCancellationWhenLanguageChanges() {
+        val state = ready.copy(
+            settings = ready.settings.copy(sourceLanguageCode = "ja"),
+            translationModel = TranslationModelState("en", ModelSetupStage.DOWNLOADING,
+                downloadedBytes = 500_000_000, totalBytes = 2_000_000_000, currentFile = "model.onnx")
+        )
+        val setup = state.setupState()
+
+        assertEquals(ModelSetupStage.DOWNLOADING, setup.modelStage)
+        assertEquals(500_000_000L, setup.downloadedBytes)
+        assertEquals(2_000_000_000L, setup.totalBytes)
+        assertEquals(0.25f, setup.downloadProgress)
+        assertEquals("model.onnx", setup.currentFile)
+        assertTrue(setup.canCancelModelPreparation)
+        assertFalse(setup.canPrepareModels)
+        assertFalse(state.canStart)
+    }
+
+    @Test fun cancellationRetainsProgressAndOffersExplicitResumeWithoutStarting() {
+        val state = ready.copy(translationModel = TranslationModelState("en", ModelSetupStage.NOT_DOWNLOADED,
+            downloadedBytes = 300_000_000, totalBytes = 2_000_000_000))
+        val setup = state.setupState()
+
+        assertTrue(setup.canPrepareModels)
+        assertTrue(setup.canResumeModelPreparation)
+        assertFalse(setup.canCancelModelPreparation)
+        assertEquals(300_000_000L, setup.downloadedBytes)
+        assertFalse(state.canStart)
     }
 
     @Test fun failedPreparationKeepsItsExplanationAndOffersExplicitRetry() {
         val setup = ready.copy(
-            translationModel = TranslationModelState("en", ModelSetupStage.ERROR, "저장 공간을 확인해 주세요.")
+            translationModel = TranslationModelState("ja", ModelSetupStage.ERROR, "저장 공간을 확인해 주세요.")
         ).setupState()
 
-        assertEquals(ModelSetupStage.ERROR, setup.translationStage)
-        assertEquals("저장 공간을 확인해 주세요.", setup.translationError)
-        assertTrue(setup.canPrepareTranslationModel)
+        assertEquals(ModelSetupStage.ERROR, setup.modelStage)
+        assertEquals("저장 공간을 확인해 주세요.", setup.modelMessage)
+        assertTrue(setup.canPrepareModels)
+        assertFalse(setup.canCancelModelPreparation)
     }
 
-    @Test fun switchingLanguageDoesNotShowThePreviousLanguageFailureOrRetry() {
-        val setup = ready.copy(
-            translationModel = TranslationModelState("ja", ModelSetupStage.ERROR, "이전 언어 오류")
-        ).setupState()
+    @Test fun failedPartialDownloadOffersResumeWithTheSameExplanation() {
+        val setup = ready.copy(translationModel = TranslationModelState("en", ModelSetupStage.ERROR,
+            "연결을 확인해 주세요.", downloadedBytes = 10, totalBytes = 100)).setupState()
+        assertTrue(setup.canResumeModelPreparation)
+        assertEquals("연결을 확인해 주세요.", setup.modelMessage)
+        assertEquals(0.1f, setup.downloadProgress)
+    }
 
-        assertEquals(ModelSetupStage.CHECKING, setup.translationStage)
-        assertNull(setup.translationError)
-        assertFalse(setup.canPrepareTranslationModel)
+    @Test fun progressIsClampedAndUnknownTotalDoesNotPretendToBeComplete() {
+        assertNull(MainSetupState(downloadedBytes = 20).downloadProgress)
+        assertEquals(1f, MainSetupState(downloadedBytes = 120, totalBytes = 100).downloadProgress)
+        assertEquals(0f, MainSetupState(downloadedBytes = -20, totalBytes = 100).downloadProgress)
     }
 
     @Test fun blockedAudioPermissionDirectsTheUserToAppSettings() {
@@ -80,7 +111,7 @@ class MainSetupStateTest {
 
         assertEquals(AudioPermissionAction.OPEN_SETTINGS, setup.audioPermissionAction)
         assertFalse(setup.overlayPermissionNeeded)
-        assertNull(setup.translationStage)
+        assertNull(setup.modelStage)
     }
 
     @Test fun grantedPermissionsDisappearEvenIfAnOldSettingsFlagRemains() {
@@ -90,23 +121,16 @@ class MainSetupStateTest {
 
         assertEquals(AudioPermissionAction.GRANTED, setup.audioPermissionAction)
         assertFalse(setup.overlayPermissionNeeded)
-        assertTrue(setup.canPrepareTranslationModel)
-    }
-
-    @Test fun aMissingBundledSpeechModelRemainsVisibleAfterOtherSetupIsComplete() {
-        val setup = ready.copy(voskModels = emptyList()).setupState()
-
-        assertTrue(setup.isVisible)
-        assertTrue(setup.speechModelMissing)
-        assertFalse(setup.canPrepareTranslationModel)
+        assertTrue(setup.canPrepareModels)
     }
 
     @Test fun completingSetupCollapsesTheChecklistForRepeatUse() {
         val setup = ready.setupState()
 
         assertFalse(setup.isVisible)
-        assertFalse(setup.speechModelMissing)
-        assertNull(setup.translationStage)
+        assertFalse(setup.canPrepareModels)
+        assertFalse(setup.canCancelModelPreparation)
+        assertNull(setup.modelStage)
         assertEquals(AudioPermissionAction.GRANTED, setup.audioPermissionAction)
         assertFalse(setup.overlayPermissionNeeded)
     }
@@ -115,16 +139,22 @@ class MainSetupStateTest {
         val setup = MainUiState().setupState(startPending = true)
 
         assertFalse(setup.isVisible)
-        assertFalse(setup.canPrepareTranslationModel)
+        assertFalse(setup.canPrepareModels)
+        assertFalse(setup.canCancelModelPreparation)
         assertEquals(AudioPermissionAction.GRANTED, setup.audioPermissionAction)
         assertFalse(setup.overlayPermissionNeeded)
     }
 
-    @Test fun activeAndPausedSessionsHideSetupActions() {
-        for (paused in listOf(false, true)) {
-            val setup = MainUiState(runtime = CaptionRuntimeState(running = true, paused = paused)).setupState()
+    @Test fun activePausedAndStoppingSessionsHideSetupActions() {
+        for (runtime in listOf(
+            CaptionRuntimeState(running = true),
+            CaptionRuntimeState(running = true, paused = true),
+            CaptionRuntimeState(stopping = true)
+        )) {
+            val setup = MainUiState(runtime = runtime).setupState()
             assertFalse(setup.isVisible)
-            assertFalse(setup.canPrepareTranslationModel)
+            assertFalse(setup.canPrepareModels)
+            assertFalse(setup.canCancelModelPreparation)
             assertEquals(AudioPermissionAction.GRANTED, setup.audioPermissionAction)
             assertFalse(setup.overlayPermissionNeeded)
         }

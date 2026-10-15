@@ -163,6 +163,7 @@ class MainActivity : ComponentActivity() {
                                     onStart = { startCaptioning() },
                                     onStop = { stopCaptionService() },
                                     onHistory = { showHistory = true },
+                                    onCancelModelPreparation = vm::cancelModelPreparation,
                                     startPending = startPending,
                                     audioPermissionSettingsRequired = audioPermissionSettingsRequired,
                                     modifier = Modifier.weight(1f)
@@ -257,12 +258,10 @@ class MainActivity : ComponentActivity() {
                 requestMicrophonePermission(forStart = true)
                 return@launch
             }
-            if (app.container.voskRegistry.installedModelFor(settings.sourceLanguageCode) == null) {
-                setError("음성 모델이 없습니다. 모델이 포함된 APK를 설치해 주세요.")
-                return@launch
-            }
-            if (!app.container.translationModels.isReady(settings.sourceLanguageCode)) {
-                setError("번역 모델 준비가 필요합니다. 앱의 '번역 모델 준비'를 먼저 실행해 주세요.")
+            if (!app.container.offlineModels.isReady() ||
+                !app.container.translationModels.isReady(settings.sourceLanguageCode)) {
+                mainViewModel.refreshModelPreparationState()
+                setError("음성·번역 모델 준비가 필요합니다. 앱의 '모델 다운로드'를 먼저 완료해 주세요.")
                 return@launch
             }
             if (!startGate.busy) return@launch
@@ -292,6 +291,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startCaptionService(source: AudioSource) {
+        val container = (application as LiveCaptionApp).container
+        // Permission results may arrive after files changed; never trust a stale READY screen.
+        if (!container.offlineModels.isReady() ||
+            !container.translationModels.isReady(mainViewModel.state.value.settings.sourceLanguageCode)) {
+            MediaProjectionHolder.clear()
+            mainViewModel.refreshModelPreparationState()
+            setError("음성·번역 모델 준비가 필요합니다. 앱의 '모델 다운로드'를 먼저 완료해 주세요.")
+            return
+        }
         startGate.serviceRequested()
         syncStartPending()
         val intent = Intent(this, CaptionForegroundService::class.java).apply {
