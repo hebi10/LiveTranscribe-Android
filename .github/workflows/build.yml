@@ -27,32 +27,27 @@ jobs:
         run: python scripts/audit_privacy.py
       - name: Python regression tests
         run: python -m unittest discover -s scripts -p 'test_*.py'
-      - name: Cache bundled offline assets
+      - name: Cache pinned speech support and language-ID assets
         uses: actions/cache@v4
         with:
           path: |
-            app/src/main/assets/models
+            app/src/main/assets/speech
             app/src/main/assets/language-id
             app/libs
-          key: ${{ runner.os }}-offline-assets-${{ hashFiles('scripts/prepare_vosk_models.py', 'scripts/prepare_japanese_asr.py', 'scripts/prepare_language_id.py') }}
-      - name: Bundle official English Vosk model (build-time only)
-        run: python scripts/prepare_vosk_models.py
-      - name: Bundle verified Japanese ReazonSpeech model (build-time only)
-        run: python scripts/prepare_japanese_asr.py
+          key: ${{ runner.os }}-local-ai-support-${{ hashFiles('scripts/prepare_speech_support.py', 'scripts/prepare_language_id.py') }}
+      - name: Bundle pinned Silero speech detector (build-time only)
+        run: python scripts/prepare_speech_support.py
       - name: Bundle offline acoustic language ID (build-time only)
         run: python scripts/prepare_language_id.py
-      - name: Verify language-ID binaries
-        run: python scripts/prepare_language_id.py --verify-only
-      - name: Verify packaged speech asset integrity
+      - name: Verify packaged support assets
         run: |
-          python scripts/prepare_vosk_models.py --verify-only
-          python - <<'PY'
-          from scripts import prepare_japanese_asr as japanese
-          for model in japanese.MODEL_FILES:
-              if not japanese.is_verified(japanese.DEST / model.filename, model):
-                  raise SystemExit(f"Japanese ASR integrity verification failed: {model.filename}")
-          print("Verified Japanese ASR and VAD files")
-          PY
+          python scripts/prepare_speech_support.py --verify-only
+          python scripts/prepare_language_id.py --verify-only
+      - name: Install pinned native build tools
+        run: |
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358' 'cmake;3.22.1'
+      - name: Prepare pinned local translation runtime source
+        run: python scripts/prepare_native_translation.py
       - name: Unit tests and debug APK
         run: |
           chmod +x ./gradlew
@@ -73,6 +68,30 @@ jobs:
               exit 1
             fi
           done
+      - name: Verify APK support assets and model download boundary
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          from zipfile import ZipFile
+          from scripts import prepare_language_id as language_id
+          from scripts import prepare_speech_support as speech
+
+          with ZipFile('app/build/outputs/apk/debug/app-debug.apk') as apk:
+              names = apk.namelist()
+              allowed_models = {'assets/speech/silero_vad.onnx'} | {
+                  f'assets/language-id/{language_id.MODEL_NAME}/{name}' for name in language_id.MODEL_FILES
+              }
+              if any(name.startswith('assets/models/') or name.lower().endswith('.gguf') for name in names):
+                  raise SystemExit('Large or legacy recognizer/translation models must not be bundled in the APK')
+              if any(name.startswith('assets/') and name.endswith('.onnx') and name not in allowed_models for name in names):
+                  raise SystemExit('Only speech support and language-ID ONNX assets may be bundled in the APK')
+              model = apk.read('assets/speech/silero_vad.onnx')
+              if len(model) != speech.MODEL.size_bytes or sha256(model).hexdigest() != speech.MODEL.sha256:
+                  raise SystemExit('Packaged Silero speech detector integrity verification failed')
+              if 'lib/arm64-v8a/liblivecaption_translation.so' not in names:
+                  raise SystemExit('Local translation JNI runtime is missing')
+          print('Verified bundled speech support and local translation runtime; large models use explicit in-app setup')
+          PY
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:

@@ -9,7 +9,51 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class JapanesePipelineTest {
+class OfflineSpeechPipelineTest {
+    @Test fun outputLimitSkipsOnlyThatResultAndNextSegmentStillCompletes() = runTest {
+        val backend = FakeBackend().apply { outputLimitOnce = true }
+        val results = mutableListOf<SpeechResult>()
+        val processing = mutableListOf<Boolean>()
+        var limited = 0
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), results::add,
+            workerContext = StandardTestDispatcher(testScheduler), onProcessing = processing::add,
+            onRecognitionLimit = { limited++ })
+        pipeline.feed(pcm(128000))
+        runCurrent()
+        pipeline.feed(pcm(128000))
+        pipeline.finish()
+        assertEquals(1, limited)
+        assertEquals(listOf(SpeechResult("日本語2", true)), results)
+        assertNull(pipeline.failureMessage)
+        assertEquals(listOf(true, false, true, false), processing)
+        assertEquals(1, backend.closed)
+    }
+
+    @Test fun sharedCaptureBoundaryDropsPausedPcmAndKeepsSeparateUtterances() = runTest {
+        val backend = FakeBackend()
+        val results = mutableListOf<SpeechResult>()
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), results::add,
+            workerContext = StandardTestDispatcher(testScheduler))
+        val signals = CaptureSignalState({}, {})
+        val boundary = CaptureAudioBoundary(signals) { pipeline.pauseBoundary() }
+        assertTrue(boundary.prepareRead { error("No paused audio yet") })
+        assertTrue(boundary.acceptRead())
+        pipeline.feed(pcm(6400, 1000))
+        assertTrue(boundary.prepareRead { error("No paused audio yet") })
+        signals.pause(); signals.resume()
+        if (boundary.acceptRead()) pipeline.feed(pcm(3200, 3000))
+        var discardedPausedAudio = false
+        assertTrue(boundary.prepareRead { discardedPausedAudio = true; true })
+        assertTrue(discardedPausedAudio)
+        assertTrue(boundary.acceptRead())
+        pipeline.feed(pcm(9600, 2000))
+        pipeline.finish()
+        assertEquals(listOf(1000, 2000), backend.firstSamples)
+        assertEquals(listOf(14400, 17600), backend.sampleCounts)
+        assertEquals(2, results.size)
+        assertTrue(results.all { it.isFinal })
+    }
+
     @Test fun processingTracksNativeDecodeAndAlwaysClearsAfterFailure() = runTest {
         for (fails in listOf(false, true)) {
             val events = mutableListOf<Boolean>()
@@ -17,7 +61,7 @@ class JapanesePipelineTest {
                 throwOnDecode = fails
                 beforeDecode = { assertEquals(listOf(true), events) }
             }
-            val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), {},
+            val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), {},
                 workerContext = StandardTestDispatcher(testScheduler), onProcessing = events::add)
             pipeline.feed(pcm(128000))
             assertTrue(events.isEmpty())
@@ -30,7 +74,7 @@ class JapanesePipelineTest {
     @Test fun feedDoesNotDecodeInCallerAndFinishDrainsOnlyFinalResults() = runTest {
         val backend = FakeBackend()
         val results = mutableListOf<SpeechResult>()
-        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), results::add,
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), results::add,
             workerContext = StandardTestDispatcher(testScheduler))
         assertTrue(pipeline.feed(pcm(128000)))
         assertEquals(0, backend.decoded)
@@ -43,7 +87,7 @@ class JapanesePipelineTest {
         val backend = FakeBackend()
         val results = mutableListOf<SpeechResult>()
         var skipped = 0
-        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), results::add,
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), results::add,
             onSkippedAudio = { skipped++ }, workerContext = StandardTestDispatcher(testScheduler))
         repeat(10) { pipeline.feed(pcm(128000, 1000 + it)) }
         assertEquals(8, skipped)
@@ -54,7 +98,7 @@ class JapanesePipelineTest {
 
     @Test fun pauseAndResumeDoNotMixAudio() = runTest {
         val backend = FakeBackend()
-        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), {},
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), {},
             workerContext = StandardTestDispatcher(testScheduler))
         pipeline.feed(pcm(16000, 1000))
         pipeline.pauseBoundary()
@@ -66,7 +110,7 @@ class JapanesePipelineTest {
 
     @Test fun finishDecodesTheShortTailAfterAnEightSecondSegment() = runTest {
         val backend = FakeBackend()
-        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), {},
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), {},
             workerContext = StandardTestDispatcher(testScheduler))
         pipeline.feed(pcm(128000, 1000) + pcm(1600, 2000))
         pipeline.finish()
@@ -77,7 +121,7 @@ class JapanesePipelineTest {
 
     @Test fun silenceAndRejectedSpeechCannotHallucinateCaptions() = runTest {
         val backend = FakeBackend()
-        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate(false)), {},
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate(false)), {},
             workerContext = StandardTestDispatcher(testScheduler))
         repeat(100) { pipeline.feed(pcm(1600, 0)); pipeline.feed(pcm(1600, 5000)) }
         pipeline.finish()
@@ -87,7 +131,7 @@ class JapanesePipelineTest {
     @Test fun decodeFailureStopsMoreWorkAndIsReportedOnceWhileCapturing() = runTest {
         val backend = FakeBackend().apply { throwOnDecode = true }
         val failures = mutableListOf<String>()
-        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), {},
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), {},
             onFailure = failures::add, workerContext = StandardTestDispatcher(testScheduler))
         pipeline.feed(pcm(128000))
         runCurrent()
@@ -103,7 +147,7 @@ class JapanesePipelineTest {
     @Test fun finishClosesOnceAndNoFeedAfterItStartsIsAccepted() = runTest {
         val backend = FakeBackend()
         val gate = FakeGate()
-        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, gate), {},
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, gate), {},
             workerContext = StandardTestDispatcher(testScheduler))
         pipeline.feed(pcm(16000))
         pipeline.finish()
@@ -118,7 +162,7 @@ class JapanesePipelineTest {
         val started = CountDownLatch(1)
         val release = CountDownLatch(1)
         val backend = FakeBackend().apply { beforeDecode = { started.countDown(); check(release.await(5, TimeUnit.SECONDS)) } }
-        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), {})
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), {})
         pipeline.feed(pcm(128000))
         assertTrue(started.await(3, TimeUnit.SECONDS))
         val finish = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { pipeline.finish() }
@@ -133,7 +177,7 @@ class JapanesePipelineTest {
     @Test fun failureWhileDrainingDeliberateStopDoesNotRaiseCaptureError() = runTest {
         val backend = FakeBackend().apply { throwOnDecode = true }
         val failures = mutableListOf<String>()
-        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), {},
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), {},
             onFailure = failures::add, workerContext = StandardTestDispatcher(testScheduler))
         pipeline.feed(pcm(128000))
         try { pipeline.finish(); fail("A failed final decode must reach the stop caller") } catch (_: IllegalStateException) {}
@@ -146,7 +190,7 @@ class JapanesePipelineTest {
     @Test fun emptyNativeResultDoesNotCreateCaption() = runTest {
         val backend = FakeBackend().apply { blankResult = true }
         val results = mutableListOf<SpeechResult>()
-        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), results::add,
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), results::add,
             workerContext = StandardTestDispatcher(testScheduler))
         pipeline.feed(pcm(128000))
         pipeline.finish()
@@ -156,7 +200,7 @@ class JapanesePipelineTest {
 
     @Test fun concurrentFinishesShareDrainAndCloseExactlyOnce() = runTest {
         val backend = FakeBackend()
-        val pipeline = JapaneseSpeechPipeline(JapaneseSttSession(backend, FakeGate()), {},
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), {},
             workerContext = StandardTestDispatcher(testScheduler))
         pipeline.feed(pcm(16000))
         coroutineScope { launch { pipeline.finish() }; launch { pipeline.finish() } }
@@ -242,28 +286,29 @@ class JapanesePipelineTest {
         assertFalse(boundary.isCurrent(signals.resumeGeneration))
     }
 
-    private class FakeGate(private val speech: Boolean = true) : JapaneseSpeechGate {
+    private class FakeGate(private val speech: Boolean = true) : SpeechGate {
         var closed = 0
         override fun isSpeech(pcm: ByteArray, length: Int) = speech
         override fun reset() {}
         override fun close() { closed++ }
     }
-    private class FakeBackend : JapaneseRecognizerBackend {
+    private class FakeBackend : OfflineRecognizerBackend {
         var decoded = 0
         var closed = 0
         var inDecode = false
         var closedDuringDecode = 0
         var throwOnDecode = false
         var blankResult = false
+        var outputLimitOnce = false
         var beforeDecode: () -> Unit = {}
         val firstSamples = mutableListOf<Int>()
         val sampleCounts = mutableListOf<Int>()
         private var samples = FloatArray(0)
-        override fun createStream() = object : JapaneseRecognizerStream {
+        override fun createStream() = object : OfflineRecognizerStream {
             override fun acceptWaveform(samples: FloatArray, sampleRate: Int) { this@FakeBackend.samples = samples }
             override fun close() {}
         }
-        override fun decode(stream: JapaneseRecognizerStream) {
+        override fun decode(stream: OfflineRecognizerStream) {
             inDecode = true
             try {
                 decoded++
@@ -273,7 +318,10 @@ class JapanesePipelineTest {
                 sampleCounts.add(samples.size)
             } finally { inDecode = false }
         }
-        override fun result(stream: JapaneseRecognizerStream) = if (blankResult) "" else "日本語$decoded"
+        override fun result(stream: OfflineRecognizerStream): String {
+            if (outputLimitOnce && decoded == 1) throw RecognitionOutputLimitException()
+            return if (blankResult) "" else "日本語$decoded"
+        }
         override fun close() { if (inDecode) closedDuringDecode++; closed++ }
     }
     private fun pcm(samples: Int, amplitude: Int = 1000) = ByteArray(samples * 2).also { bytes ->

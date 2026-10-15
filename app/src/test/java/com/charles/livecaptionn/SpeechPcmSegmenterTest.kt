@@ -1,12 +1,12 @@
 package com.charles.livecaptionn
 
-import com.charles.livecaptionn.speech.JapanesePcmSegmenter
+import com.charles.livecaptionn.speech.SpeechPcmSegmenter
 import org.junit.Assert.*
 import org.junit.Test
 
-class JapanesePcmSegmenterTest {
+class SpeechPcmSegmenterTest {
     @Test fun continuousMinuteProducesBoundedSegmentsWithoutDuplicatedAudio() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         val outputs = (1..600).flatMap { segmenter.feed(pcm(1600, 1000)) }
         assertEquals(7, outputs.size)
         assertTrue(outputs.all { it.size == 256000 })
@@ -15,7 +15,7 @@ class JapanesePcmSegmenterTest {
     }
 
     @Test fun oneSecondSilenceFlushesVoiceButSilenceAloneDoesNotDecode() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         repeat(100) { assertTrue(segmenter.feed(pcm(1600, 0)).isEmpty()) }
         repeat(10) { assertTrue(segmenter.feed(pcm(1600, 1000)).isEmpty()) }
         repeat(9) { assertTrue(segmenter.feed(pcm(1600, 0)).isEmpty()) }
@@ -26,7 +26,7 @@ class JapanesePcmSegmenterTest {
     }
 
     @Test fun actualReadLengthIgnoresStaleBufferTail() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         val buffer = pcm(1600, 1000)
         buffer.fill(0, 0, 1600)
         repeat(10) { assertTrue(segmenter.feed(buffer, 1600).isEmpty()) }
@@ -34,7 +34,7 @@ class JapanesePcmSegmenterTest {
     }
 
     @Test fun pauseSeparatesPrecedingAndResumedUtterances() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         segmenter.feed(pcm(4000, 2000))
         assertArrayEquals(pcm(4000, 2000), segmenter.pauseBoundary())
         assertNull(segmenter.pauseBoundary())
@@ -45,7 +45,7 @@ class JapanesePcmSegmenterTest {
     }
 
     @Test fun oversizedReadStillEmitsOnlyBoundedNonOverlappingSegments() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         val audio = pcm(16000 * 17, 5000)
         val finals = segmenter.feed(audio)
         assertEquals(listOf(256000, 256000), finals.map { it.size })
@@ -53,14 +53,14 @@ class JapanesePcmSegmenterTest {
     }
 
     @Test fun partialSilenceReadsUseAudioDurationInsteadOfReadCount() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         segmenter.feed(pcm(4000, 1000))
         repeat(99) { assertTrue(segmenter.feed(pcm(160, 0)).isEmpty()) }
         assertEquals(40000, segmenter.feed(pcm(160, 0)).single().size)
     }
 
     @Test fun eightSecondBoundaryDoesNotLoseRemainingReadBytes() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         segmenter.feed(pcm(16000 * 7 + 8000, 1000))
         val final = segmenter.feed(pcm(16000, 2000)).single()
         assertEquals(256000, final.size)
@@ -68,7 +68,7 @@ class JapanesePcmSegmenterTest {
     }
 
     @Test fun invalidAndZeroLengthReadsCannotAdvanceBoundary() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         assertTrue(segmenter.feed(pcm(1600, 1000), 0).isEmpty())
         try { segmenter.feed(ByteArray(3)); fail("Incomplete samples must be rejected") } catch (_: IllegalArgumentException) {}
         try { segmenter.feed(ByteArray(2), 4); fail("Stale buffer reads must be rejected") } catch (_: IllegalArgumentException) {}
@@ -76,13 +76,13 @@ class JapanesePcmSegmenterTest {
     }
 
     @Test fun noisyEnergyWithoutSpeechIsNeverDecoded() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         repeat(600) { assertTrue(segmenter.feed(pcm(1600, 5000), speechDetected = false).isEmpty()) }
         assertNull(segmenter.finish())
     }
 
     @Test fun shortSoundWithoutMinimumSpeechDurationIsDiscarded() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         segmenter.feed(pcm(1600, 1000))
         repeat(10) { assertTrue(segmenter.feed(pcm(1600, 0)).isEmpty()) }
         assertNull(segmenter.finish())
@@ -91,7 +91,7 @@ class JapanesePcmSegmenterTest {
     @Test fun shortSpeechTailsAfterEightSecondsSurviveStopPauseAndSilence() {
         for (tailSamples in listOf(1600, 3200)) {
             for (end in listOf("stop", "pause", "silence")) {
-                val segmenter = JapanesePcmSegmenter()
+                val segmenter = SpeechPcmSegmenter()
                 val opening = pcm(128000, 1000)
                 val tail = pcm(tailSamples, 2000)
                 val outputs = segmenter.feed(opening + tail).toMutableList()
@@ -110,7 +110,7 @@ class JapanesePcmSegmenterTest {
 
     @Test fun forcedBoundaryDoesNotLetIndependentShortNoiseBypassMinimumSpeech() {
         for (end in listOf("pause", "silence")) {
-            val segmenter = JapanesePcmSegmenter()
+            val segmenter = SpeechPcmSegmenter()
             segmenter.feed(pcm(128000, 1000))
             if (end == "pause") segmenter.pauseBoundary() else segmenter.feed(pcm(16000, 0))
             segmenter.feed(pcm(1600, 3000))
@@ -119,7 +119,7 @@ class JapanesePcmSegmenterTest {
     }
 
     @Test fun silenceAcrossForcedBoundaryStillEndsUtteranceAfterOneSecond() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         segmenter.feed(pcm(126400, 1000))
         assertEquals(256000, segmenter.feed(pcm(1600, 0)).single().size)
         assertTrue(segmenter.feed(pcm(14400, 0)).isEmpty())
@@ -128,7 +128,7 @@ class JapanesePcmSegmenterTest {
     }
 
     @Test fun consumedSegmentCannotBeReplayedThroughLeadingBuffer() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         segmenter.feed(pcm(16000, 1000))
         repeat(10) { segmenter.feed(pcm(1600, 0)) }
         val next = segmenter.feed(pcm(16000, 2000))
@@ -137,7 +137,7 @@ class JapanesePcmSegmenterTest {
     }
 
     @Test fun delayedSpeechDetectionRetainsOpeningWithinLeadingWindow() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         repeat(4) { segmenter.feed(pcm(1600, 1000), speechDetected = false) }
         repeat(4) { segmenter.feed(pcm(1600, 2000), speechDetected = true) }
         val captured = segmenter.finish()!!
@@ -145,7 +145,7 @@ class JapanesePcmSegmenterTest {
     }
 
     @Test fun vadFalsePositiveOverZerosCannotDecode() {
-        val segmenter = JapanesePcmSegmenter()
+        val segmenter = SpeechPcmSegmenter()
         repeat(600) { assertTrue(segmenter.feed(pcm(1600, 0), speechDetected = true).isEmpty()) }
         assertNull(segmenter.finish())
     }

@@ -19,9 +19,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class MainViewModel(
@@ -29,6 +29,8 @@ class MainViewModel(
     application: Application
 ) : AndroidViewModel(application) {
     private val mutable = MutableStateFlow(MainUiState())
+    private var modelPreparationJob: Job? = null
+    private var modelRefreshJob: Job? = null
     val state: StateFlow<MainUiState> = mutable.asStateFlow()
     val historySavingEnabled: Flow<Boolean> = container.settingsRepository.settingsFlow
         .map { it.saveHistory }
@@ -47,11 +49,6 @@ class MainViewModel(
             }
         }
         viewModelScope.launch {
-            container.voskRegistry.models.collect { models ->
-                mutable.value = mutable.value.copy(voskModels = models)
-            }
-        }
-        viewModelScope.launch {
             container.translationModels.state.collect { modelState ->
                 mutable.value = mutable.value.copy(translationModel = modelState)
             }
@@ -60,7 +57,7 @@ class MainViewModel(
             container.settingsRepository.settingsFlow
                 .map { it.sourceLanguageCode }
                 .distinctUntilChanged()
-                .collectLatest { code -> container.translationModels.refresh(code) }
+                .collect { code -> refreshModelPreparationState(code) }
         }
         refreshPermissionState()
     }
@@ -89,9 +86,26 @@ class MainViewModel(
     }
 
     fun prepareSelectedTranslationModel() {
-        if (container.runtimeStore.state.value.running) return
-        viewModelScope.launch {
+        if (container.runtimeStore.state.value.running || container.runtimeStore.state.value.stopping ||
+            modelPreparationJob?.isActive == true || !mutable.value.setupState().canPrepareModels) return
+        modelPreparationJob = viewModelScope.launch {
             container.translationModels.prepare(mutable.value.settings.sourceLanguageCode)
+        }
+    }
+
+    fun cancelModelPreparation() {
+        container.translationModels.cancel()
+    }
+
+    fun refreshModelPreparationState() {
+        refreshModelPreparationState(mutable.value.settings.sourceLanguageCode)
+    }
+
+    private fun refreshModelPreparationState(sourceCode: String) {
+        // Resume/language changes reuse verified shared files, and initial observers share one check.
+        if (container.offlineModels.isReady() || modelRefreshJob?.isActive == true) return
+        modelRefreshJob = viewModelScope.launch {
+            container.translationModels.refresh(sourceCode)
         }
     }
 

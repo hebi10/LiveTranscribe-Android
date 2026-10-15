@@ -15,19 +15,22 @@ import com.charles.livecaptionn.data.TranscriptHistoryStore
 import com.charles.livecaptionn.data.HistoryRecordingGate
 import kotlinx.coroutines.flow.first
 import com.charles.livecaptionn.service.CaptionRuntimeStore
-import com.charles.livecaptionn.speech.LocalVoskSttClient
-import com.charles.livecaptionn.speech.VoskModelRegistry
-import com.charles.livecaptionn.translation.MlKitTranslationRepository
+import com.charles.livecaptionn.speech.LocalQwenSttClient
+import com.charles.livecaptionn.models.OfflineModelStore
+import com.charles.livecaptionn.translation.LocalTranslationRepository
 import com.charles.livecaptionn.translation.TranslationRepository
 import com.charles.livecaptionn.translation.TranslationModelSetup
 import com.charles.livecaptionn.speech.OfflineSpokenLanguageIdentifier
+import java.io.File
 
 class AppContainer(context: Context) {
     val settingsRepository: SettingsRepository = SettingsDataStore(context.applicationContext)
     val runtimeStore = CaptionRuntimeStore()
-    private val mlKitTranslator = MlKitTranslationRepository()
-    val translationRepository: TranslationRepository = mlKitTranslator
-    val translationModels = TranslationModelSetup(mlKitTranslator)
+    val offlineModels = OfflineModelStore(File(context.noBackupFilesDir, "ai-models"))
+    val translationRepository: TranslationRepository = LocalTranslationRepository {
+        offlineModels.requireReadyFile("hymt_model")
+    }
+    val translationModels = TranslationModelSetup(offlineModels)
     val languageIdentifier = OfflineSpokenLanguageIdentifier(context.applicationContext)
     val transcriptHistory = TranscriptHistoryStore(context.applicationContext)
     val historyRecordingGate = HistoryRecordingGate(
@@ -36,8 +39,8 @@ class AppContainer(context: Context) {
     )
     val captionProfiles: CaptionProfileRepository = FileCaptionProfileRepository(context.applicationContext)
     val glossary: GlossaryRepository = FileGlossaryRepository(context.applicationContext)
-    val voskRegistry = VoskModelRegistry(context.applicationContext)
-    val localVoskClient = LocalVoskSttClient(voskRegistry)
+    val localQwenClient = LocalQwenSttClient(context.applicationContext,
+        File(offlineModels.rootDirectory, "qwen3-asr"))
 
     init {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

@@ -12,17 +12,18 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-internal class JapaneseSpeechPipeline(
-    private val session: JapaneseSttSession,
+internal class OfflineSpeechPipeline(
+    private val session: OfflineSttSession,
     private val onResult: (SpeechResult) -> Unit,
     private val onSkippedAudio: () -> Unit = {},
     private val onFailure: (String) -> Unit = {},
     workerContext: CoroutineContext = Dispatchers.IO,
-    private val onProcessing: (Boolean) -> Unit = {}
+    private val onProcessing: (Boolean) -> Unit = {},
+    private val onRecognitionLimit: () -> Unit = {}
 ) {
     private val lock = Any()
     private val finishMutex = Mutex()
-    private val segmenter = JapanesePcmSegmenter()
+    private val segmenter = SpeechPcmSegmenter()
     private val workerScope = CoroutineScope(workerContext + SupervisorJob())
     private var finishing = false
     private var finished = false
@@ -39,7 +40,7 @@ internal class JapaneseSpeechPipeline(
         val speech = try {
             session.isSpeech(pcm, length)
         } catch (failure: Throwable) {
-            throw IllegalStateException("일본어 음성 구간 감지에 실패했습니다. 다시 시작해 주세요.", failure)
+            throw IllegalStateException("음성 구간 감지에 실패했습니다. 다시 시작해 주세요.", failure)
         }
         val segments = segmenter.feed(pcm, length, speech)
         segments.forEach(queue::submitFinal)
@@ -79,10 +80,12 @@ internal class JapaneseSpeechPipeline(
         try {
             val text = session.transcribe(audio)
             if (text.isNotBlank()) onResult(SpeechResult(text, isFinal = true))
+        } catch (_: RecognitionOutputLimitException) {
+            onRecognitionLimit()
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: Throwable) {
-            val message = "일본어 음성 인식에 실패했습니다. 인식을 중지하고 다시 시작해 주세요."
+            val message = "음성 인식에 실패했습니다. 인식을 중지하고 다시 시작해 주세요."
             val notify = synchronized(lock) {
                 val firstFailure = failureMessage == null
                 failureMessage = message

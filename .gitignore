@@ -31,6 +31,8 @@ overlay_state.png
 # Local-only language identification, packaged at APK build time
 /app/libs/sherpa-onnx-1.13.8.aar
 /app/src/main/assets/language-id/
+/app/src/main/assets/speech/
+/app/src/main/cpp/third_party/
 
 
 __pycache__/
