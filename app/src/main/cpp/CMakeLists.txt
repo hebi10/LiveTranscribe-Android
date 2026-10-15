@@ -20,6 +20,9 @@ set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_APP OFF CACHE BOOL "" FORCE)
 
+# Debug APKs are delivered for testing; inference still needs optimized kernels.
+add_compile_options("$<$<CONFIG:Debug>:-O3>")
+
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/llama.cpp/include/llama.h")
     message(FATAL_ERROR "Run python scripts/prepare_native_translation.py before building")
 endif()
