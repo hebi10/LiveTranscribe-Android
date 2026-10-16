@@ -3,7 +3,7 @@ package com.charles.livecaptionn.settings
 data class CaptionSettings(
     val sourceLanguageCode: String = RecognitionLanguages.AUTO,
     val targetLanguageCode: String = "ko",
-    val textSizeSp: Float = 22f,
+    val textSizeSp: Float = 18f,
     val overlayOpacity: Float = 0.85f,
     val showOriginal: Boolean = false,
     val captionDisplayMode: CaptionDisplayMode = CaptionDisplayMode.CAPTIONS,

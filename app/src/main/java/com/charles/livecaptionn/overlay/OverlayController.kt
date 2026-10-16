@@ -54,6 +54,10 @@ class OverlayController(
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val density = context.resources.displayMetrics.density
     private var root: FrameLayout? = null
+    private var normalHeader: LinearLayout? = null
+    private var minimizedHeader: LinearLayout? = null
+    private var minimizedCloseButton: ImageButton? = null
+    private var minimizedRestoreButton: ImageButton? = null
     private var statusText: TextView? = null
     private var statusDetail: TextView? = null
     private var statusInformation: TextView? = null
@@ -146,6 +150,7 @@ class OverlayController(
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(-1, dp(44))
         }
+        normalHeader = header
         statusText = TextView(context).apply {
             textSize = 12f
             setTextColor(Color.WHITE)
@@ -196,6 +201,17 @@ class OverlayController(
         header.addView(latestAction)
         header.addView(pauseButton)
         header.addView(expandButton)
+
+        minimizedCloseButton = makeButton(R.drawable.ic_overlay_close, "번역 종료하고 자막 창 닫기", onClose)
+        minimizedRestoreButton = makeButton(R.drawable.ic_overlay_restore, "Restore overlay", onToggleMinimize)
+        minimizedHeader = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(-1, dp(44))
+            visibility = View.GONE
+            addView(makeCompactControl(minimizedCloseButton!!, "닫기"))
+            addView(makeCompactControl(minimizedRestoreButton!!, "펼치기"))
+        }
 
         controls = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -258,7 +274,7 @@ class OverlayController(
             addView(originalText)
             addView(dividerView)
         }
-        translatedText = makeCaptionText(22f)
+        translatedText = makeCaptionText(CaptionSettings().textSizeSp)
         chatContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -290,6 +306,7 @@ class OverlayController(
             }
         }
         container.addView(header)
+        container.addView(minimizedHeader)
         container.addView(statusDetail)
         container.addView(controls)
         container.addView(body)
@@ -381,10 +398,12 @@ class OverlayController(
             visibility = if (information.isNotBlank()) View.VISIBLE else View.GONE
             contentDescription = information
         }
-        for (button in listOf(pauseButton, closeButton)) {
+        for (button in listOf(pauseButton, closeButton, minimizedCloseButton)) {
             button?.isEnabled = !ui.stopping
             button?.alpha = if (ui.stopping) 0.4f else 1f
         }
+        normalHeader?.visibility = if (ui.minimized) View.GONE else View.VISIBLE
+        minimizedHeader?.visibility = if (ui.minimized) View.VISIBLE else View.GONE
         controls?.visibility = if (ui.controlsExpanded && !ui.minimized) View.VISIBLE else View.GONE
         body?.visibility = if (ui.minimized) View.GONE else View.VISIBLE
         resizeHandle?.visibility = if (ui.minimized) View.GONE else View.VISIBLE
@@ -638,6 +657,10 @@ class OverlayController(
         pendingViewport = null
         scrollRevision++
         followingLatest = true
+        normalHeader = null
+        minimizedHeader = null
+        minimizedCloseButton = null
+        minimizedRestoreButton = null
         statusText = null
         statusDetail = null
         statusInformation = null
@@ -730,6 +753,30 @@ class OverlayController(
             gravity = Gravity.CENTER
             setSingleLine(true)
             layoutParams = LinearLayout.LayoutParams(-2, -2)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            isFocusable = false
+        }
+        addView(label)
+        controlLabels[button] = label
+    }
+
+    private fun makeCompactControl(button: ImageButton, text: String) = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        isFocusable = false
+        setOnClickListener { if (button.isEnabled) button.performClick() }
+        setOnTouchListener(DragTouchListener(performClickOnTap = true))
+        button.setOnTouchListener(DragTouchListener(performClickOnTap = true))
+        addView(button)
+        val label = TextView(context).apply {
+            this.text = text
+            textSize = 12f
+            setTextColor(Color.WHITE)
+            setSingleLine(true)
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             isFocusable = false
         }
@@ -870,7 +917,7 @@ class OverlayController(
         clampWindow()
     }
 
-    private inner class DragTouchListener : View.OnTouchListener {
+    private inner class DragTouchListener(private val performClickOnTap: Boolean = false) : View.OnTouchListener {
         private var startX = 0
         private var startY = 0
         private var touchX = 0f
@@ -899,6 +946,7 @@ class OverlayController(
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (moved) persistGeometry()
+                    if (!moved && event.actionMasked == MotionEvent.ACTION_UP && performClickOnTap) v.performClick()
                     moved = false
                     return true
                 }
