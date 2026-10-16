@@ -1,6 +1,7 @@
 package com.charles.livecaptionn
 
 import com.charles.livecaptionn.settings.AudioSource
+import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionSettings
 import com.charles.livecaptionn.settings.CaptionDisplayMode
 import org.junit.Assert.assertTrue
@@ -13,6 +14,13 @@ class CaptionSettingsTest {
         val s = CaptionSettings()
         assertEquals("auto", s.sourceLanguageCode)
         assertEquals("ko", s.targetLanguageCode)
+    }
+
+    @Test fun defaults_keepExistingPopupPlacementAndUnknownValuesFallBack() {
+        assertEquals(CaptionPlacement.POPUP, CaptionSettings().captionPlacement)
+        assertEquals(CaptionPlacement.POPUP, CaptionPlacement.fromName(null))
+        assertEquals(CaptionPlacement.POPUP, CaptionPlacement.fromName("future-mode"))
+        assertEquals(CaptionPlacement.SPLIT_SCREEN, CaptionPlacement.fromName("SPLIT_SCREEN"))
     }
 
     @Test fun defaults_captureVideoAudio() {

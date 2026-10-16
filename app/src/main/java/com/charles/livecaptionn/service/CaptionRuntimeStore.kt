@@ -1,5 +1,7 @@
 package com.charles.livecaptionn.service
 
+import com.charles.livecaptionn.settings.CaptionPlacement
+import com.charles.livecaptionn.overlay.MAX_OVERLAY_MESSAGES
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.speech.RecognitionStatus
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,7 +39,11 @@ data class CaptionRuntimeState(
     val skippedSpeechSegments: Int = 0,
     val suggestedLanguageCode: String? = null,
     val changingLanguageCode: String? = null,
-    val restartLanguageCode: String? = null
+    val restartLanguageCode: String? = null,
+    /** Fixed by the service at session start; retained with completed split captions. */
+    val sessionPlacement: CaptionPlacement? = null,
+    /** Process-local generation, changed only when the service starts a new capture session. */
+    val sessionId: Long = 0L
 ) {
     val phase: CaptionPhase get() = when {
         stopping -> CaptionPhase.STOPPING
@@ -103,11 +109,23 @@ internal fun completedCaptionSession(
     completionMessage: String? = null,
     skippedTranslations: Int = 0,
     skippedSpeechSegments: Int = 0,
-    restartLanguageCode: String? = null
+    restartLanguageCode: String? = null,
+    sessionPlacement: CaptionPlacement? = null,
+    retainedLines: List<CaptionRuntimeLine> = emptyList(),
+    sessionId: Long = 0L
 ): CaptionRuntimeState {
     val error = terminalFailure ?: previousFailure ?: if (!drained)
         "번역 종료 시간이 초과되어 마지막 일부 문장이 저장되지 않았습니다." else null
+    val completedLines = if (sessionPlacement == CaptionPlacement.SPLIT_SCREEN)
+        retainedLines.filter { it.isFinal && it.finalTranslationCommitted &&
+            it.originalText.isNotBlank() && it.translatedText.isNotBlank() }.takeLast(MAX_OVERLAY_MESSAGES)
+        else emptyList()
     return CaptionRuntimeState(
+        originalText = completedLines.lastOrNull()?.originalText.orEmpty(),
+        translatedText = completedLines.lastOrNull()?.translatedText.orEmpty(),
+        transcriptLines = completedLines,
+        sessionPlacement = sessionPlacement,
+        sessionId = sessionId,
         status = if (error == null) RecognitionStatus.IDLE else RecognitionStatus.ERROR,
         lastError = error,
         restartLanguageCode = restartLanguageCode,
@@ -148,6 +166,10 @@ internal fun recordSkippedSpeechSegment(runtime: CaptionRuntimeState): CaptionRu
 /** An explicit start owns clearing the one-time restart prompt; permission handling stays in Activity. */
 internal fun preparedCaptionStart(runtime: CaptionRuntimeState): CaptionRuntimeState =
     runtime.copy(status = RecognitionStatus.IDLE, lastError = null, restartLanguageCode = null, infoMessage = null)
+
+/** Clear retained content only after a service start, so cancelled permission dialogs keep it readable. */
+internal fun startedCaptionSession(previous: CaptionRuntimeState = CaptionRuntimeState()): CaptionRuntimeState =
+    CaptionRuntimeState(running = true, status = RecognitionStatus.PROCESSING, sessionId = previous.sessionId + 1L)
 
 internal fun manuallySelectedCaptionLanguage(runtime: CaptionRuntimeState, code: String): CaptionRuntimeState =
     if (!runtime.running && runtime.restartLanguageCode != code) runtime.copy(restartLanguageCode = null) else runtime

@@ -13,19 +13,20 @@ internal data class MainSetupState(
     val totalBytes: Long = 0,
     val currentFile: String? = null,
     val audioPermissionAction: AudioPermissionAction = AudioPermissionAction.GRANTED,
-    val overlayPermissionNeeded: Boolean = false
+    val overlayPermissionNeeded: Boolean = false,
+    val overlayPermissionRequired: Boolean = true
 ) {
-    val completedSteps: Int get() = listOf(
-        audioPermissionAction == AudioPermissionAction.GRANTED,
-        !overlayPermissionNeeded,
-        modelStage == ModelSetupStage.READY
-    ).count { it }
-    val remainingSteps: Int get() = 3 - completedSteps
+    val totalSteps: Int get() = if (overlayPermissionRequired) 3 else 2
+    val completedSteps: Int get() =
+        (if (audioPermissionAction == AudioPermissionAction.GRANTED) 1 else 0) +
+        (if (overlayPermissionRequired && !overlayPermissionNeeded) 1 else 0) +
+        (if (modelStage == ModelSetupStage.READY) 1 else 0)
+    val remainingSteps: Int get() = totalSteps - completedSteps
     val isComplete: Boolean get() = remainingSteps == 0
     val nextStep: SetupStep? get() = when {
         !isVisible -> null
         audioPermissionAction != AudioPermissionAction.GRANTED -> SetupStep.AUDIO_PERMISSION
-        overlayPermissionNeeded -> SetupStep.OVERLAY_PERMISSION
+        overlayPermissionRequired && overlayPermissionNeeded -> SetupStep.OVERLAY_PERMISSION
         modelStage != ModelSetupStage.READY -> SetupStep.MODELS
         else -> null
     }
@@ -56,6 +57,7 @@ internal fun MainUiState.setupState(
             audioPermissionSettingsRequired -> AudioPermissionAction.OPEN_SETTINGS
             else -> AudioPermissionAction.REQUEST
         },
-        overlayPermissionNeeded = !overlayPermissionGranted
+        overlayPermissionNeeded = overlayPermissionRequired && !overlayPermissionGranted,
+        overlayPermissionRequired = overlayPermissionRequired
     )
 }

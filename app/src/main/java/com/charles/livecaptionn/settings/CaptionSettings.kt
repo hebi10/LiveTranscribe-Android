@@ -17,7 +17,8 @@ data class CaptionSettings(
     val overlayHeightDp: Int = DEFAULT_OVERLAY_HEIGHT_DP,
     val overlayThemeId: String = "default",
     val overlayFontId: String = "default",
-    val saveHistory: Boolean = false
+    val saveHistory: Boolean = false,
+    val captionPlacement: CaptionPlacement = CaptionPlacement.POPUP
 ) {
     companion object {
         const val DEFAULT_OVERLAY_WIDTH_DP = 340

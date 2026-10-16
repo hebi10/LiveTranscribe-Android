@@ -1,6 +1,7 @@
 package com.charles.livecaptionn.ui
 
 import com.charles.livecaptionn.service.CaptionRuntimeState
+import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionSettings
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.translation.TranslationModelState
@@ -17,6 +18,8 @@ data class MainUiState(
     val modelReady: Boolean get() = RecognitionLanguages.isValidMode(settings.sourceLanguageCode) &&
         translationModel.stage == ModelSetupStage.READY
     val translationReady: Boolean get() = modelReady
+    val overlayPermissionRequired: Boolean get() = settings.captionPlacement == CaptionPlacement.POPUP
+    val placementSelectionEnabled: Boolean get() = !runtime.running && !runtime.stopping
     val canStart: Boolean get() =
-        modelReady && translationReady && overlayPermissionGranted && micPermissionGranted
+        modelReady && translationReady && (!overlayPermissionRequired || overlayPermissionGranted) && micPermissionGranted
 }

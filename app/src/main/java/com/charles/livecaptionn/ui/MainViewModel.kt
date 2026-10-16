@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import com.charles.livecaptionn.di.AppContainer
 import com.charles.livecaptionn.service.manuallySelectedCaptionLanguage
 import com.charles.livecaptionn.settings.AudioSource
+import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionDisplayMode
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import kotlinx.coroutines.flow.Flow
@@ -141,6 +142,16 @@ class MainViewModel(
 
     fun updateShowOriginal(enabled: Boolean) {
         viewModelScope.launch { container.settingsRepository.update { it.copy(showOriginal = enabled) } }
+    }
+
+    fun updateCaptionPlacement(placement: CaptionPlacement) {
+        if (!mutable.value.placementSelectionEnabled) return
+        viewModelScope.launch {
+            container.settingsRepository.update {
+                val runtime = container.runtimeStore.state.value
+                if (runtime.running || runtime.stopping) it else it.copy(captionPlacement = placement)
+            }
+        }
     }
 
     fun updateCaptionDisplayMode(mode: CaptionDisplayMode) {

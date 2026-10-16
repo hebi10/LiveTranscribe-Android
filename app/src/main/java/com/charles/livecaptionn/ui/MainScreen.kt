@@ -21,6 +21,8 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.VerticalSplit
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalButton
@@ -54,6 +56,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.charles.livecaptionn.settings.AudioSource
+import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionDisplayMode
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.speech.RecognitionStatus
@@ -68,6 +71,7 @@ fun MainScreen(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onHistory: () -> Unit,
+    onOpenCaptions: () -> Unit,
     onCancelModelPreparation: () -> Unit,
     startPending: Boolean = false,
     audioPermissionSettingsRequired: Boolean = false,
@@ -116,6 +120,51 @@ fun MainScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("화면 배치", style = MaterialTheme.typography.titleMedium)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for ((placement, label) in listOf(
+                            CaptionPlacement.SPLIT_SCREEN to "분할 화면",
+                            CaptionPlacement.POPUP to "팝업"
+                        )) {
+                            val selected = ui.settings.captionPlacement == placement
+                            val icon = if (placement == CaptionPlacement.SPLIT_SCREEN)
+                                Icons.Filled.VerticalSplit else Icons.Filled.PictureInPictureAlt
+                            val content: @Composable () -> Unit = {
+                                Icon(icon, contentDescription = null)
+                                Text(label, modifier = Modifier.padding(start = 8.dp))
+                            }
+                            if (selected) FilledTonalButton(
+                                onClick = { viewModel.updateCaptionPlacement(placement) },
+                                enabled = !sessionBusy,
+                                modifier = Modifier.semantics { this.selected = true }
+                            ) { content() }
+                            else OutlinedButton(
+                                onClick = { viewModel.updateCaptionPlacement(placement) },
+                                enabled = !sessionBusy,
+                                modifier = Modifier.semantics { this.selected = false }
+                            ) { content() }
+                        }
+                    }
+                    Text(if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN)
+                        "영상 앱과 화면을 나눠 자막을 봅니다. 화면 비율은 Android의 구분선으로 조절합니다."
+                        else "영상 위에 작은 자막창을 띄웁니다. 창을 옮기거나 크기를 조절할 수 있습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (sessionBusy) Text("화면 배치는 번역을 종료한 뒤 변경할 수 있습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN) {
+                        OutlinedButton(onClick = onOpenCaptions,
+                            enabled = !startPending, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (ui.runtime.running || ui.runtime.transcriptLines.isNotEmpty())
+                                "자막 화면으로" else "자막 화면 미리 보기")
+                        }
+                    }
+                }
+            }
+            Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
                     Text("$languageLabel → 한국어 · $inputLabel", fontWeight = FontWeight.Medium)
@@ -160,7 +209,7 @@ fun MainScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
-                            Text(if (ui.runtime.restartLanguageCode != null) "번역 다시 시작" else "번역 시작")
+                            Text(if (ui.runtime.restartLanguageCode != null) "번역 다시 시작" else if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN) "분할 자막 시작" else "팝업 자막 시작")
                         }
                     }
                 }
@@ -221,23 +270,24 @@ fun MainScreen(
 
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("자막 설정", style = MaterialTheme.typography.titleMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for ((mode, label) in listOf(CaptionDisplayMode.CAPTIONS to "자막형", CaptionDisplayMode.CHAT to "대화형")) {
+                    Text("읽기 방식", style = MaterialTheme.typography.titleMedium)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for ((mode, label) in listOf(CaptionDisplayMode.CAPTIONS to "최근 자막", CaptionDisplayMode.CHAT to "자막 목록")) {
                             val selected = ui.settings.captionDisplayMode == mode
                             if (selected) {
                                 FilledTonalButton(onClick = { viewModel.updateCaptionDisplayMode(mode) },
-                                    modifier = Modifier.weight(1f).semantics { this.selected = true }) { Text(label) }
+                                    modifier = Modifier.semantics { this.selected = true }) { Text(label) }
                             } else {
                                 OutlinedButton(onClick = { viewModel.updateCaptionDisplayMode(mode) },
-                                    modifier = Modifier.weight(1f).semantics { this.selected = false }) { Text(label) }
+                                    modifier = Modifier.semantics { this.selected = false }) { Text(label) }
                             }
                         }
                     }
                     Text(
                         if (ui.settings.captionDisplayMode == CaptionDisplayMode.CHAT)
-                            "최근 40개 자막을 대화처럼 모아 봅니다. 이전 자막을 읽을 때 자동 스크롤이 멈춥니다."
-                        else "최근 2개 자막을 표시합니다. 자막 창 너비에 맞춰 줄바꿈됩니다.",
+                            "최근 40개 자막 구간을 모아 봅니다. 이전 자막을 읽을 때 자동 이동이 멈춥니다."
+                        else "최근 2개 자막 구간을 표시합니다. 화면 너비에 맞춰 줄바꿈됩니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -249,15 +299,14 @@ fun MainScreen(
                     Text("글자 크기: " + ui.settings.textSizeSp.toInt() + "sp")
                     Slider(value = ui.settings.textSizeSp, onValueChange = viewModel::updateTextSize,
                         valueRange = 14f..40f)
-                    Text("배경 불투명도: " + (ui.settings.overlayOpacity * 100).toInt() + "%")
-                    Slider(value = ui.settings.overlayOpacity, onValueChange = viewModel::updateOpacity,
-                        valueRange = 0.2f..1f)
                     SettingToggle("원문도 함께 표시", ui.settings.showOriginal,
                         viewModel::updateShowOriginal)
-                    OutlinedButton(onClick = viewModel::resetOverlayPosition) { Text("자막 위치·크기 초기화") }
-                    Text("영상 위 자막 창은 드래그로 이동하고 크기를 조절할 수 있습니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (ui.settings.captionPlacement == CaptionPlacement.POPUP) {
+                        Text("팝업 불투명도: " + (ui.settings.overlayOpacity * 100).toInt() + "%")
+                        Slider(value = ui.settings.overlayOpacity, onValueChange = viewModel::updateOpacity,
+                            valueRange = 0.2f..1f)
+                        OutlinedButton(onClick = viewModel::resetOverlayPosition) { Text("팝업 위치·크기 초기화") }
+                    }
                 }
             }
 
@@ -290,8 +339,8 @@ private fun StartSetupGuidance(
 ) {
     var showCompletedDetails by rememberSaveable(setup.isComplete) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(if (setup.isComplete) "시작 준비 완료 · 3/3"
-            else "시작 준비 · ${setup.completedSteps}/3 완료", fontWeight = FontWeight.SemiBold)
+        Text(if (setup.isComplete) "시작 준비 완료 · ${setup.totalSteps}/${setup.totalSteps}"
+            else "시작 준비 · ${setup.completedSteps}/${setup.totalSteps} 완료", fontWeight = FontWeight.SemiBold)
         if (setup.isComplete) {
             TextButton(onClick = { showCompletedDetails = !showCompletedDetails }) {
                 Text(if (showCompletedDetails) "준비 항목 접기" else "준비 항목 확인")
@@ -312,15 +361,15 @@ private fun StartSetupGuidance(
                 completed = audioReady,
                 next = setup.nextStep == SetupStep.AUDIO_PERMISSION
             )
-            SetupChecklistItem(
-                title = "2. 다른 앱 위에 자막 표시",
+            if (setup.overlayPermissionRequired) SetupChecklistItem(
+                title = "2. 다른 앱 위에 팝업 표시",
                 status = if (setup.overlayPermissionNeeded) "허용 필요" else "완료",
                 completed = !setup.overlayPermissionNeeded,
                 next = setup.nextStep == SetupStep.OVERLAY_PERMISSION
             )
             val stage = setup.modelStage
             SetupChecklistItem(
-                title = "3. 음성·번역 모델",
+                title = "${setup.totalSteps}. 음성·번역 모델",
                 status = when (stage) {
                     ModelSetupStage.READY -> "완료"
                     ModelSetupStage.CHECKING -> "다운로드한 파일 확인 중"
