@@ -28,7 +28,7 @@ data class OverlayUiState(
     val information: String? = null,
     val skippedTranslations: Int = 0,
     val skippedSpeechSegments: Int = 0,
-    val textSizeSp: Float = 20f,
+    val textSizeSp: Float = 18f,
     val opacity: Float = 0.65f,
     val showOriginal: Boolean = true,
     val minimized: Boolean = false,
