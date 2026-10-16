@@ -9,6 +9,8 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.content.ComponentName
+import android.content.res.Configuration
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
@@ -23,20 +25,29 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ViewModelProvider
 import com.charles.livecaptionn.service.CaptionForegroundService
 import com.charles.livecaptionn.service.MediaProjectionHolder
 import com.charles.livecaptionn.service.preparedCaptionStart
 import com.charles.livecaptionn.settings.AudioSource
+import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.ui.AudioPermissionAction
 import com.charles.livecaptionn.ui.audioPermissionAction
 import com.charles.livecaptionn.ui.CaptionStartGate
 import com.charles.livecaptionn.ui.HistoryScreen
+import com.charles.livecaptionn.ui.CaptionScreen
+import com.charles.livecaptionn.ui.SplitAppChoice
+import com.charles.livecaptionn.ui.SplitAppPicker
+import com.charles.livecaptionn.ui.SplitScreenHelp
+import com.charles.livecaptionn.ui.canRequestAdjacentLaunch
+import com.charles.livecaptionn.ui.loadSplitAppChoices
 import com.charles.livecaptionn.ui.MainScreen
 import com.charles.livecaptionn.ui.MainViewModel
 import com.charles.livecaptionn.ui.MainViewModelFactory
@@ -44,9 +55,19 @@ import com.charles.livecaptionn.ui.l10n.UiStringsProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private var showHistory by mutableStateOf(false)
+    private var showCaptions by mutableStateOf(false)
+    private var showAppPicker by mutableStateOf(false)
+    private var loadingApps by mutableStateOf(false)
+    private var appChoices by mutableStateOf<List<SplitAppChoice>>(emptyList())
+    private var appPickerError by mutableStateOf<String?>(null)
+    private var showSplitHelp by mutableStateOf(false)
+    private var splitHelpMessage by mutableStateOf<String?>(null)
+    private var companionLaunchPending = false
     private var startGate = CaptionStartGate()
     private var startPending by mutableStateOf(false)
     private var completedAudioPermissionRequest = false
@@ -89,6 +110,8 @@ class MainActivity : ComponentActivity() {
             getPreferences(MODE_PRIVATE).getBoolean("audio_permission_requested", false)
         refreshAudioPermissionAction()
         showHistory = savedInstanceState?.getBoolean("show_history") ?: false
+        showCaptions = savedInstanceState?.getBoolean("show_captions") ?: false
+        companionLaunchPending = savedInstanceState?.getBoolean("companion_launch_pending") ?: false
         startGate = CaptionStartGate(savedInstanceState?.getString("start_stage"))
         consumeOpenMainIntent(intent)
         syncStartPending()
@@ -104,6 +127,8 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             val vm = mainViewModel
+            val ui by vm.state.collectAsStateWithLifecycle()
+            val captionStateHolder = rememberSaveableStateHolder()
             UiStringsProvider {
                 MaterialTheme(
                     colorScheme = darkColorScheme(
@@ -146,8 +171,30 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Surface(color = MaterialTheme.colorScheme.background) {
                         Column(Modifier.fillMaxSize().navigationBarsPadding()) {
-                            BackHandler(enabled = showHistory) { showHistory = false }
-                            if (showHistory) {
+                            BackHandler(enabled = showHistory || showCaptions) {
+                                if (showHistory) showHistory = false else showCaptions = false
+                            }
+                            if (showCaptions && !showHistory) {
+                                captionStateHolder.SaveableStateProvider("captions") {
+                                CaptionScreen(
+                                    ui = ui,
+                                    onPauseResume = { sendCaptionAction(CaptionForegroundService.ACTION_PAUSE_RESUME) },
+                                    onStop = { stopCaptionService() },
+                                    onSettings = { showCaptions = false },
+                                    onChooseApp = { chooseCompanionApp() },
+                                    onSplitHelp = { splitHelpMessage = null; showSplitHelp = true },
+                                    onShowOriginalChange = vm::updateShowOriginal,
+                                    onTextSizeChange = vm::updateTextSize,
+                                    onDisplayModeChange = vm::updateCaptionDisplayMode,
+                                    onStart = { startCaptioning() },
+                                    onAcceptLanguage = { code -> sendCaptionAction(
+                                        CaptionForegroundService.ACTION_ACCEPT_LANGUAGE, code) },
+                                    onDismissLanguage = { sendCaptionAction(CaptionForegroundService.ACTION_DISMISS_LANGUAGE) },
+                                    startPending = startPending,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                }
+                            } else if (showHistory) {
                                 HistoryScreen(
                                     historyStore = app.container.transcriptHistory,
                                     historySavingEnabled = vm.historySavingEnabled,
@@ -163,6 +210,7 @@ class MainActivity : ComponentActivity() {
                                     onStart = { startCaptioning() },
                                     onStop = { stopCaptionService() },
                                     onHistory = { showHistory = true },
+                                    onOpenCaptions = { showHistory = false; showCaptions = true },
                                     onCancelModelPreparation = vm::cancelModelPreparation,
                                     startPending = startPending,
                                     audioPermissionSettingsRequired = audioPermissionSettingsRequired,
@@ -170,6 +218,17 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
+                        if (showAppPicker) SplitAppPicker(
+                            apps = appChoices,
+                            loading = loadingApps,
+                            error = appPickerError,
+                            onSelect = ::launchCompanionApp,
+                            onDismiss = { showAppPicker = false }
+                        )
+                        if (showSplitHelp) SplitScreenHelp(
+                            message = splitHelpMessage,
+                            onDismiss = { showSplitHelp = false }
+                        )
                     }
                 }
             }
@@ -184,9 +243,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun consumeOpenMainIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_CAPTIONS, false) == true) {
+            intent.removeExtra(EXTRA_OPEN_CAPTIONS)
+            showCaptions = true
+            showHistory = false
+        }
         if (intent?.getBooleanExtra(EXTRA_OPEN_MAIN, false) != true) return
         intent.removeExtra(EXTRA_OPEN_MAIN)
         showHistory = false
+        showCaptions = false
         // Cancel the existing gate, retaining canceled pending permission results until delivered.
         startGate.cancel()
         syncStartPending()
@@ -194,6 +259,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("show_history", showHistory)
+        outState.putBoolean("show_captions", showCaptions)
+        outState.putBoolean("companion_launch_pending", companionLaunchPending)
         outState.putString("start_stage", startGate.savedStage)
         outState.putBoolean("audio_permission_requested", completedAudioPermissionRequest)
         super.onSaveInstanceState(outState)
@@ -202,6 +269,21 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshAudioPermissionAction()
+        if (companionLaunchPending) {
+            companionLaunchPending = false
+            if (!isInMultiWindowMode) {
+                splitHelpMessage = "자동으로 화면이 나뉘지 않았다면 최근 앱에서 분할 화면을 선택해 주세요."
+                showSplitHelp = true
+            }
+        }
+    }
+
+    override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: Configuration) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
+        if (isInMultiWindowMode) {
+            companionLaunchPending = false
+            showSplitHelp = false
+        }
     }
 
     private fun currentAudioPermissionAction(): AudioPermissionAction = audioPermissionAction(
@@ -245,11 +327,12 @@ class MainActivity : ComponentActivity() {
         val app = application as LiveCaptionApp
         lifecycleScope.launch {
             if (!startGate.busy) return@launch
-            if (!Settings.canDrawOverlays(this@MainActivity)) {
+            val settings = app.container.settingsRepository.settingsFlow.first()
+            if (settings.captionPlacement == CaptionPlacement.POPUP &&
+                !Settings.canDrawOverlays(this@MainActivity)) {
                 setError("다른 앱 위에 표시 권한을 먼저 허용해 주세요.")
                 return@launch
             }
-            val settings = app.container.settingsRepository.settingsFlow.first()
             if (!startGate.busy) return@launch
             val granted = ContextCompat.checkSelfPermission(
                 this@MainActivity, Manifest.permission.RECORD_AUDIO
@@ -309,6 +392,10 @@ class MainActivity : ComponentActivity() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
             else startService(intent)
+            if (mainViewModel.state.value.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN) {
+                showCaptions = true
+                showHistory = false
+            }
         } catch (_: RuntimeException) {
             MediaProjectionHolder.clear()
             setError("자막 서비스를 시작할 수 없습니다. 앱을 화면에 연 뒤 다시 시도해 주세요.")
@@ -324,8 +411,54 @@ class MainActivity : ComponentActivity() {
             action = CaptionForegroundService.ACTION_STOP
         })
     }
+    private fun sendCaptionAction(action: String, languageCode: String? = null) {
+        val runtime = (application as LiveCaptionApp).container.runtimeStore.state.value
+        if (!runtime.running || runtime.stopping) return
+        startService(Intent(this, CaptionForegroundService::class.java).apply {
+            this.action = action
+            languageCode?.let { putExtra(CaptionForegroundService.EXTRA_LANGUAGE_CODE, it) }
+        })
+    }
+
+    private fun chooseCompanionApp() {
+        if (!canRequestAdjacentLaunch(Build.VERSION.SDK_INT, isInMultiWindowMode)) {
+            splitHelpMessage = "이 Android 버전에서는 최근 앱에서 먼저 분할 화면을 열어 주세요."
+            showSplitHelp = true
+            return
+        }
+        showAppPicker = true
+        loadingApps = true
+        appPickerError = null
+        lifecycleScope.launch {
+            try {
+                appChoices = withContext(Dispatchers.IO) { loadSplitAppChoices(this@MainActivity) }
+            } catch (_: RuntimeException) {
+                appPickerError = "앱 목록을 불러오지 못했습니다. 최근 앱에서 직접 분할 화면을 열 수 있습니다."
+            } finally {
+                loadingApps = false
+            }
+        }
+    }
+
+    private fun launchCompanionApp(app: SplitAppChoice) {
+        showAppPicker = false
+        companionLaunchPending = true
+        try {
+            startActivity(Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                component = ComponentName(app.packageName, app.activityName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT)
+            })
+        } catch (_: RuntimeException) {
+            companionLaunchPending = false
+            splitHelpMessage = "선택한 앱을 열지 못했습니다. 최근 앱에서 직접 분할 화면을 열어 주세요."
+            showSplitHelp = true
+        }
+    }
+
     companion object {
         const val EXTRA_OPEN_MAIN = "com.charles.livecaptionn.OPEN_MAIN"
+        const val EXTRA_OPEN_CAPTIONS = "com.charles.livecaptionn.OPEN_CAPTIONS"
     }
 
 }

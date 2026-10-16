@@ -12,6 +12,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.CaptionSettings
 import com.charles.livecaptionn.settings.RecognitionLanguages
+import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionDisplayMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -46,7 +47,8 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
                 overlayHeightDp = p[OVERLAY_H] ?: defaults.overlayHeightDp,
                 overlayThemeId = p[OVERLAY_THEME] ?: defaults.overlayThemeId,
                 overlayFontId = p[OVERLAY_FONT] ?: defaults.overlayFontId,
-                saveHistory = p[SAVE_HISTORY] ?: defaults.saveHistory
+                saveHistory = p[SAVE_HISTORY] ?: defaults.saveHistory,
+                captionPlacement = CaptionPlacement.fromName(p[PLACEMENT])
             )
         }
 
@@ -70,6 +72,7 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
             p[OVERLAY_THEME] = next.overlayThemeId
             p[OVERLAY_FONT] = next.overlayFontId
             p[SAVE_HISTORY] = next.saveHistory
+            p[PLACEMENT] = next.captionPlacement.name
         }
 
         private val SOURCE = stringPreferencesKey("source")
@@ -88,6 +91,7 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
         private val OVERLAY_H = intPreferencesKey("overlay_h")
         private val OVERLAY_THEME = stringPreferencesKey("overlay_theme")
         private val OVERLAY_FONT = stringPreferencesKey("overlay_font")
+        private val PLACEMENT = stringPreferencesKey("caption_placement")
         private val SAVE_HISTORY = booleanPreferencesKey("save_history")
     }
 }

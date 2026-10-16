@@ -206,7 +206,7 @@ class OverlayController(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        modeButton = makeButton(R.drawable.ic_overlay_chat, "Switch to chat view") {
+        modeButton = makeButton(R.drawable.ic_overlay_captions, "Switch to chat view") {
             val ui = latestUi ?: return@makeButton
             val mode = if (ui.displayMode == CaptionDisplayMode.CHAT) CaptionDisplayMode.CAPTIONS else CaptionDisplayMode.CHAT
             update(ui.copy(displayMode = mode))
@@ -220,7 +220,7 @@ class OverlayController(
         }
         minButton = makeButton(R.drawable.ic_overlay_minimize, "Minimize overlay", onToggleMinimize)
         closeButton = makeButton(R.drawable.ic_overlay_close, "번역 종료", onClose)
-        listOf(modeButton to "대화형", sourceButton to "원문 보기", minButton to "최소화", closeButton to "번역 종료")
+        listOf(modeButton to "최근 자막", sourceButton to "원문 보기", minButton to "최소화", closeButton to "번역 종료")
             .forEach { (button, label) ->
                 button?.let { controlStrip.addView(makeLabeledControl(it, label)) }
             }
@@ -399,12 +399,12 @@ class OverlayController(
             ui.controlsExpanded -> "Collapse controls"
             else -> "Expand controls"
         })
-        setButton(modeButton, if (ui.displayMode == CaptionDisplayMode.CHAT) R.drawable.ic_overlay_captions else R.drawable.ic_overlay_chat,
+        setButton(modeButton, if (ui.displayMode == CaptionDisplayMode.CHAT) R.drawable.ic_overlay_chat else R.drawable.ic_overlay_captions,
             if (ui.displayMode == CaptionDisplayMode.CHAT) "Switch to caption view" else "Switch to chat view")
         modeButton?.isSelected = ui.displayMode == CaptionDisplayMode.CHAT
         sourceButton?.isSelected = ui.showOriginal
         setButton(sourceButton, R.drawable.ic_overlay_source, if (ui.showOriginal) "Hide original text" else "Show original text")
-        setControlLabel(modeButton, if (ui.displayMode == CaptionDisplayMode.CHAT) "자막형" else "대화형")
+        setControlLabel(modeButton, if (ui.displayMode == CaptionDisplayMode.CHAT) "자막 목록" else "최근 자막")
         setControlLabel(sourceButton, if (ui.showOriginal) "원문 숨김" else "원문 보기")
         for (button in buttons) applyButtonStyle(button, theme.textRgb, button.isSelected || button === resizeHandle)
         for ((button, label) in controlLabels) {

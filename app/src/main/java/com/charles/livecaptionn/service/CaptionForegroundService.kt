@@ -34,6 +34,7 @@ import com.charles.livecaptionn.R
 import com.charles.livecaptionn.data.applyGlossary
 import com.charles.livecaptionn.overlay.OverlayController
 import com.charles.livecaptionn.ui.l10n.KoreanUiStrings
+import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.speech.RecognitionStatus
@@ -77,6 +78,7 @@ class CaptionForegroundService : Service() {
     /** Read by capture callbacks; initialized before speech starts. */
     @Volatile private var stableCaptions = true
 
+    private var sessionPlacement = CaptionPlacement.POPUP
     private var currentAudioSource = AudioSource.SYSTEM
     private var languageSamples: Channel<ByteArray>? = null
     private var languageTracker: LanguageRecommendationTracker? = null
@@ -112,16 +114,32 @@ class CaptionForegroundService : Service() {
                 // crashing during cold-start DataStore reads). Any early-exit
                 // path below must therefore use stopForeground + stopSelf
                 // instead of raw stopSelf, which previously crashed the app.
+                if (stopping || captionSessionActive.get()) return START_NOT_STICKY
                 val audioSource = intent.getStringExtra(EXTRA_AUDIO_SOURCE)
                     ?.let { runCatching { AudioSource.valueOf(it) }.getOrNull() }
                     ?: AudioSource.SYSTEM
                 currentAudioSource = audioSource
                 if (enterForeground(audioSource)) startFlow()
             }
-            ACTION_STOP -> stopFlow()
+            ACTION_STOP -> {
+                if (captionSessionActive.get() || stopping) stopFlow()
+                else {
+                    // Repeated Stop must not erase a completed split session retained by the app.
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
             ACTION_PAUSE_RESUME -> togglePause()
             ACTION_TOGGLE_MINIMIZE -> toggleMinimized()
+            ACTION_ACCEPT_LANGUAGE -> intent.getStringExtra(EXTRA_LANGUAGE_CODE)?.let(::acceptLanguageSuggestion)
+            ACTION_DISMISS_LANGUAGE -> {
+                val code = intent.getStringExtra(EXTRA_LANGUAGE_CODE)
+                    ?: app.container.runtimeStore.state.value.suggestedLanguageCode
+                code?.let(::dismissLanguageSuggestion)
+            }
         }
+        // A stale pane/notification action may recreate the service after capture already ended.
+        if (!captionSessionActive.get() && !stopping) stopSelf()
         return START_NOT_STICKY
     }
 
@@ -166,25 +184,32 @@ class CaptionForegroundService : Service() {
         translationReleased = false
         failureMessage = null
         app.container.runtimeStore.update {
-            it.copy(running = true, paused = paused, stopping = false,
+            startedCaptionSession(it).copy(running = true, paused = paused, stopping = false,
                 recognizing = false, translating = false, captureHint = null, infoMessage = null,
                 suggestedLanguageCode = null, changingLanguageCode = null, restartLanguageCode = null,
                 status = if (paused) RecognitionStatus.PAUSED else RecognitionStatus.PROCESSING,
                 lastError = null, skippedTranslations = 0, skippedSpeechSegments = 0)
         }
-        if (!Settings.canDrawOverlays(this)) {
-            Log.e("CaptionService", "Overlay permission missing.")
-            failAndStop("다른 앱 위에 표시 권한을 허용한 뒤 다시 시작해 주세요.")
-            return
-        }
-
         setupJob = serviceScope.launch {
-            // Always start a fresh session un-minimized; stale overlayMinimized=true from a
-            // prior run was hiding the caption body entirely.
-            app.container.settingsRepository.update { it.copy(overlayMinimized = false) }
             val settings = app.container.settingsRepository.settingsFlow.first()
-            app.container.historyRecordingGate.initialize()
+            // Placement is owned by this capture session, independent of later settings emissions.
+            sessionPlacement = settings.captionPlacement
+            app.container.runtimeStore.update { it.copy(sessionPlacement = sessionPlacement) }
+            if (sessionPlacement == CaptionPlacement.SPLIT_SCREEN) {
+                (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID, buildNotification())
+            }
+            if (sessionPlacement == CaptionPlacement.POPUP) {
+                if (!Settings.canDrawOverlays(this@CaptionForegroundService)) {
+                    Log.e("CaptionService", "Overlay permission missing.")
+                    failAndStop("다른 앱 위에 표시 권한을 허용한 뒤 다시 시작해 주세요.")
+                    return@launch
+                }
+                // A new popup always begins with its caption body visible.
+                app.container.settingsRepository.update { it.copy(overlayMinimized = false) }
+            }
             stableCaptions = settings.stableCaptions
+            observeCaptionUpdates()
+            app.container.historyRecordingGate.initialize()
 
             // If the activity sent the wrong audio source in the intent extra
             // (legacy intent, settings changed between launch and service start),
@@ -346,8 +371,7 @@ class CaptionForegroundService : Service() {
             observeEngineStatus(engine.status)
             pauseController.attach(engine)
 
-            showOverlay()
-            observeOverlayUpdates()
+            if (sessionPlacement == CaptionPlacement.POPUP) showOverlay()
         }
     }
 
@@ -368,10 +392,10 @@ class CaptionForegroundService : Service() {
     }
 
     /**
-     * Drive the overlay from a single combined stream so rapid runtime + settings changes
-     * cannot apply out-of-order (stale coroutines overwriting newer translation text).
+     * Keep live capture settings observed for every placement. When present, the popup
+     * uses the same stream so rapid runtime/settings changes cannot render out of order.
      */
-    private fun observeOverlayUpdates() {
+    private fun observeCaptionUpdates() {
         serviceScope.launch {
             combine(
                 app.container.runtimeStore.state,
@@ -433,9 +457,11 @@ class CaptionForegroundService : Service() {
     }
 
     private fun showOverlay() {
-        if (overlayController != null) return
+        if (sessionPlacement != CaptionPlacement.POPUP || overlayController != null ||
+            stopping || !captionSessionActive.get()) return
         serviceScope.launch {
             val settings = app.container.settingsRepository.settingsFlow.first()
+            if (stopping || !captionSessionActive.get() || sessionPlacement != CaptionPlacement.POPUP) return@launch
             try {
                 overlayController = OverlayController(
                     context = this@CaptionForegroundService,
@@ -476,12 +502,14 @@ class CaptionForegroundService : Service() {
     }
 
     private fun toggleMinimized() {
+        if (sessionPlacement != CaptionPlacement.POPUP || !captionSessionActive.get() || stopping) return
         serviceScope.launch {
             app.container.settingsRepository.update { it.copy(overlayMinimized = !it.overlayMinimized) }
         }
     }
 
     private fun dismissLanguageSuggestion(code: String) {
+        if (!captionSessionActive.get() || stopping) return
         languageTracker?.dismiss(code)
         app.container.runtimeStore.update {
             if (it.suggestedLanguageCode == code) it.copy(suggestedLanguageCode = null) else it
@@ -501,7 +529,8 @@ class CaptionForegroundService : Service() {
                 },
                 stopSession = { stopFlow() },
                 openMain = {
-                    startActivity(Intent(this@CaptionForegroundService, MainActivity::class.java).apply {
+                    // Split readers stay in their pane and use its explicit restart action.
+                    if (sessionPlacement == CaptionPlacement.POPUP) startActivity(Intent(this@CaptionForegroundService, MainActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                         putExtra(MainActivity.EXTRA_OPEN_MAIN, true)
                     })
@@ -554,7 +583,8 @@ class CaptionForegroundService : Service() {
                 completedCaptionSession(failureMessage, error, drained, completionMessage,
                     skippedTranslations = it.skippedTranslations,
                     skippedSpeechSegments = it.skippedSpeechSegments,
-                    restartLanguageCode = it.restartLanguageCode)
+                    restartLanguageCode = it.restartLanguageCode,
+                    sessionPlacement = sessionPlacement, retainedLines = it.transcriptLines, sessionId = it.sessionId)
             }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -586,8 +616,11 @@ class CaptionForegroundService : Service() {
         serviceScope.cancel()
         MediaProjectionHolder.clear()
         app.container.runtimeStore.update {
-            if (it.running) it.copy(running = false, paused = false, stopping = false, recognizing = false, translating = false,
-                status = if (it.status == RecognitionStatus.ERROR) RecognitionStatus.ERROR else RecognitionStatus.IDLE) else it
+            if (it.running) completedCaptionSession(failureMessage ?: it.lastError, null, true,
+                skippedTranslations = it.skippedTranslations,
+                skippedSpeechSegments = it.skippedSpeechSegments,
+                restartLanguageCode = it.restartLanguageCode,
+                sessionPlacement = sessionPlacement, retainedLines = it.transcriptLines, sessionId = it.sessionId) else it
         }
         super.onDestroy()
     }
@@ -609,7 +642,9 @@ class CaptionForegroundService : Service() {
 
     private fun buildNotification(): Notification {
         createNotificationChannel()
-        val openIntent = Intent(this, MainActivity::class.java)
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            if (sessionPlacement == CaptionPlacement.SPLIT_SCREEN) putExtra(MainActivity.EXTRA_OPEN_CAPTIONS, true)
+        }
         val pending = PendingIntent.getActivity(
             this, 0, openIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
@@ -655,6 +690,9 @@ class CaptionForegroundService : Service() {
         const val ACTION_STOP = "caption.action.STOP"
         const val ACTION_PAUSE_RESUME = "caption.action.PAUSE_RESUME"
         const val ACTION_TOGGLE_MINIMIZE = "caption.action.TOGGLE_MINIMIZE"
+        const val ACTION_ACCEPT_LANGUAGE = "caption.action.ACCEPT_LANGUAGE"
+        const val ACTION_DISMISS_LANGUAGE = "caption.action.DISMISS_LANGUAGE"
+        const val EXTRA_LANGUAGE_CODE = "caption.extra.LANGUAGE_CODE"
         const val EXTRA_AUDIO_SOURCE = "caption.extra.AUDIO_SOURCE"
 
         private const val CHANNEL_ID = "caption_channel"
