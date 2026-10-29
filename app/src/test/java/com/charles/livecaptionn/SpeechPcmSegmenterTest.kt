@@ -5,6 +5,34 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SpeechPcmSegmenterTest {
+    @Test fun incrementalSnapshotsKeepTheirWindowAndNeverConsumeFinalAudio() {
+        val segmenter = SpeechPcmSegmenter()
+        segmenter.feed(pcm(32000, 1000))
+        val first = segmenter.previewSegment()!!
+        assertEquals(64000, first.pcm.size)
+        assertFalse(first.isFinal)
+        segmenter.feed(pcm(32000, 2000))
+        val second = segmenter.previewSegment()!!
+        assertEquals(first.id, second.id)
+        assertEquals(128000, second.pcm.size)
+        val final = segmenter.pauseBoundarySegment()!!
+        assertEquals(first.id, final.id)
+        assertTrue(final.isFinal)
+        assertArrayEquals(pcm(32000, 1000) + pcm(32000, 2000), final.pcm)
+        segmenter.feed(pcm(32000, 3000))
+        assertTrue(segmenter.previewSegment()!!.id > final.id)
+    }
+
+    @Test fun previewsAreThrottledByNewVoicedAudioAndDoNotRepeatDuringSilence() {
+        val segmenter = SpeechPcmSegmenter()
+        segmenter.feed(pcm(16000, 1000))
+        assertNull(segmenter.previewSegment())
+        segmenter.feed(pcm(16000, 1000))
+        assertNotNull(segmenter.previewSegment())
+        assertNull(segmenter.previewSegment())
+        segmenter.feed(pcm(8000, 0))
+        assertNull(segmenter.previewSegment())
+    }
     @Test fun continuousMinuteProducesBoundedSegmentsWithoutDuplicatedAudio() {
         val segmenter = SpeechPcmSegmenter()
         val outputs = (1..600).flatMap { segmenter.feed(pcm(1600, 1000)) }

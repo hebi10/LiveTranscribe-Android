@@ -291,8 +291,8 @@ fun MainScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Text("음성 구간이 끝나거나 최대 8초 단위로 인식한 뒤 번역합니다. " +
-                        "인식 중인 미리보기는 제공하지 않으며, 처리 시간은 기기에 따라 달라집니다. " +
+                    Text("말이 이어져도 확인된 문장부터 번역합니다. " +
+                        "문장 끝을 판단하기 어려우면 무음 또는 최대 8초 경계에서 처리하며, 속도는 기기에 따라 달라집니다. " +
                         "인식이나 번역이 밀리면 일부 대기 구간을 생략하고 안내합니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)

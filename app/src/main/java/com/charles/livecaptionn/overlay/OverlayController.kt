@@ -7,12 +7,14 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Bundle
 import android.graphics.text.LineBreaker
 import android.text.Layout
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.Display
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -41,7 +43,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class OverlayController(
-    private val context: Context,
+    context: Context,
     private val scope: CoroutineScope,
     private val settingsRepository: SettingsRepository,
     private val onPauseResume: () -> Unit,
@@ -51,8 +53,10 @@ class OverlayController(
     private val onDismissLanguageSuggestion: (String) -> Unit,
     private val uiStrings: () -> UiStrings = { UiStrings.EMPTY }
 ) {
-    private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    private val density = context.resources.displayMetrics.density
+    // A service context does not track the configuration of the overlay's display area.
+    private val context = overlayWindowContext(context)
+    private val wm = this.context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private var density = this.context.resources.displayMetrics.density
     private var root: FrameLayout? = null
     private var normalHeader: LinearLayout? = null
     private var minimizedHeader: LinearLayout? = null
@@ -87,7 +91,7 @@ class OverlayController(
     private var params: WindowManager.LayoutParams? = null
     // Only explicit move/resize actions change the preference; fitting is presentation-only.
     private var geometryState: OverlayGeometryState? = null
-    private var lastSettingsGeometry: OverlayGeometry? = null
+    private var lastSettingsGeometry: OverlayGeometryPreference? = null
     private var geometryJob: Job? = null
     private var latestUi: OverlayUiState? = null
     private var lastContent: CaptionContent? = null
@@ -115,6 +119,9 @@ class OverlayController(
         override fun onConfigurationChanged(newConfig: Configuration) {
             root?.post {
                 preserveViewport()
+                density = context.resources.displayMetrics.density
+                geometryState?.updateDensity(density)
+                refreshDimensions()
                 clampWindow()
                 restoreViewportAfterLayout()
             }
@@ -124,8 +131,9 @@ class OverlayController(
 
     fun show(initialX: Int, initialY: Int, widthDp: Int, heightDp: Int) {
         if (root != null) return
-        val preferred = OverlayGeometry(initialX, initialY, dp(widthDp), dp(heightDp))
-        geometryState = OverlayGeometryState(preferred)
+        density = context.resources.displayMetrics.density
+        val preferred = OverlayGeometryPreference(initialX, initialY, widthDp, heightDp)
+        geometryState = OverlayGeometryState(preferred, density)
         lastSettingsGeometry = preferred
         val geometry = normalDisplayGeometry() ?: return
         val p = WindowManager.LayoutParams(
@@ -340,12 +348,12 @@ class OverlayController(
             context.registerComponentCallbacks(configurationCallbacks)
             geometryJob = scope.launch {
                 settingsRepository.settingsFlow.collect { settings ->
-                    val next = OverlayGeometry(settings.overlayX, settings.overlayY,
-                        dp(settings.overlayWidthDp), dp(settings.overlayHeightDp))
+                    val next = OverlayGeometryPreference(settings.overlayX, settings.overlayY,
+                        settings.overlayWidthDp, settings.overlayHeightDp)
                     if (next != lastSettingsGeometry) {
                         lastSettingsGeometry = next
                         preserveViewport()
-                        geometryState?.preferred = next
+                        geometryState?.updatePreference(next)
                         clampWindow()
                         restoreViewportAfterLayout()
                     }
@@ -698,6 +706,61 @@ class OverlayController(
         layoutParams = LinearLayout.LayoutParams(-1, -2)
     }
 
+    /** Reapply dp/sp values in place so density changes keep the current caption reading anchor. */
+    private fun refreshDimensions() {
+        val frame = root ?: return
+        val container = frame.getChildAt(0) as? LinearLayout ?: return
+        container.setPadding(dp(12), dp(4), dp(12), dp(8))
+        (container.background as? GradientDrawable)?.cornerRadius = dp(10).toFloat()
+        listOf(normalHeader, minimizedHeader, statusText).forEach { view ->
+            view?.layoutParams?.height = dp(44)
+        }
+        for (button in buttons) {
+            button.layoutParams?.apply { width = dp(44); height = dp(44) }
+            button.setPadding(dp(10), dp(10), dp(10), dp(10))
+            // CENTER_INSIDE uses drawable intrinsic pixels, which also depend on density.
+            (button.tag as? Int)?.let { button.setImageDrawable(context.getDrawable(it)) }
+            (button.background as? GradientDrawable)?.cornerRadius = dp(10).toFloat()
+        }
+        for ((_, label) in controlLabels) {
+            val control = label.parent as? LinearLayout ?: continue
+            val compact = control.orientation == LinearLayout.HORIZONTAL
+            label.textSize = if (compact) 12f else 11f
+            if (compact) control.layoutParams?.height = dp(44)
+            else {
+                control.minimumWidth = dp(64)
+                control.setPadding(dp(6), 0, dp(6), dp(4))
+            }
+        }
+        (listOfNotNull(statusText, statusDetail, statusInformation, suggestionLabel) + suggestionChoices)
+            .forEach { it.textSize = 12f }
+        statusDetail?.setPadding(0, dp(2), 0, dp(4))
+        suggestionChoices.forEach {
+            it.minHeight = dp(44)
+            it.layoutParams?.height = dp(44)
+        }
+        (dividerView?.layoutParams as? LinearLayout.LayoutParams)?.apply {
+            height = dp(1)
+            setMargins(0, dp(4), 0, dp(5))
+        }
+        body?.getChildAt(0)?.setPadding(0, dp(2), 0, dp(28))
+        val display = lastContent?.display
+        fun captionDimensions(view: TextView?, sizeSp: Float) {
+            view?.textSize = sizeSp
+            view?.setLineSpacing(dp(2).toFloat(), 1.05f)
+        }
+        val originalSizeSp = display?.originalTextSizeSp ?: 14f
+        val translatedSizeSp = display?.translatedTextSizeSp ?: CaptionSettings().textSizeSp
+        captionDimensions(originalText, originalSizeSp)
+        captionDimensions(translatedText, translatedSizeSp)
+        for (row in chatRows.values) {
+            row.container.setPadding(0, 0, 0, dp(10))
+            captionDimensions(row.translated, translatedSizeSp)
+            captionDimensions(row.source, originalSizeSp)
+        }
+        frame.requestLayout()
+    }
+
     private fun applyCaptionStyle(view: TextView, color: Int, typeface: Typeface, sizeSp: Float) {
         view.setTextColor(color)
         setTypefaceIfChanged(view, typeface)
@@ -882,12 +945,11 @@ class OverlayController(
     }
 
     private fun persistGeometry() {
-        val geometry = geometryState?.preferred ?: return
+        val geometry = geometryState?.preference ?: return
         scope.launch {
             settingsRepository.update {
                 it.copy(overlayX = geometry.x, overlayY = geometry.y,
-                    overlayWidthDp = (geometry.width / density).roundToInt(),
-                    overlayHeightDp = (geometry.height / density).roundToInt())
+                    overlayWidthDp = geometry.widthDp, overlayHeightDp = geometry.heightDp)
             }
         }
     }
@@ -923,7 +985,7 @@ class OverlayController(
         private var touchX = 0f
         private var touchY = 0f
         private var moved = false
-        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        private val touchSlop get() = ViewConfiguration.get(context).scaledTouchSlop
         override fun onTouch(v: View, event: MotionEvent): Boolean {
             val lp = params ?: return false
             if (root == null) return false
@@ -961,7 +1023,7 @@ class OverlayController(
         private var touchX = 0f
         private var touchY = 0f
         private var resized = false
-        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        private val touchSlop get() = ViewConfiguration.get(context).scaledTouchSlop
         override fun onTouch(v: View, event: MotionEvent): Boolean {
             if (params == null) return false
             if (root == null || latestUi?.minimized == true) return false
@@ -1001,4 +1063,13 @@ class OverlayController(
             return false
         }
     }
+}
+
+private fun overlayWindowContext(context: Context): Context {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return context
+    // The caller is a service: getDisplay() requires a display-associated context.
+    val display = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
+        .getDisplay(Display.DEFAULT_DISPLAY) ?: return context
+    return context.createDisplayContext(display)
+        .createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null)
 }

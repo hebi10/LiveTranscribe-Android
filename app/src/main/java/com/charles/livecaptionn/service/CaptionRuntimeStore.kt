@@ -4,6 +4,8 @@ import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.overlay.MAX_OVERLAY_MESSAGES
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.speech.RecognitionStatus
+import com.charles.livecaptionn.speech.normalizeRecognizedTranscript
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,7 +18,9 @@ data class CaptionRuntimeLine(
     val isFinal: Boolean = false,
     /** Only the translation requested at the recognizer's final boundary is permanent. */
     val finalTranslationCommitted: Boolean = isFinal && translatedText.isNotBlank(),
-    val sourceLanguageCode: String = RecognitionLanguages.UNKNOWN
+    val sourceLanguageCode: String = RecognitionLanguages.UNKNOWN,
+    /** Links sentence captions to asynchronous language metadata from the same captured audio. */
+    val audioWindowId: Long? = null
 )
 
 data class CaptionRuntimeState(
@@ -43,7 +47,11 @@ data class CaptionRuntimeState(
     /** Fixed by the service at session start; retained with completed split captions. */
     val sessionPlacement: CaptionPlacement? = null,
     /** Process-local generation, changed only when the service starts a new capture session. */
-    val sessionId: Long = 0L
+    val sessionId: Long = 0L,
+    /** Queue wait plus recognition compute time, rather than end-to-end video delay. */
+    val recognitionElapsedMs: Long = 0L,
+    /** Queue wait plus translation compute time for the most recently completed request. */
+    val translationElapsedMs: Long = 0L
 ) {
     val phase: CaptionPhase get() = when {
         stopping -> CaptionPhase.STOPPING
@@ -66,8 +74,32 @@ data class CaptionRuntimeState(
     }
 
     val information: String? get() = listOfNotNull(infoMessage,
-        captionBacklogMessage(skippedTranslations, skippedSpeechSegments))
+        captionBacklogMessage(skippedTranslations, skippedSpeechSegments),
+        captionProcessingTimesMessage(recognitionElapsedMs, translationElapsedMs))
         .takeIf { it.isNotEmpty() }?.joinToString("\n")
+}
+
+private fun captionProcessingTimesMessage(recognitionMs: Long, translationMs: Long): String? {
+    if (recognitionMs <= 0L && translationMs <= 0L) return null
+    fun seconds(milliseconds: Long) = String.format(Locale.ROOT, "%.1f", milliseconds.coerceAtLeast(0L) / 1_000.0)
+    return "최근 처리 시간: 인식 ${seconds(recognitionMs)}초 · 번역 ${seconds(translationMs)}초"
+}
+
+/** Enrich existing captions only; asynchronous detection never appends a second copy. */
+internal fun updateCaptionWindowLanguage(
+    runtime: CaptionRuntimeState,
+    audioWindowId: Long,
+    detectedLanguageCode: String?
+): CaptionRuntimeState {
+    val source = RecognitionLanguages.normalizeDetected(detectedLanguageCode)
+    if (source == RecognitionLanguages.UNKNOWN) return runtime
+    val updated = runtime.transcriptLines.map { line ->
+        if (line.audioWindowId == audioWindowId && line.sourceLanguageCode != source)
+            line.copy(sourceLanguageCode = source,
+                originalText = normalizeRecognizedTranscript(line.originalText, source)) else line
+    }
+    return if (updated == runtime.transcriptLines) runtime else runtime.copy(transcriptLines = updated,
+        originalText = updated.lastOrNull()?.originalText ?: runtime.originalText)
 }
 
 enum class CaptionPhase(val label: String) {
@@ -78,6 +110,12 @@ enum class CaptionPhase(val label: String) {
 internal fun stoppingCaptionSession(runtime: CaptionRuntimeState, error: String? = null): CaptionRuntimeState =
     runtime.copy(running = true, stopping = true, lastError = error ?: runtime.lastError, captureHint = null,
         suggestedLanguageCode = null)
+
+/** Destruction before completion cancels work; joining that cancelled work is not a successful drain. */
+internal fun interruptedCaptionSession(runtime: CaptionRuntimeState, ownedSessionId: Long?): CaptionRuntimeState =
+    if (ownedSessionId == null || runtime.sessionId != ownedSessionId || !runtime.running) runtime
+    else stoppingCaptionSession(runtime, runtime.lastError ?:
+        "자막 서비스가 종료되어 남은 문장의 처리·저장을 완료하지 못했습니다.")
 
 
 class CaptionRuntimeStore {
@@ -112,7 +150,9 @@ internal fun completedCaptionSession(
     restartLanguageCode: String? = null,
     sessionPlacement: CaptionPlacement? = null,
     retainedLines: List<CaptionRuntimeLine> = emptyList(),
-    sessionId: Long = 0L
+    sessionId: Long = 0L,
+    recognitionElapsedMs: Long = 0L,
+    translationElapsedMs: Long = 0L
 ): CaptionRuntimeState {
     val error = terminalFailure ?: previousFailure ?: if (!drained)
         "번역 종료 시간이 초과되어 마지막 일부 문장이 저장되지 않았습니다." else null
@@ -126,6 +166,8 @@ internal fun completedCaptionSession(
         transcriptLines = completedLines,
         sessionPlacement = sessionPlacement,
         sessionId = sessionId,
+        recognitionElapsedMs = recognitionElapsedMs,
+        translationElapsedMs = translationElapsedMs,
         status = if (error == null) RecognitionStatus.IDLE else RecognitionStatus.ERROR,
         lastError = error,
         restartLanguageCode = restartLanguageCode,
@@ -148,6 +190,11 @@ internal fun recordDroppedTranslation(runtime: CaptionRuntimeState, lineId: Long
     )
 }
 
+internal const val REJECTED_TRANSLATION_MESSAGE = "번역 작업이 종료되어 마지막 일부 문장을 번역하거나 저장하지 못했습니다."
+
+internal fun recordRejectedTranslation(runtime: CaptionRuntimeState, lineId: Long): CaptionRuntimeState =
+    recordDroppedTranslation(runtime, lineId).copy(lastError = runtime.lastError ?: REJECTED_TRANSLATION_MESSAGE)
+
 internal fun withRuntimeError(runtime: CaptionRuntimeState, message: String?): CaptionRuntimeState =
     if (runtime.stopping && message == null) runtime else runtime.copy(lastError = message)
 
@@ -166,6 +213,17 @@ internal fun recordSkippedSpeechSegment(runtime: CaptionRuntimeState): CaptionRu
 /** An explicit start owns clearing the one-time restart prompt; permission handling stays in Activity. */
 internal fun preparedCaptionStart(runtime: CaptionRuntimeState): CaptionRuntimeState =
     runtime.copy(status = RecognitionStatus.IDLE, lastError = null, restartLanguageCode = null, infoMessage = null)
+
+/** A foreground-start failure owns no capture worker and must never enter a draining state. */
+internal fun failedCaptionStartup(
+    runtime: CaptionRuntimeState,
+    attemptedSessionId: Long?,
+    error: String
+): CaptionRuntimeState = if (attemptedSessionId == null || runtime.sessionId != attemptedSessionId ||
+    runtime.running || runtime.stopping) runtime else runtime.copy(
+        running = false, stopping = false, recognizing = false, translating = false,
+        status = RecognitionStatus.ERROR, lastError = error, captureHint = null
+    )
 
 /** Clear retained content only after a service start, so cancelled permission dialogs keep it readable. */
 internal fun startedCaptionSession(previous: CaptionRuntimeState = CaptionRuntimeState()): CaptionRuntimeState =

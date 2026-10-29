@@ -10,13 +10,57 @@ import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class OfflineSpeechPipelineTest {
+    @Test fun automaticLanguageIdentificationCannotDelayCaptionAndIsJoinedBeforeRelease() = runBlocking {
+        val detectorStarted = CountDownLatch(1)
+        val releaseDetector = CountDownLatch(1)
+        val results = java.util.concurrent.CopyOnWriteArrayList<SpeechResult>()
+        val languages = java.util.concurrent.CopyOnWriteArrayList<String?>()
+        val backend = FakeBackend()
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), results::add,
+            sourceLanguageCode = "auto", detectLanguage = {
+                detectorStarted.countDown()
+                check(releaseDetector.await(5, TimeUnit.SECONDS))
+                "ja"
+            }, onLanguageIdentified = { _, language -> languages += language })
+        pipeline.feed(pcm(128000))
+        assertTrue(detectorStarted.await(3, TimeUnit.SECONDS))
+        assertEquals(listOf("日本語1"), results.map { it.text })
+        assertTrue(languages.isEmpty())
+        val finishing = launch(Dispatchers.Default) { pipeline.finish() }
+        assertEquals(0, backend.closed)
+        releaseDetector.countDown()
+        finishing.join()
+        assertEquals(listOf("ja"), languages)
+        assertEquals(1, backend.closed)
+    }
+
+    @Test fun stableSentenceIsPublishedDuringContinuousSpeechAndFinalDoesNotRepeatIt() = runTest {
+        val backend = FakeBackend().apply {
+            resultTexts = listOf("今日は晴れです", "今日は晴れです。散歩に", "今日は晴れです。散歩に行きます。")
+        }
+        val results = mutableListOf<SpeechResult>()
+        val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), results::add,
+            workerContext = StandardTestDispatcher(testScheduler), sourceLanguageCode = "ja",
+            nowMs = { testScheduler.currentTime })
+        pipeline.feed(pcm(32000)); advanceTimeBy(301); runCurrent()
+        assertTrue(results.isEmpty())
+        pipeline.feed(pcm(32000)); advanceTimeBy(301); runCurrent()
+        assertEquals(listOf("今日は晴れです。"), results.map { it.text })
+        pipeline.finish()
+        assertEquals(listOf("今日は晴れです。", "散歩に行きます。"), results.map { it.text })
+        assertEquals(1, results.map { it.audioWindowId }.distinct().size)
+        assertTrue(results.all { it.isFinal })
+    }
+
     @Test fun autoDetectionUsesOnlyTheExactSegmentsThatSurviveTheBoundedQueue() = runTest {
         val backend = FakeBackend()
         val results = mutableListOf<SpeechResult>()
         val detectedFirstSamples = mutableListOf<Int>()
         val detectedLengths = mutableListOf<Int>()
+        val languages = mutableMapOf<Long, String?>()
         val pipeline = OfflineSpeechPipeline(OfflineSttSession(backend, FakeGate()), results::add,
             workerContext = StandardTestDispatcher(testScheduler), sourceLanguageCode = "auto",
+            onLanguageIdentified = { id, language -> languages[id] = language },
             detectLanguage = { audio ->
                 detectedLengths += audio.size
                 val first = (pcmSamples(audio, audio.size).first() * 32768).toInt()
@@ -29,21 +73,23 @@ class OfflineSpeechPipelineTest {
         assertEquals(listOf(1008, 1009), backend.firstSamples)
         assertEquals(backend.firstSamples, detectedFirstSamples)
         assertEquals(listOf(256000, 256000), detectedLengths)
-        assertEquals(listOf("ja", "en"), results.map { it.detectedLanguageCode })
+        assertEquals(listOf("ja", "en"), results.map { result -> result.audioWindowId?.let(languages::get) })
         assertEquals(listOf("日本語1", "日本語2"), results.map { it.text })
     }
 
     @Test fun failedOrUnknownDetectionCannotReuseThePreviousUtteranceLanguage() = runTest {
         val results = mutableListOf<SpeechResult>()
         var detections = 0
+        val languages = mutableMapOf<Long, String?>()
         val pipeline = OfflineSpeechPipeline(OfflineSttSession(FakeBackend(), FakeGate()), results::add,
             workerContext = StandardTestDispatcher(testScheduler), sourceLanguageCode = "auto",
+            onLanguageIdentified = { id, language -> languages[id] = language },
             detectLanguage = {
                 when (++detections) { 1 -> "ja"; 2 -> error("detector unavailable"); else -> null }
             })
         repeat(3) { pipeline.feed(pcm(128000)); runCurrent() }
         pipeline.finish()
-        assertEquals(listOf("ja", null, null), results.map { it.detectedLanguageCode })
+        assertEquals(listOf("ja", null, null), results.map { result -> result.audioWindowId?.let(languages::get) })
         assertNull(pipeline.failureMessage)
     }
 
@@ -91,7 +137,8 @@ class OfflineSpeechPipelineTest {
         pipeline.feed(pcm(128000))
         pipeline.finish()
         assertEquals(1, limited)
-        assertEquals(listOf(SpeechResult("日本語2", true)), results)
+        assertEquals(listOf("日本語2"), results.map { it.text })
+        assertTrue(results.all { it.isFinal })
         assertNull(pipeline.failureMessage)
         assertEquals(listOf(true, false, true, false), processing)
         assertEquals(1, backend.closed)
@@ -147,7 +194,8 @@ class OfflineSpeechPipelineTest {
         assertTrue(pipeline.feed(pcm(128000)))
         assertEquals(0, backend.decoded)
         pipeline.finish()
-        assertEquals(listOf(SpeechResult("日本語1", true)), results)
+        assertEquals(listOf("日本語1"), results.map { it.text })
+        assertTrue(results.all { it.isFinal })
         assertEquals(1, backend.closed)
     }
 
@@ -368,6 +416,7 @@ class OfflineSpeechPipelineTest {
         var throwOnDecode = false
         var blankResult = false
         var outputLimitOnce = false
+        var resultTexts: List<String>? = null
         var beforeDecode: () -> Unit = {}
         val firstSamples = mutableListOf<Int>()
         val forcedLanguages = mutableListOf<String>()
@@ -390,7 +439,7 @@ class OfflineSpeechPipelineTest {
         }
         override fun result(stream: OfflineRecognizerStream): String {
             if (outputLimitOnce && decoded == 1) throw RecognitionOutputLimitException()
-            return if (blankResult) "" else "日本語$decoded"
+            return if (blankResult) "" else resultTexts?.getOrNull(decoded - 1) ?: "日本語$decoded"
         }
         override fun close() { if (inDecode) closedDuringDecode++; closed++ }
     }

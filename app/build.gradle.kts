@@ -3,6 +3,16 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Release credentials are supplied only to an explicitly requested, trusted build.
+// Never fall back to the debug key or a newly generated key for an update APK.
+val releaseSigningNames = listOf(
+    "ANDROID_RELEASE_KEYSTORE_PATH", "ANDROID_RELEASE_STORE_PASSWORD",
+    "ANDROID_RELEASE_KEY_ALIAS", "ANDROID_RELEASE_KEY_PASSWORD", "ANDROID_RELEASE_CERT_SHA256"
+)
+val releaseSigningEnvironment = releaseSigningNames.associateWith { providers.environmentVariable(it).orNull }
+val hasReleaseSigning = releaseSigningEnvironment.values.all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.charles.livecaptionn"
     compileSdk = 36
@@ -12,16 +22,31 @@ android {
         applicationId = "com.hebi.livetranslate"
         minSdk = 29
         targetSdk = 36
-        versionCode = 12
-        versionName = "1.2.1"
+        versionCode = 13
+        versionName = "1.3.0"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DANDROID_STL=c++_static" } }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("existingRelease") {
+                storeFile = file(releaseSigningEnvironment.getValue("ANDROID_RELEASE_KEYSTORE_PATH")!!)
+                storePassword = releaseSigningEnvironment.getValue("ANDROID_RELEASE_STORE_PASSWORD")
+                keyAlias = releaseSigningEnvironment.getValue("ANDROID_RELEASE_KEY_ALIAS")
+                keyPassword = releaseSigningEnvironment.getValue("ANDROID_RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-test-only"
+        }
         release {
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("existingRelease")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -54,6 +79,23 @@ android {
         }
     }
 }
+
+val verifyReleaseSigning by tasks.registering(Exec::class) {
+    doFirst {
+        val missing = releaseSigningNames.filter { releaseSigningEnvironment[it].isNullOrBlank() }
+        if (missing.isNotEmpty()) {
+            throw GradleException("Release signing requires the existing release signer: ${missing.joinToString()}")
+        }
+        commandLine(
+            "python3", rootProject.file("scripts/release_signing.py").absolutePath,
+            "verify-keystore", "--keystore", releaseSigningEnvironment.getValue("ANDROID_RELEASE_KEYSTORE_PATH")!!
+        )
+    }
+}
+tasks.configureEach {
+    if (name == "preReleaseBuild") dependsOn(verifyReleaseSigning)
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.04.01")
     implementation("androidx.core:core-ktx:1.13.1")

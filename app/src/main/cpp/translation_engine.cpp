@@ -50,7 +50,7 @@ bool aborted(void * value) {
 void require_active(Session & session) {
     if (session.closed.load() || session.cancelled_through.load() >= session.active_request)
         throw std::runtime_error("Translation cancelled");
-    if (Clock::now() >= session.deadline) throw std::runtime_error("Translation deadline exceeded");
+    if (Clock::now() >= session.deadline) throw TranslationTimeoutError("Translation deadline exceeded");
 }
 
 std::vector<llama_token> tokenize(const llama_vocab * vocab, const std::string & text, bool special) {

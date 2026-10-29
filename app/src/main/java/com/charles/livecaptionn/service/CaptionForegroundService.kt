@@ -22,7 +22,6 @@ import com.charles.livecaptionn.speech.LanguageRecommendationTracker
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.BufferOverflow
@@ -41,6 +40,7 @@ import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.speech.SpeechEngine
 import com.charles.livecaptionn.speech.SpeechResult
 import com.charles.livecaptionn.speech.StreamingSttEngine
+import com.charles.livecaptionn.translation.TranslationTimeoutException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +52,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 
 class CaptionForegroundService : Service() {
@@ -73,6 +74,10 @@ class CaptionForegroundService : Service() {
     private val lineIdCounter = java.util.concurrent.atomic.AtomicLong(0)
     private var translationQueue: CaptionTranslationQueue<CaptionTranslationRequest>? = null
     private var setupJob: Job? = null
+    private var cleanupJob: Job? = null
+    private var destroyed = false
+    private var ownedSessionId: Long? = null
+    private var startupAttemptSessionId: Long? = null
     private var stopping = false
     private var translationReleased = false
     /** Read by capture callbacks; initialized before speech starts. */
@@ -81,7 +86,9 @@ class CaptionForegroundService : Service() {
     private var sessionPlacement = CaptionPlacement.POPUP
     private var currentAudioSource = AudioSource.SYSTEM
     private var languageSamples: Channel<ByteArray>? = null
+    private var languageDetectionJob: Job? = null
     private var languageTracker: LanguageRecommendationTracker? = null
+    private val windowLanguages = CaptionWindowLanguages()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -115,6 +122,7 @@ class CaptionForegroundService : Service() {
                 // path below must therefore use stopForeground + stopSelf
                 // instead of raw stopSelf, which previously crashed the app.
                 if (stopping || captionSessionActive.get()) return START_NOT_STICKY
+                startupAttemptSessionId = app.container.runtimeStore.state.value.sessionId
                 val audioSource = intent.getStringExtra(EXTRA_AUDIO_SOURCE)
                     ?.let { runCatching { AudioSource.valueOf(it) }.getOrNull() }
                     ?: AudioSource.SYSTEM
@@ -183,6 +191,7 @@ class CaptionForegroundService : Service() {
         if (stopping || !captionSessionActive.compareAndSet(false, true)) return
         translationReleased = false
         failureMessage = null
+        windowLanguages.clear()
         app.container.runtimeStore.update {
             startedCaptionSession(it).copy(running = true, paused = paused, stopping = false,
                 recognizing = false, translating = false, captureHint = null, infoMessage = null,
@@ -190,7 +199,9 @@ class CaptionForegroundService : Service() {
                 status = if (paused) RecognitionStatus.PAUSED else RecognitionStatus.PROCESSING,
                 lastError = null, skippedTranslations = 0, skippedSpeechSegments = 0)
         }
+        ownedSessionId = app.container.runtimeStore.state.value.sessionId
         setupJob = serviceScope.launch {
+            val captionSessionId = app.container.runtimeStore.state.value.sessionId
             val settings = app.container.settingsRepository.settingsFlow.first()
             // Placement is owned by this capture session, independent of later settings emissions.
             sessionPlacement = settings.captionPlacement
@@ -251,7 +262,7 @@ class CaptionForegroundService : Service() {
                 )
                 languageSamples = samples
                 languageTracker = LanguageRecommendationTracker(sttLanguageCode)
-                serviceScope.launch(Dispatchers.Default) {
+                languageDetectionJob = serviceScope.launch(Dispatchers.Default) {
                     for (audio in samples) {
                         if (!captionSessionActive.get()) break
                         val detected = app.container.languageIdentifier.detect(audio)
@@ -269,38 +280,53 @@ class CaptionForegroundService : Service() {
             translationQueue = CaptionTranslationQueue(
                 CoroutineScope(serviceScope.coroutineContext + Dispatchers.IO),
                 onFinalDropped = { request ->
-                    app.container.runtimeStore.update { recordDroppedTranslation(it, request.lineId) }
+                    app.container.runtimeStore.update {
+                        if (it.sessionId == captionSessionId) recordDroppedTranslation(it, request.lineId) else it
+                    }
                 },
                 translate = { request ->
-                    app.container.runtimeStore.update { it.copy(translating = true) }
+                    app.container.runtimeStore.update {
+                        if (it.sessionId == captionSessionId) it.copy(translating = true) else it
+                    }
                     try {
-                        translateSnapshot(request)
+                        translateSnapshot(request, captionSessionId)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
                         val message = "번역 기록 처리에 실패했습니다. 저장 공간을 확인해 주세요."
                         failureMessage = failureMessage ?: message
-                        app.container.runtimeStore.update { it.copy(lastError = message) }
+                        app.container.runtimeStore.update {
+                            if (it.sessionId == captionSessionId) it.copy(lastError = message) else it
+                        }
                     } finally {
-                        app.container.runtimeStore.update { it.copy(translating = false) }
+                        val elapsedMs = ((System.nanoTime() - request.submittedAtNanos).coerceAtLeast(0L) / 1_000_000)
+                        app.container.runtimeStore.update {
+                            if (it.sessionId == captionSessionId)
+                                it.copy(translating = false, translationElapsedMs = elapsedMs) else it
+                        }
                     }
                 }
             )
 
             val onSpeechResult: (SpeechResult) -> Unit = onSpeechResult@{ result ->
-                val snapshot = resolveCaptionSpeech(result, sttLanguageCode)
+                if (app.container.runtimeStore.state.value.sessionId != captionSessionId) return@onSpeechResult
+                val knownLanguage = if (autoDetect) windowLanguages[result.audioWindowId] else null
+                val snapshot = resolveCaptionSpeech(
+                    if (knownLanguage == null) result else result.copy(detectedLanguageCode = knownLanguage), sttLanguageCode
+                )
                 val transcript = snapshot.text
                 if (transcript.isBlank() && !result.isFinal) return@onSpeechResult
 
                 val candidateId = lineIdCounter.incrementAndGet()
                 var effectiveLineId = candidateId
                 app.container.runtimeStore.update {
-                    applyTranscriptResult(it, transcript, result.isFinal, candidateId,
-                        snapshot.sourceLanguageCode).also { recorded ->
+                    if (it.sessionId != captionSessionId) it else applyTranscriptResult(it, transcript, result.isFinal, candidateId,
+                        snapshot.sourceLanguageCode, snapshot.audioWindowId).also { recorded ->
                         effectiveLineId = recorded.transcriptLines.lastOrNull()?.id ?: candidateId
                     }
                 }
-                queueTranslation(snapshot, effectiveLineId, result.isFinal)
+                if (app.container.runtimeStore.state.value.sessionId == captionSessionId)
+                    queueTranslation(snapshot, effectiveLineId, result.isFinal, captionSessionId)
             }
 
             val mediaProjection = if (currentAudioSource == AudioSource.SYSTEM) {
@@ -338,7 +364,9 @@ class CaptionForegroundService : Service() {
             }, Handler(Looper.getMainLooper()))
 
             val errorSink: (String?) -> Unit = { msg ->
-                app.container.runtimeStore.update { withRuntimeError(it, msg) }
+                app.container.runtimeStore.update {
+                    if (it.sessionId == captionSessionId) withRuntimeError(it, msg) else it
+                }
             }
 
             val engine = StreamingSttEngine(
@@ -347,21 +375,45 @@ class CaptionForegroundService : Service() {
                 mediaProjection = mediaProjection,
                 languageCode = sttLanguageCode,
                 onSkippedAudio = {
-                    app.container.runtimeStore.update { recordSkippedSpeechSegment(it) }
+                    app.container.runtimeStore.update {
+                        if (it.sessionId == captionSessionId) recordSkippedSpeechSegment(it) else it
+                    }
                 },
                 localSttClient = app.container.localQwenClient,
                 scope = serviceScope,
                 onResult = onSpeechResult,
                 onError = errorSink,
-                onHint = { hint -> app.container.runtimeStore.update { it.copy(captureHint = hint) } },
+                onHint = { hint -> app.container.runtimeStore.update {
+                    if (it.sessionId == captionSessionId) it.copy(captureHint = hint) else it
+                } },
                 onRecognitionProcessing = { busy ->
-                    app.container.runtimeStore.update { it.copy(recognizing = busy) }
+                    app.container.runtimeStore.update {
+                        if (it.sessionId == captionSessionId) it.copy(recognizing = busy) else it
+                    }
+                },
+                onRecognitionLatency = { elapsedMs ->
+                    app.container.runtimeStore.update {
+                        if (it.sessionId == captionSessionId) it.copy(recognitionElapsedMs = elapsedMs.coerceAtLeast(0L)) else it
+                    }
+                },
+                onLanguageIdentified = { windowId, detected ->
+                    val source = windowLanguages.record(windowId, detected)
+                    if (source != null) app.container.runtimeStore.update {
+                        if (it.sessionId == captionSessionId) updateCaptionWindowLanguage(it, windowId, source) else it
+                    }
                 },
                 onUtteranceAudio = if (autoDetect) null else { audio -> languageSamples?.trySend(audio); Unit },
                 detectLanguage = if (autoDetect) app.container.languageIdentifier::detect else null,
+                onRevisionConflict = {
+                    app.container.runtimeStore.update {
+                        if (it.sessionId != captionSessionId) it else it.copy(
+                            infoMessage = "이미 확정한 문장과 인식 결과가 달라 남은 구간을 생략했습니다."
+                        )
+                    }
+                },
                 onRecognitionLimit = {
                     app.container.runtimeStore.update {
-                        recordSkippedSpeechSegment(it).copy(
+                        if (it.sessionId != captionSessionId) it else recordSkippedSpeechSegment(it).copy(
                             infoMessage = "인식 결과가 처리 길이 한도에 가까워 해당 구간을 생략했습니다."
                         )
                     }
@@ -411,46 +463,59 @@ class CaptionForegroundService : Service() {
         }
     }
 
-    private fun queueTranslation(snapshot: CaptionSpeechSnapshot, lineId: Long, isFinal: Boolean = false) {
+    private fun queueTranslation(snapshot: CaptionSpeechSnapshot, lineId: Long, isFinal: Boolean, captionSessionId: Long) {
+        if (app.container.runtimeStore.state.value.sessionId != captionSessionId) return
         if (snapshot.text.isBlank() || !shouldTranslateCaption(isFinal, stableCaptions)) return
         val request = snapshot.request(lineId, isFinal, app.container.historyRecordingGate.captureConsent())
-        if (isFinal) translationQueue?.submitFinal(request)
-        else translationQueue?.submitPartial(request)
+        val accepted = if (isFinal) translationQueue?.submitFinal(request) == true
+            else translationQueue?.submitPartial(request) == true
+        if (!accepted && isFinal) {
+            failureMessage = failureMessage ?: REJECTED_TRANSLATION_MESSAGE
+            app.container.runtimeStore.update {
+                if (it.sessionId == captionSessionId) recordRejectedTranslation(it, lineId) else it
+            }
+        }
     }
 
-    private suspend fun translateSnapshot(request: CaptionTranslationRequest) {
+    private suspend fun translateSnapshot(queuedRequest: CaptionTranslationRequest, captionSessionId: Long) {
+        if (app.container.runtimeStore.state.value.sessionId != captionSessionId) return
         val captionSettings = app.container.settingsRepository.settingsFlow.first()
         // A pending preview may have been queued before the user enabled stability.
-        if (!shouldTranslateCaption(request.isFinal, captionSettings.stableCaptions)) return
+        if (!shouldTranslateCaption(queuedRequest.isFinal, captionSettings.stableCaptions)) return
+        val request = queuedRequest.withDetectedWindowLanguage(windowLanguages[queuedRequest.audioWindowId])
         val translated = try {
             translateCaptionRequest(request, app.container.translationRepository)
-        } catch (_: TimeoutCancellationException) {
+        } catch (_: TranslationTimeoutException) {
             val message = "번역 시간이 초과되어 일부 문장을 번역하거나 저장하지 못했습니다."
             if (request.isFinal) failureMessage = failureMessage ?: message
-            app.container.runtimeStore.update { it.copy(lastError = message) }
+            app.container.runtimeStore.update {
+                if (it.sessionId == captionSessionId) it.copy(lastError = message) else it
+            }
             return
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             val message = "일부 문장을 번역하거나 저장하지 못했습니다. 번역 모델을 확인해 주세요."
             if (request.isFinal) failureMessage = failureMessage ?: message
-            app.container.runtimeStore.update { it.copy(lastError = message) }
+            app.container.runtimeStore.update {
+                if (it.sessionId == captionSessionId) it.copy(lastError = message) else it
+            }
             return
         }
         if (translated.isBlank()) return
         val translatedWithGlossary = applyGlossary(translated, app.container.glossary.list())
         app.container.runtimeStore.update {
-            applyTranscriptTranslation(
+            if (it.sessionId != captionSessionId) it else applyTranscriptTranslation(
                 runtime = it,
                 lineId = request.lineId,
                 translatedText = translatedWithGlossary,
                 isFinalTranslation = request.isFinal
             )
         }
-        if (request.isFinal) {
+        if (request.isFinal && app.container.runtimeStore.state.value.sessionId == captionSessionId) {
             app.container.historyRecordingGate.recordIfAllowed(request.historyConsent) {
                 app.container.transcriptHistory.add(
-                    captionHistoryEntry(request, translatedWithGlossary)
+                    captionHistoryEntry(request.withDetectedWindowLanguage(windowLanguages[request.audioWindowId]), translatedWithGlossary)
                 )
             }
         }
@@ -554,74 +619,100 @@ class CaptionForegroundService : Service() {
     private fun finishSession(error: String? = null, completionMessage: String? = null) {
         if (stopping) return
         stopping = true
-        app.container.runtimeStore.update { stoppingCaptionSession(it, error) }
+        val sessionId = ownedSessionId
+        if (sessionId == null) {
+            if (error != null) app.container.runtimeStore.update {
+                failedCaptionStartup(it, startupAttemptSessionId, error)
+            }
+            captionSessionActive.set(false)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
+        app.container.runtimeStore.update {
+            if (it.sessionId == sessionId) stoppingCaptionSession(it, error) else it
+        }
         if (error != null) failureMessage = error
         captionSessionActive.set(false)
-        serviceScope.launch {
+        beginCleanup(error, completionMessage)
+    }
+
+    /** One cleanup owner survives Service destruction until blocking native work has returned. */
+    private fun beginCleanup(error: String? = null, completionMessage: String? = null) {
+        if (cleanupJob != null) return
+        val sessionId = ownedSessionId
+        cleanupJob = serviceScope.launch(NonCancellable) {
             setupJob?.cancelAndJoin()
             setupJob = null
             languageSamples?.close()
             languageSamples = null
-            languageTracker = null
-            try {
-                speechEngine?.stop()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                failureMessage = failureMessage ?: "음성 인식 종료 중 오류가 발생했습니다."
+            finishSpeechInference(
+                stopSpeech = { speechEngine?.stop() },
+                joinLanguageDetection = {
+                    languageDetectionJob?.join()
+                    languageDetectionJob = null
+                    languageTracker = null
+                },
+                releaseLanguageIdentifier = {
+                    if (sessionId != null && app.container.runtimeStore.state.value.sessionId == sessionId) {
+                        withContext(Dispatchers.Default) { app.container.languageIdentifier.close() }
+                    }
+                },
+                onWaiting = {
+                    app.container.runtimeStore.update {
+                        if (it.sessionId == sessionId) it.copy(infoMessage = NATIVE_STOP_WAIT_MESSAGE) else it
+                    }
+                },
+                onFailure = {
+                    failureMessage = failureMessage ?: "음성 인식 종료 중 오류가 발생했습니다."
+                }
+            )
+            app.container.runtimeStore.update {
+                if (it.sessionId == sessionId && it.infoMessage == NATIVE_STOP_WAIT_MESSAGE) it.copy(infoMessage = null) else it
             }
             speechEngine = null
             releaseUnstartedProjection()
+            if (destroyed) translationQueue?.cancel()
             val drained = translationQueue?.finish() ?: true
             translationQueue = null
-            releaseTranslation()
+            if (sessionId != null && app.container.runtimeStore.state.value.sessionId == sessionId) releaseTranslation()
+            windowLanguages.clear()
             overlayController?.hide()
             overlayController = null
             overlayReady.value = 0
             MediaProjectionHolder.clear()
             app.container.runtimeStore.update {
-                completedCaptionSession(failureMessage, error, drained, completionMessage,
+                if (sessionId == null || it.sessionId != sessionId) it else completedCaptionSession(failureMessage ?: it.lastError, error, drained, completionMessage,
                     skippedTranslations = it.skippedTranslations,
                     skippedSpeechSegments = it.skippedSpeechSegments,
                     restartLanguageCode = it.restartLanguageCode,
-                    sessionPlacement = sessionPlacement, retainedLines = it.transcriptLines, sessionId = it.sessionId)
+                    sessionPlacement = sessionPlacement, retainedLines = it.transcriptLines, sessionId = it.sessionId,
+                    recognitionElapsedMs = it.recognitionElapsedMs, translationElapsedMs = it.translationElapsedMs)
             }
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            if (!destroyed) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
         }
     }
 
     override fun onDestroy() {
+        destroyed = true
+        stopping = true
         captionSessionActive.set(false)
+        app.container.runtimeStore.update { interruptedCaptionSession(it, ownedSessionId) }
+        val interrupted = app.container.runtimeStore.state.value
+        if (interrupted.running && interrupted.sessionId == ownedSessionId) {
+            failureMessage = failureMessage ?: interrupted.lastError
+        }
         languageSamples?.close()
         languageSamples = null
         translationQueue?.cancel()
-        translationQueue = null
-        releaseTranslation()
         overlayController?.hide()
         overlayController = null
-        val engine = speechEngine
-        speechEngine = null
-        releaseUnstartedProjection()
-        if (engine != null) {
-            serviceScope.launch(NonCancellable) {
-                stopSpeechEngineSafely({ engine.stop() }) {
-                    app.container.runtimeStore.update { runtime ->
-                        runtime.copy(status = RecognitionStatus.ERROR,
-                            lastError = runtime.lastError ?: "음성 인식 종료 중 오류가 발생했습니다.")
-                    }
-                }
-            }
-        }
+        beginCleanup()
         serviceScope.cancel()
         MediaProjectionHolder.clear()
-        app.container.runtimeStore.update {
-            if (it.running) completedCaptionSession(failureMessage ?: it.lastError, null, true,
-                skippedTranslations = it.skippedTranslations,
-                skippedSpeechSegments = it.skippedSpeechSegments,
-                restartLanguageCode = it.restartLanguageCode,
-                sessionPlacement = sessionPlacement, retainedLines = it.transcriptLines, sessionId = it.sessionId) else it
-        }
         super.onDestroy()
     }
 
@@ -697,6 +788,7 @@ class CaptionForegroundService : Service() {
 
         private const val CHANNEL_ID = "caption_channel"
         private const val NOTIF_ID = 2001
+        private const val NATIVE_STOP_WAIT_MESSAGE = "음성 인식 종료를 기다리고 있습니다. 엔진 작업이 끝나면 종료됩니다."
                     }
 }
 

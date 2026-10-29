@@ -1,23 +1,28 @@
 # Third-party notices / 제3자 라이선스
 
-This project is a personal derivative of [LiveCaptionN](https://github.com/chartmann1590/LiveTranscribe-Android), distributed under the MIT License. The copyright notice remains in [LICENSE](LICENSE).
+This project is a personal derivative of [LiveCaptionN](https://github.com/chartmann1590/LiveTranscribe-Android), distributed under the MIT License. Preserve the original copyright notice in [LICENSE](LICENSE).
 
-## Offline speech models
+## Current speech and translation components
 
-The build scripts bundle these speech models at APK build time:
+| Component | Use and distribution | License and attribution |
+| --- | --- | --- |
+| [Qwen3-ASR 0.6B](https://huggingface.co/Qwen/Qwen3-ASR-0.6B) | On-device speech recognition; int8 ONNX model files are downloaded only after explicit in-app setup. | Qwen Team; Apache License 2.0. [License](app/src/main/assets/licenses/Qwen3-ASR-LICENSE.txt) and [model/export provenance](app/src/main/assets/licenses/Qwen3-ASR-PROVENANCE.md). |
+| [Hy-MT2 1.8B](https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF) | On-device Korean translation; Tencent's Q4_K_M GGUF is downloaded only after explicit in-app setup. | Tencent; Apache License 2.0. [License](app/src/main/assets/licenses/Hy-MT2-LICENSE.txt). |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | CPU translation runtime compiled into the APK, pinned at `d81235049384534c167caea52b85a694f6103d14`. | MIT License. [License](app/src/main/assets/licenses/llama.cpp-LICENSE.txt). |
+| [sherpa-onnx 1.13.8](https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.8) | Android/native speech and language-identification runtime; official Android AAR bundled in the APK. | Apache License 2.0. [License](app/src/main/assets/licenses/sherpa-onnx-LICENSE.txt). |
+| [Whisper Tiny](https://github.com/openai/whisper) | Multilingual int8 acoustic language identification; encoder and decoder bundled in the APK. | OpenAI; MIT License. [License](app/src/main/assets/licenses/Whisper-LICENSE.txt) and [support provenance](app/src/main/assets/licenses/support-PROVENANCE.md). |
+| [Silero VAD](https://github.com/snakers4/silero-vad) | Speech activity detector bundled in the APK from the official sherpa-onnx `asr-models` release. | Copyright (c) 2020-present Silero Team; MIT License. [License](app/src/main/assets/model-licenses/SILERO-MIT.txt). |
 
-- `vosk-model-small-en-us-0.15` — English (US), Apache License 2.0, from the official [Vosk model catalog](https://alphacephei.com/vosk/models). The official archive and all extracted model files are pinned by size and SHA-256 in `scripts/prepare_vosk_models.py`.
-- [ReazonSpeech k2-v2](https://huggingface.co/reazon-research/reazonspeech-k2-v2) — Japanese, Reazon Human Interaction Lab / reazon-research, Apache License 2.0. Pinned revision: `291488c8151be24d7da4bf7af26e533fad96e407`. The int8 encoder, decoder, joiner, and tokens are bundled with shortened filenames; weight contents are unmodified. File sizes and SHA-256 values are pinned in `scripts/prepare_japanese_asr.py`. License text: [`REAZON-APACHE-2.0.txt`](app/src/main/assets/model-licenses/REAZON-APACHE-2.0.txt).
-- [Silero VAD](https://github.com/snakers4/silero-vad) — Copyright (c) 2020-present Silero Team, MIT License. Bundled from the official Sherpa-ONNX `asr-models` release, with size and SHA-256 pinned in `scripts/prepare_japanese_asr.py`. License text: [`SILERO-MIT.txt`](app/src/main/assets/model-licenses/SILERO-MIT.txt).
+The Qwen ONNX/int8 export is pinned to `csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25` revision `68818b2313fe77bd06f6a7c5068ff3ef59d02b8a`. Its model card credits Wasser1462's Qwen3-ASR ONNX work; the accompanying provenance file distinguishes that conversion from the original Qwen model. The Hy-MT2 GGUF revision is `a0c709d9fac510f2c807aa3af52872340dc37a4a`. Exact downloaded file sizes and SHA-256 values are recorded in [OfflineModelCatalog.kt](app/src/main/java/com/charles/livecaptionn/models/OfflineModelCatalog.kt).
 
-Preserve the relevant model attributions and license terms when redistributing a packaged APK. Apache-2.0 text: https://www.apache.org/licenses/LICENSE-2.0
+Whisper Tiny encoder/decoder pins are recorded in [prepare_language_id.py](scripts/prepare_language_id.py), independently matched to export revision `65176e2deb88badc814a94058666cadccc29b61c`. The Whisper source-license revision documents attribution; it is not claimed as the ONNX conversion's source revision. Silero pins are in [prepare_speech_support.py](scripts/prepare_speech_support.py), the AAR pin is in `prepare_language_id.py`, and the native source archive pin is in [prepare_native_translation.py](scripts/prepare_native_translation.py).
 
-## Other components
+The packaged [NOTICE.txt](app/src/main/assets/model-licenses/NOTICE.txt) and `assets/licenses/` files retain attributions even though the large recognition and translation weights are delivered separately. Preserve these notices and applicable license terms when redistributing the app or model files. Apache License 2.0 text: https://www.apache.org/licenses/LICENSE-2.0
 
-- [Vosk Android SDK](https://github.com/alphacep/vosk-api): consult the dependency license and transitive notices.
-- [sherpa-onnx Android](https://github.com/k2-fsa/sherpa-onnx), pinned v1.13.8: Apache License 2.0; native runtime packaged from official AAR. The AAR SHA-256 is pinned in `scripts/prepare_language_id.py`.
-- [Whisper Tiny](https://github.com/openai/whisper) multilingual int8 acoustic language identification model: upstream Whisper code/weights under MIT License, packaged at APK build time via the official Sherpa-ONNX release model archive. Encoder and decoder file sizes and SHA-256 values are pinned in `scripts/prepare_language_id.py`.
-- [Google ML Kit Translation](https://developers.google.com/ml-kit/language/translation): subject to Google's ML Kit terms and the device's Google Play services. The SDK may collect diagnostics and usage metadata (including device/app information and configured language pair): https://developers.google.com/ml-kit/android-data-disclosure .
-- AndroidX and Kotlin components retain their respective third-party licenses.
+## Other components and removed engines
 
-No separate remote transcription/translation API, AdMob, Firebase Analytics integration, error reporting, or payment SDK is part of the modified app. **ML Kit itself may nonetheless collect diagnostic and usage metadata.**
+AndroidX, Kotlin, coroutines, and their transitive components retain their respective licenses. Review the resolved dependency and native-runtime notices when redistributing a build.
+
+**ML Kit Translation and Vosk SDK are absent from the current runtime dependencies.** Historical Vosk/ReazonSpeech preparation scripts and regression fixtures do not mean those models are included in the current APK. The current build rejects bundled legacy recognizer models, Qwen ONNX weights, and GGUF translation weights; it permits only the pinned Silero and Whisper support models.
+
+The modified app has no remote transcription/translation API integration, AdMob, Firebase Analytics/Crashlytics, payment, or remote error-reporting SDK. Model preparation makes explicit HTTPS downloads; these providers can observe ordinary connection metadata. See [PRIVACY_AUDIT.md](PRIVACY_AUDIT.md) for the source audit's scope and limits.

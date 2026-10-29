@@ -83,4 +83,14 @@ class CaptionRuntimeStatusTest {
         assertTrue(complete.information!!.contains("자막 2개"))
         assertEquals(CaptionPhase.ERROR, completedCaptionSession(null, null, false).phase)
     }
+
+    @Test fun recentProcessingTimesAreInformationAndDoNotImplyVideoDelay() {
+        assertNull(listening.information)
+        val timed = listening.copy(recognitionElapsedMs = 1_250, translationElapsedMs = 2_000)
+        assertEquals("최근 처리 시간: 인식 1.3초 · 번역 2.0초", timed.information)
+        assertNull(timed.actionableNotice)
+        assertEquals(CaptionPhase.WAITING, timed.phase)
+        assertEquals("최근 처리 시간: 인식 1.3초 · 번역 2.0초", completedCaptionSession(
+            null, null, true, recognitionElapsedMs = 1_250, translationElapsedMs = 2_000).information)
+    }
 }

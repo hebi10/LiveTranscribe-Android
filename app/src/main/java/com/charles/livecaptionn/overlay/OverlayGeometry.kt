@@ -1,10 +1,33 @@
 package com.charles.livecaptionn.overlay
 
+import kotlin.math.roundToInt
+
 data class OverlayGeometry(val x: Int, val y: Int, val width: Int, val height: Int)
 data class OverlayBounds(val left: Int, val top: Int, val right: Int, val bottom: Int)
 
+/** Positions use screen pixels; the normal window size is retained in the settings' dp units. */
+data class OverlayGeometryPreference(val x: Int, val y: Int, val widthDp: Int, val heightDp: Int) {
+    fun atDensity(density: Float) = OverlayGeometry(
+        x, y, (widthDp * density).roundToInt(), (heightDp * density).roundToInt())
+}
+
 /** User preference is distinct from the geometry fitted to the current display and mode. */
-class OverlayGeometryState(var preferred: OverlayGeometry) {
+class OverlayGeometryState(initialPreference: OverlayGeometryPreference, private var density: Float) {
+    constructor(preferred: OverlayGeometry) : this(
+        OverlayGeometryPreference(preferred.x, preferred.y, preferred.width, preferred.height), 1f)
+
+    var preference = initialPreference
+        private set
+    val preferred get() = preference.atDensity(density)
+
+    fun updatePreference(value: OverlayGeometryPreference) {
+        preference = value
+    }
+
+    fun updateDensity(value: Float) {
+        density = value
+    }
+
     fun display(
         bounds: OverlayBounds, minWidth: Int, minHeight: Int,
         minimizedHeight: Int? = null, expandedMinHeight: Int? = null
@@ -21,7 +44,7 @@ class OverlayGeometryState(var preferred: OverlayGeometry) {
         val displayed = display(bounds, minWidth, minHeight, minimizedHeight, expandedMinHeight)
         val moved = clampOverlayGeometry(displayed.copy(x = x, y = y), bounds, minWidth,
             minimizedHeight ?: minHeight)
-        preferred = preferred.copy(x = moved.x, y = moved.y)
+        preference = preference.copy(x = moved.x, y = moved.y)
     }
 
     fun moveBy(
@@ -35,7 +58,9 @@ class OverlayGeometryState(var preferred: OverlayGeometry) {
 
     fun resizeTo(width: Int, height: Int, bounds: OverlayBounds, minWidth: Int, minHeight: Int) {
         val normal = display(bounds, minWidth, minHeight)
-        preferred = clampOverlayGeometry(normal.copy(width = width, height = height), bounds, minWidth, minHeight)
+        val resized = clampOverlayGeometry(normal.copy(width = width, height = height), bounds, minWidth, minHeight)
+        preference = OverlayGeometryPreference(resized.x, resized.y,
+            (resized.width / density).roundToInt(), (resized.height / density).roundToInt())
     }
 }
 

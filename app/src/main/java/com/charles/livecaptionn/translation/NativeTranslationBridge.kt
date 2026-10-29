@@ -2,6 +2,7 @@ package com.charles.livecaptionn.translation
 
 internal interface NativeTranslationBackend {
     fun create(path: String, threads: Int, contextTokens: Int): Long
+    /** @throws java.util.concurrent.TimeoutException when the native processing deadline expires. */
     fun translate(handle: Long, requestId: Long, prompt: ByteArray, maxTokens: Int, timeoutMs: Int): ByteArray
     fun cancel(handle: Long, requestId: Long)
     fun destroy(handle: Long)

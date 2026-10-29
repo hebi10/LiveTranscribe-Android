@@ -1,6 +1,10 @@
 package com.charles.livecaptionn.translation
 
+/** Translation exceeded its processing deadline; caller cancellation remains separate. */
+class TranslationTimeoutException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
 interface TranslationRepository {
+    /** @throws TranslationTimeoutException if translation exceeds its processing deadline. */
     suspend fun translate(
         text: String,
         sourceCode: String,

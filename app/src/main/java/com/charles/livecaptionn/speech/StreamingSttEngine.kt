@@ -41,7 +41,10 @@ class StreamingSttEngine(
     private val onHint: (String?) -> Unit = {},
     private val onRecognitionProcessing: (Boolean) -> Unit = {},
     private val onRecognitionLimit: () -> Unit = {},
-    private val detectLanguage: ((ByteArray) -> String?)? = null
+    private val detectLanguage: ((ByteArray) -> String?)? = null,
+    private val onLanguageIdentified: (Long, String?) -> Unit = { _, _ -> },
+    private val onRecognitionLatency: (Long) -> Unit = {},
+    private val onRevisionConflict: () -> Unit = {}
 ) : SpeechEngine {
 
     private val statusMutable = MutableStateFlow(RecognitionStatus.IDLE)
@@ -92,6 +95,9 @@ class StreamingSttEngine(
                 onRecognitionLimit = onRecognitionLimit,
                 sourceLanguageCode = sourceMode,
                 detectLanguage = if (sourceMode == "auto") detectLanguage else null,
+                onLanguageIdentified = onLanguageIdentified,
+                onRecognitionLatency = onRecognitionLatency,
+                onRevisionConflict = onRevisionConflict,
                 onFailure = { message ->
                     if (ownerContext.isActive) signals.fail(message)
                 }
@@ -305,7 +311,7 @@ class StreamingSttEngine(
     companion object {
         private const val TAG = "StreamingSttEngine"
         private const val SAMPLE_RATE = 16_000
-        /** ~100ms at 16kHz mono 16-bit = 3200 bytes. Small chunks = live partials. */
+        /** ~100ms capture reads; cumulative recognition is independently throttled. */
         private const val CHUNK_BYTES = 3200
         private const val LANGUAGE_SILENCE_CHUNKS = 7
         private const val MIN_LANGUAGE_AUDIO_BYTES = SAMPLE_RATE * 2

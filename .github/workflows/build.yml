@@ -6,6 +6,17 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      build_release:
+        description: 'Sign an update APK with the existing release key (main only)'
+        type: boolean
+        required: true
+        default: false
+      publish_preview:
+        description: 'Publish the test-only APK as a separate-install prerelease (main only)'
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -69,33 +80,135 @@ jobs:
             fi
           done
       - name: Verify APK support assets and model download boundary
-        run: |
-          python - <<'PY'
-          from hashlib import sha256
-          from zipfile import ZipFile
-          from scripts import prepare_language_id as language_id
-          from scripts import prepare_speech_support as speech
-
-          with ZipFile('app/build/outputs/apk/debug/app-debug.apk') as apk:
-              names = apk.namelist()
-              allowed_models = {'assets/speech/silero_vad.onnx'} | {
-                  f'assets/language-id/{language_id.MODEL_NAME}/{name}' for name in language_id.MODEL_FILES
-              }
-              if any(name.startswith('assets/models/') or name.lower().endswith('.gguf') for name in names):
-                  raise SystemExit('Large or legacy recognizer/translation models must not be bundled in the APK')
-              if any(name.startswith('assets/') and name.endswith('.onnx') and name not in allowed_models for name in names):
-                  raise SystemExit('Only speech support and language-ID ONNX assets may be bundled in the APK')
-              model = apk.read('assets/speech/silero_vad.onnx')
-              if len(model) != speech.MODEL.size_bytes or sha256(model).hexdigest() != speech.MODEL.sha256:
-                  raise SystemExit('Packaged Silero speech detector integrity verification failed')
-              if 'lib/arm64-v8a/liblivecaption_translation.so' not in names:
-                  raise SystemExit('Local translation JNI runtime is missing')
-          print('Verified bundled speech support and local translation runtime; large models use explicit in-app setup')
-          PY
-      - name: Upload installable debug APK
+        run: python scripts/verify_apk_assets.py app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload test-only debug APK (separate application ID)
         uses: actions/upload-artifact@v4
         with:
-          name: hebi-live-translate-debug
+          name: hebi-live-translate-TEST-ONLY-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+  release-request:
+    if: github.event_name == 'workflow_dispatch' && (inputs.build_release || inputs.publish_preview)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the trusted main branch for release requests
+        run: |
+          if [ "$GITHUB_REF" != 'refs/heads/main' ]; then
+            echo '::error::Signed releases and separate-install previews may only be requested from main. No signing secrets were loaded.'
+            exit 1
+          fi
+
+  signed-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.build_release && github.ref == 'refs/heads/main'
+    needs: [build, release-request]
+    runs-on: ubuntu-latest
+    # Configure this environment with main-only deployment branches and required
+    # reviewers before provisioning its existing-key secrets. PR jobs never use it.
+    environment: release-signing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
+      - name: Verify source privacy contract
+        run: python scripts/audit_privacy.py
+      - name: Bundle and verify pinned support assets (build-time only)
+        run: |
+          python scripts/prepare_speech_support.py
+          python scripts/prepare_language_id.py
+          python scripts/prepare_speech_support.py --verify-only
+          python scripts/prepare_language_id.py --verify-only
+      - name: Install pinned native and APK verification tools
+        run: |
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+      - name: Prepare pinned local translation runtime source
+        run: python scripts/prepare_native_translation.py
+      - name: Provision and verify the existing release signer
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          ANDROID_RELEASE_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}
+        run: python scripts/release_signing.py prepare --keystore "$RUNNER_TEMP/live-translate-release.jks"
+      - name: Build APK with the verified existing release signer
+        env:
+          ANDROID_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/live-translate-release.jks
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          ANDROID_RELEASE_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon --no-build-cache --no-configuration-cache lintRelease assembleRelease
+      - name: Verify release APK signer and bundled-model boundary
+        env:
+          ANDROID_RELEASE_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}
+        run: |
+          python scripts/release_signing.py verify-apk --apk app/build/outputs/apk/release/app-release.apk --apksigner "${ANDROID_HOME}/build-tools/36.0.0/apksigner"
+          python scripts/verify_apk_assets.py app/build/outputs/apk/release/app-release.apk
+      - name: Upload verified signed update APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hebi-live-translate-signed-release
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+      - name: Remove temporary release keystore
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/live-translate-release.jks"
+
+  preview-publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_preview && github.ref == 'refs/heads/main'
+    needs: [build, release-request]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download this run's exact test-only debug APK
+        uses: actions/download-artifact@v4
+        with:
+          name: hebi-live-translate-TEST-ONLY-debug
+          path: preview-artifact
+      - name: Prepare separate-install preview asset
+        run: |
+          test -f preview-artifact/app-debug.apk
+          mkdir preview-release
+          mv preview-artifact/app-debug.apk preview-release/LiveTranslate-v1.3.0-arm64-preview-separate.apk
+      - name: Publish the separate-install preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd preview-release
+          PREVIEW_TAG=v1.3.0-preview
+          PREVIEW_APK=LiveTranslate-v1.3.0-arm64-preview-separate.apk
+          sha256sum "$PREVIEW_APK" > "$PREVIEW_APK.sha256"
+          cat > release-notes.md <<'NOTES'
+          변경 사항
+
+          - 말이 이어져도 확인된 문장부터 번역하는 처리를 보완했습니다.
+          - 자동 언어 감지와 문장 확정 처리를 분리했습니다.
+          - 종료 시 번역·음성 처리 정리 오류를 보완했습니다.
+          - 화면 배율 변경 시 팝업 크기와 조작부를 보정했습니다.
+
+          이 프리뷰는 `com.hebi.livetranslate.debug` 패키지의 별도 설치용 테스트 APK입니다. 기존 앱을 유지합니다(`com.hebi.livetranslate`). 정식 앱 업데이트가 아닙니다.
+
+          프리뷰는 자체 모델과 설정을 사용합니다. 사용 전에 프리뷰 안에서 모델을 준비해야 하며 기존 앱의 모델·설정·기록을 이전하지 않습니다. 테스트용 서명자는 이후 빌드에서 달라질 수 있으므로 후속 프리뷰의 덮어쓰기 업데이트를 보장하지 않습니다.
+
+          이 실행의 Android 빌드·lint·단위 테스트와 모델·개인정보 정적 검사를 통과한 아티팩트입니다. APK와 SHA-256 확인 파일을 첨부했습니다. 실기기 동작과 업데이트 호환성은 별도 확인이 필요합니다.
+          NOTES
+          # Creating the tag is atomic: an existing tag is never reused or moved.
+          if ! gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$PREVIEW_TAG" -f "sha=$GITHUB_SHA" > /dev/null; then
+            echo "::error::Preview tag $PREVIEW_TAG already exists or could not be created. No existing tag or release was overwritten."
+            exit 1
+          fi
+          gh release create "$PREVIEW_TAG" "$PREVIEW_APK" "$PREVIEW_APK.sha256" --repo "$GITHUB_REPOSITORY" --title 'LiveTranslate v1.3.0 — 별도 설치 프리뷰' --notes-file release-notes.md --prerelease --latest=false --verify-tag
