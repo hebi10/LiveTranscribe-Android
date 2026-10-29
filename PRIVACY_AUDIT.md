@@ -28,6 +28,12 @@ Firebase Analytics/Crashlytics/Performance, 광고·결제·원격 오류 제보
 
 일반 push/PR 빌드는 비밀 값 없이 검사하며 **TEST-ONLY debug** APK만 만듭니다. 이 APK의 패키지 ID는 `com.hebi.livetranslate.debug`이고 버전 이름에는 `-test-only`가 붙습니다. 정식 앱 업데이트에 사용하는 아티팩트가 아닙니다.
 
+`main`에서 `workflow_dispatch`의 `publish_preview=true`를 선택하면, 검사에 통과한 같은 실행의 TEST-ONLY debug 아티팩트를 `v1.3.0-preview` GitHub prerelease로 게시할 수 있습니다. 공개 파일 이름은 `LiveTranslate-v1.3.0-arm64-preview-separate.apk`이며 SHA-256 파일을 함께 첨부합니다. 게시 작업만 `contents: write` 권한과 표준 GitHub 작업 토큰을 사용합니다. 일반 빌드와 PR 작업은 계속 읽기 권한이며, 별도 개인 키나 서명 secret을 프리뷰에 제공하지 않습니다.
+
+이 프리뷰는 `com.hebi.livetranslate.debug`의 **별도 설치**입니다. 기존 `com.hebi.livetranslate` 앱을 유지하고, 프리뷰 자체 모델 준비와 설정이 필요합니다. 기존 앱의 모델·설정·기록을 이전하지 않습니다. 테스트용 서명자는 이후 빌드에서 달라질 수 있으므로, 후속 프리뷰가 현재 프리뷰 위에 업데이트될 수 있다고 보장하지 않습니다. 정식 앱 업데이트가 아니며 원래 릴리스 키가 복구되었다는 의미도 아닙니다.
+
+게시 작업은 `main`에서 명시적으로 요청하고 일반 빌드가 통과해야 실행됩니다. `v1.3.0-preview` 태그는 현재 실행의 commit에 새로 만들며, 같은 태그가 이미 있으면 실패합니다. 기존 태그나 릴리스·첨부 파일을 덮어쓰지 않습니다. 태그 생성 후 게시 자체가 실패한 경우에도 다음 실행은 기존 태그를 자동 재사용하지 않습니다.
+
 서명된 APK는 `main`에서 `workflow_dispatch`의 `build_release=true`로 명시적으로 요청해야 합니다. 별도 `signed-release` 작업은 일반 빌드 검사가 통과한 뒤 `release-signing` GitHub Environment의 기존 키 설정을 사용합니다. PR과 fork PR 작업에는 서명 비밀 값을 연결하지 않습니다. 필수 값이 없으면 실패하며 debug 키나 새 키로 대체하지 않습니다.
 
 설정할 때는 다음 순서를 따릅니다.
@@ -50,6 +56,8 @@ Firebase Analytics/Crashlytics/Performance, 광고·결제·원격 오류 제보
 원래 개인 키를 보유하지 않았다면 새 무작위 키를 만들어도 기존 설치의 정상 업데이트를 만들 수 없습니다. 인증서만으로 개인 키를 복구할 수도 없습니다. 이 변경은 키를 생성하거나 GitHub secret/보호 규칙을 실제로 등록하지 않습니다.
 
 ## 검증 방법과 미검증 범위
+
+프리뷰 게시 경로 추가 시점(2026-10-29)의 Android 빌드·lint·단위 테스트 결과는 PR CI 확인 대기 상태입니다. 이 문서는 실기기 설치나 프리뷰 게시가 완료되었다고 주장하지 않습니다. 해당 실행의 Actions 결과와 실제 릴리스 첨부 파일을 확인해야 합니다.
 
 1. `python scripts/audit_privacy.py`와 `python -m unittest discover -s scripts -p 'test_*.py'`를 실행합니다.
 2. `testDebugUnitTest`, `lintDebug`, `assembleDebug`를 실행합니다. 서명 설정을 제공한 명시적 릴리스에서는 `lintRelease`, `assembleRelease`를 실행합니다.

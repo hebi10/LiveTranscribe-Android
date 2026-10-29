@@ -13,6 +13,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CaptionRuntimeStoreTest {
+    @Test fun lateJapaneseDetectionAlsoNormalizesExistingCaptionText() {
+        val state = CaptionRuntimeState(originalText = "東 京", transcriptLines = listOf(
+            CaptionRuntimeLine(1, "東 京", "도쿄", true, audioWindowId = 12)))
+        val updated = updateCaptionWindowLanguage(state, 12, "ja")
+        assertEquals("東京", updated.originalText)
+        assertEquals("東京", updated.transcriptLines.single().originalText)
+        assertEquals("도쿄", updated.transcriptLines.single().translatedText)
+    }
 
     @Test
     fun initialState_isDefault() {

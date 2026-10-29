@@ -4,6 +4,7 @@ import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.overlay.MAX_OVERLAY_MESSAGES
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.speech.RecognitionStatus
+import com.charles.livecaptionn.speech.normalizeRecognizedTranscript
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -94,9 +95,11 @@ internal fun updateCaptionWindowLanguage(
     if (source == RecognitionLanguages.UNKNOWN) return runtime
     val updated = runtime.transcriptLines.map { line ->
         if (line.audioWindowId == audioWindowId && line.sourceLanguageCode != source)
-            line.copy(sourceLanguageCode = source) else line
+            line.copy(sourceLanguageCode = source,
+                originalText = normalizeRecognizedTranscript(line.originalText, source)) else line
     }
-    return if (updated == runtime.transcriptLines) runtime else runtime.copy(transcriptLines = updated)
+    return if (updated == runtime.transcriptLines) runtime else runtime.copy(transcriptLines = updated,
+        originalText = updated.lastOrNull()?.originalText ?: runtime.originalText)
 }
 
 enum class CaptionPhase(val label: String) {

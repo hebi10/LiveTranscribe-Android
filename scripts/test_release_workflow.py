@@ -15,7 +15,7 @@ class ReleaseWorkflowTest(unittest.TestCase):
 
     def test_release_requires_manual_main_branch_and_successful_regular_checks(self):
         workflow = (ROOT / ".github/workflows/build.yml").read_text()
-        release = workflow.split("  signed-release:", 1)[1]
+        release = workflow.split("  signed-release:", 1)[1].split("  preview-publish:", 1)[0]
         self.assertIn("if: github.event_name == 'workflow_dispatch' && inputs.build_release && github.ref == 'refs/heads/main'", release)
         self.assertIn("needs: [build, release-request]", release)
         self.assertIn("environment: release-signing", release)

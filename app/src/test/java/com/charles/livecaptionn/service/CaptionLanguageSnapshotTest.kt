@@ -12,13 +12,31 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CaptionLanguageSnapshotTest {
+    @Test fun pendingAutomaticJapaneseUsesScriptNormalizationWithoutWaitingForMetadata() {
+        val snapshot = resolveCaptionSpeech(SpeechResult("私 は New York で 学生 です", true, audioWindowId = 3), "auto")
+        assertEquals("und", snapshot.sourceLanguageCode)
+        assertEquals("私は New York で学生です", snapshot.text)
+        val request = snapshot.request(1, true, null)
+        assertEquals(snapshot.text, captionHistoryEntry(request, "번역").originalText)
+    }
+
+    @Test fun lateJapaneseDetectionNormalizesThePendingRequestAndHistoryWithoutLosingConsent() {
+        val request = resolveCaptionSpeech(SpeechResult("東 京", true, audioWindowId = 3), "auto").request(1, true, null)
+        val updated = request.withDetectedWindowLanguage("ja")
+        assertEquals("東京", updated.text)
+        assertEquals("ja", updated.sourceLanguageCode)
+        assertEquals(request.historyConsent, updated.historyConsent)
+        assertEquals(request.submittedAtNanos, updated.submittedAtNanos)
+        assertEquals("東京", captionHistoryEntry(updated, "도쿄").originalText)
+    }
+
     @Test fun automaticLanguageComesFromCurrentResultAndUnknownDoesNotInherit() {
         val japanese = resolveCaptionSpeech(SpeechResult("私 は 学生 です", true, "ja"), "auto")
         val unknown = resolveCaptionSpeech(SpeechResult("私 は 学生 です", true, null), "auto")
         assertEquals("ja", japanese.sourceLanguageCode)
         assertEquals("私は学生です", japanese.text)
         assertEquals("und", unknown.sourceLanguageCode)
-        assertEquals("私 は 学生 です", unknown.text)
+        assertEquals("私は学生です", unknown.text)
         assertTrue(unknown.autoDetect)
     }
 

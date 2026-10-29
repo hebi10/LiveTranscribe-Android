@@ -4,6 +4,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class JapaneseTranscriptNormalizerTest {
+    @Test fun automaticScriptFallbackPreservesOtherLanguageSpacingAndUnknownMetadata() {
+        assertEquals("私は学生です", normalizeRecognizedTranscript("私 は 学生 です", "und", true))
+        assertEquals("東 京", normalizeRecognizedTranscript("東 京", "und", true))
+        assertEquals("서울 여행 New York", normalizeRecognizedTranscript("서울 여행 New York", "und", true))
+        assertEquals("私 は 学生 です", normalizeRecognizedTranscript("私 は 学生 です", "en", false))
+    }
     @Test fun removesRecognizerTokenSpacesBetweenJapaneseCharacters() {
         assertEquals(
             "私は日本語を話します",

@@ -56,7 +56,9 @@ class LocalTranslationRepositoryTest {
             repository.translate("こんにちは。", "ja", "ko", false)
             fail("Expected translation timeout")
         } catch (failure: TranslationTimeoutException) {
-            assertSame(deadline, failure.cause)
+            // Coroutine stack-trace recovery can copy the timeout and retain the original as its cause.
+            assertTrue("The native deadline must remain in the cause chain",
+                generateSequence<Throwable>(failure) { it.cause }.any { it === deadline })
         } finally {
             repository.close()
         }
@@ -70,7 +72,9 @@ class LocalTranslationRepositoryTest {
             repository.translate("こんにちは。", "ja", "ko", false)
             fail("Expected cancellation")
         } catch (failure: CancellationException) {
-            assertSame(cancellation, failure)
+            assertEquals(cancellation.message, failure.message)
+            assertTrue("The native cancellation must remain in the cause chain",
+                generateSequence<Throwable>(failure) { it.cause }.any { it === cancellation })
         } finally {
             repository.close()
         }

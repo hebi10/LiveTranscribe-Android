@@ -1,9 +1,13 @@
 package com.charles.livecaptionn.speech
 
 /** Removes recognizer token spacing only when Japanese characters surround it. */
-internal fun normalizeRecognizedTranscript(text: String, languageCode: String): String {
+internal fun normalizeRecognizedTranscript(text: String, languageCode: String, automaticScriptFallback: Boolean = false): String {
     val trimmed = text.trim()
-    if (!languageCode.substringBefore('-').equals("ja", ignoreCase = true)) return trimmed
+    val japanese = languageCode.substringBefore('-').equals("ja", ignoreCase = true) ||
+        (automaticScriptFallback && trimmed.codePoints().anyMatch {
+            Character.UnicodeScript.of(it) in setOf(Character.UnicodeScript.HIRAGANA, Character.UnicodeScript.KATAKANA)
+        })
+    if (!japanese) return trimmed
 
     val normalized = StringBuilder(trimmed.length)
     var index = 0

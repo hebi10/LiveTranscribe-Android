@@ -45,7 +45,7 @@ internal fun resolveCaptionSpeech(result: SpeechResult, sessionMode: String): Ca
     val mode = RecognitionLanguages.normalizeMode(sessionMode)
     val automatic = mode == RecognitionLanguages.AUTO
     val source = if (automatic) RecognitionLanguages.normalizeDetected(result.detectedLanguageCode) else mode
-    return CaptionSpeechSnapshot(normalizeRecognizedTranscript(result.text, source), source, automatic, result.audioWindowId)
+    return CaptionSpeechSnapshot(normalizeRecognizedTranscript(result.text, source, automatic), source, automatic, result.audioWindowId)
 }
 
 internal data class CaptionTranslationRequest(
@@ -63,8 +63,10 @@ internal data class CaptionTranslationRequest(
 internal fun CaptionTranslationRequest.withDetectedWindowLanguage(detectedLanguageCode: String?): CaptionTranslationRequest {
     if (!autoDetect || audioWindowId == null) return this
     val source = RecognitionLanguages.normalizeDetected(detectedLanguageCode)
-    return if (source == RecognitionLanguages.UNKNOWN || source == sourceLanguageCode) this
-        else copy(sourceLanguageCode = source)
+    if (source == RecognitionLanguages.UNKNOWN) return this
+    val normalized = normalizeRecognizedTranscript(text, source, automaticScriptFallback = true)
+    return if (source == sourceLanguageCode && normalized == text) this
+        else copy(sourceLanguageCode = source, text = normalized)
 }
 
 internal suspend fun translateCaptionRequest(
