@@ -4,6 +4,7 @@ import com.charles.livecaptionn.settings.RecognitionLanguages
 import java.io.File
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -89,9 +90,13 @@ class LocalTranslationRepository internal constructor(
                 } catch (failure: Exception) {
                     if (requestedGeneration != generation) continuation.cancel(CancellationException("Translation session ended"))
                     else if (continuation.isActive) continuation.resumeWithException(
-                        if (failure is CancellationException) failure else IllegalStateException(
-                            "기기 내 번역에 실패했습니다. 문장을 짧게 나누거나 번역 모델을 확인한 뒤 다시 시작해 주세요.", failure
-                        )
+                        when (failure) {
+                            is CancellationException -> failure
+                            is TimeoutException -> TranslationTimeoutException("기기 내 번역 시간이 초과되었습니다.", failure)
+                            else -> IllegalStateException(
+                                "기기 내 번역에 실패했습니다. 문장을 짧게 나누거나 번역 모델을 확인한 뒤 다시 시작해 주세요.", failure
+                            )
+                        }
                     )
                 } catch (failure: LinkageError) {
                     if (continuation.isActive) continuation.resumeWithException(

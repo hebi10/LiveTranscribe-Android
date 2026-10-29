@@ -16,6 +16,25 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CaptionTranslationQueueTest {
+    @Test fun defaultDrainAllowsActiveAndTwoRetainedNativeDeadlines() = runTest {
+        val translated = mutableListOf<String>()
+        val queue = CaptionTranslationQueue<String>(this) {
+            delay(15_000)
+            translated += it
+        }
+        queue.submitFinal("active")
+        runCurrent()
+        assertEquals(0, queue.pendingFinalCount)
+        queue.submitFinal("pending one")
+        assertEquals(1, queue.pendingFinalCount)
+        queue.submitFinal("pending two")
+        assertEquals(2, queue.pendingFinalCount)
+
+        assertTrue(queue.finish())
+        assertEquals(0, queue.pendingFinalCount)
+        assertEquals(listOf("active", "pending one", "pending two"), translated)
+    }
+
     @Test fun slowWorkerKeepsOnlyLatestTwoPendingFinals() = runTest {
         val translated = mutableListOf<String>()
         val queue = CaptionTranslationQueue<String>(this, nowMs = { testScheduler.currentTime }) {

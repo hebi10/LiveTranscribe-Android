@@ -28,6 +28,8 @@ internal class CaptionTranslationQueue<T : Any>(
     private var accepting = true
     private val worker: Job
 
+    val pendingFinalCount: Int get() = synchronized(lock) { finals.size }
+
     init {
         require(partialIntervalMillis > 0)
         require(maxPendingFinals > 0)
@@ -86,7 +88,8 @@ internal class CaptionTranslationQueue<T : Any>(
         return true
     }
 
-    suspend fun finish(timeoutMillis: Long = 6_000): Boolean {
+    // At most one active and two pending native requests, each bounded to 15 seconds.
+    suspend fun finish(timeoutMillis: Long = 46_000): Boolean {
         synchronized(lock) { accepting = false; partial = null }
         signal.trySend(Unit)
         val drained = withTimeoutOrNull(timeoutMillis) { worker.join(); true } ?: false

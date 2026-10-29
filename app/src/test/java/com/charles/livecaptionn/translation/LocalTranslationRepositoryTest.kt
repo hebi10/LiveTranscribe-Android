@@ -4,6 +4,7 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -45,6 +46,34 @@ class LocalTranslationRepositoryTest {
             assertTrue(failure.message!!.contains("기기 내 번역"))
         }
         repository.close()
+    }
+
+    @Test fun nativeDeadlineIsReportedAsTranslationTimeoutWithItsCause() = runBlocking {
+        val deadline = TimeoutException("Translation deadline exceeded")
+        val backend = FakeBackend().apply { failure = deadline }
+        val repository = repository(backend)
+        try {
+            repository.translate("こんにちは。", "ja", "ko", false)
+            fail("Expected translation timeout")
+        } catch (failure: TranslationTimeoutException) {
+            assertSame(deadline, failure.cause)
+        } finally {
+            repository.close()
+        }
+    }
+
+    @Test fun nativeCancellationRemainsCancellation() = runBlocking {
+        val cancellation = CancellationException("Translation cancelled")
+        val backend = FakeBackend().apply { failure = cancellation }
+        val repository = repository(backend)
+        try {
+            repository.translate("こんにちは。", "ja", "ko", false)
+            fail("Expected cancellation")
+        } catch (failure: CancellationException) {
+            assertSame(cancellation, failure)
+        } finally {
+            repository.close()
+        }
     }
 
     @Test fun unsupportedPairFailsBeforeModelLoad() = runBlocking {

@@ -50,14 +50,16 @@ internal fun recordTranscriptResult(
     originalText: String,
     isFinal: Boolean,
     newLineId: Long,
-    sourceLanguageCode: String = RecognitionLanguages.UNKNOWN
+    sourceLanguageCode: String = RecognitionLanguages.UNKNOWN,
+    audioWindowId: Long? = null
 ): List<CaptionRuntimeLine> {
     if (originalText.isBlank()) return if (isFinal) lines.filter { it.isFinal } else lines
     val last = lines.lastOrNull()
     val lastIsOpen = last != null && !last.isFinal
 
     if (lastIsOpen) {
-        val sameSnapshot = last!!.originalText == originalText && last.sourceLanguageCode == sourceLanguageCode
+        val sameSnapshot = last!!.originalText == originalText && last.sourceLanguageCode == sourceLanguageCode &&
+            last.audioWindowId == audioWindowId
         if (sameSnapshot && last.isFinal == isFinal) return lines
         val updatedLine = if (sameSnapshot) {
             // A provisional translation is never promoted to a permanent caption.
@@ -66,13 +68,13 @@ internal fun recordTranscriptResult(
             else last
         } else {
             CaptionRuntimeLine(id = newLineId, originalText = originalText, isFinal = isFinal,
-                sourceLanguageCode = sourceLanguageCode)
+                sourceLanguageCode = sourceLanguageCode, audioWindowId = audioWindowId)
         }
         return trimTranscriptLines(lines.dropLast(1) + updatedLine)
     }
 
     return trimTranscriptLines(lines + CaptionRuntimeLine(id = newLineId, originalText = originalText,
-        isFinal = isFinal, sourceLanguageCode = sourceLanguageCode))
+        isFinal = isFinal, sourceLanguageCode = sourceLanguageCode, audioWindowId = audioWindowId))
 }
 
 /**
@@ -170,9 +172,10 @@ internal fun applyTranscriptResult(
     text: String,
     isFinal: Boolean,
     newLineId: Long,
-    sourceLanguageCode: String = RecognitionLanguages.UNKNOWN
+    sourceLanguageCode: String = RecognitionLanguages.UNKNOWN,
+    audioWindowId: Long? = null
 ): CaptionRuntimeState {
-    val lines = recordTranscriptResult(runtime.transcriptLines, text, isFinal, newLineId, sourceLanguageCode)
+    val lines = recordTranscriptResult(runtime.transcriptLines, text, isFinal, newLineId, sourceLanguageCode, audioWindowId)
     val recorded = runtime.copy(
         originalText = if (text.isBlank()) lines.lastOrNull()?.originalText.orEmpty() else text,
         translatedText = lines.lastOrNull { it.translatedText.isNotBlank() }?.translatedText.orEmpty(),

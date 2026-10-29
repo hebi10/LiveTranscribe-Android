@@ -80,4 +80,35 @@ class OverlayGeometryTest {
         assertEquals(OverlayGeometry(0, 280, 296, 196), state.preferred)
         assertEquals(state.preferred, state.display(wide, 220, 108))
     }
+
+    @Test fun densityChangesReprojectPreferredDpWithoutRoundingDrift() {
+        val state = OverlayGeometryState(OverlayGeometryPreference(40, 60, 341, 161), 1.5f)
+        assertEquals(OverlayGeometry(40, 60, 512, 242), state.preferred)
+        state.updateDensity(3f)
+        assertEquals(OverlayGeometry(40, 60, 1023, 483), state.preferred)
+        state.updateDensity(1.5f)
+        assertEquals(OverlayGeometry(40, 60, 512, 242), state.preferred)
+        assertEquals(OverlayGeometryPreference(40, 60, 341, 161), state.preference)
+    }
+
+    @Test fun densityChangeWhileMinimizedPreservesDpSizeThroughViewportClampAndMove() {
+        val state = OverlayGeometryState(OverlayGeometryPreference(500, 650, 600, 220), 1f)
+        state.updateDensity(2f)
+        assertEquals(OverlayGeometry(0, 388, 320, 112),
+            state.display(narrow, 440, 216, minimizedHeight = 112))
+        assertEquals(OverlayGeometryPreference(500, 650, 600, 220), state.preference)
+        state.moveTo(-500, 999, narrow, 440, 216, minimizedHeight = 112)
+        assertEquals(OverlayGeometryPreference(0, 388, 600, 220), state.preference)
+        state.updateDensity(1f)
+        assertEquals(OverlayGeometry(0, 388, 600, 220), state.display(wide, 220, 108))
+    }
+
+    @Test fun resizeAfterDensityChangePersistsTheNewDpDimensions() {
+        val state = OverlayGeometryState(OverlayGeometryPreference(40, 60, 340, 160), 1f)
+        state.updateDensity(2f)
+        state.resizeTo(720, 360, wide, 440, 216)
+        assertEquals(OverlayGeometryPreference(40, 60, 360, 180), state.preference)
+        state.updateDensity(1f)
+        assertEquals(OverlayGeometry(40, 60, 360, 180), state.preferred)
+    }
 }

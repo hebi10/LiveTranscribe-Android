@@ -1,6 +1,7 @@
 package com.charles.livecaptionn.service
 
 import com.charles.livecaptionn.speech.SpeechResult
+import com.charles.livecaptionn.data.HistoryRecordingGate
 import com.charles.livecaptionn.translation.TranslationRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -132,5 +133,58 @@ class CaptionLanguageSnapshotTest {
         }
         assertEquals("안녕, 안녕하세요", translateCaptionRequest(request, repository))
         assertEquals("ko", captionHistoryEntry(request, "완료").sourceLanguage)
+    }
+
+    @Test fun lateWindowDetectionResolvesOnlyAutomaticRequestMetadata() {
+        val consent = HistoryRecordingGate.Consent(3)
+        val automatic = resolveCaptionSpeech(SpeechResult("hello", true, null, audioWindowId = 12), "auto")
+            .request(1, true, consent).copy(submittedAtNanos = 123)
+        val resolved = automatic.withDetectedWindowLanguage("Japanese")
+        assertEquals("ja", resolved.sourceLanguageCode)
+        assertEquals("ja", captionHistoryEntry(resolved, "완료").sourceLanguage)
+        assertEquals(12L, resolved.audioWindowId)
+        assertEquals(123L, resolved.submittedAtNanos)
+        assertSame(consent, resolved.historyConsent)
+        assertTrue(resolved.autoDetect)
+        assertEquals(automatic, automatic.withDetectedWindowLanguage(null))
+        assertEquals(automatic, automatic.withDetectedWindowLanguage("unsupported"))
+        val unscoped = automatic.copy(audioWindowId = null)
+        assertEquals(unscoped, unscoped.withDetectedWindowLanguage("ja"))
+        val manual = automatic.copy(autoDetect = false, sourceLanguageCode = "en")
+        assertEquals(manual, manual.withDetectedWindowLanguage("ja"))
+    }
+
+    @Test fun windowLanguageCacheRetainsNewestIdsWhenDetectionFinishesOutOfOrder() {
+        val languages = CaptionWindowLanguages(maxWindows = 2)
+        assertEquals("ja", languages.record(10, "Japanese"))
+        languages.record(30, "en")
+        languages.record(20, "fr")
+        assertNull(languages[10])
+        assertEquals("fr", languages[20])
+        assertEquals("en", languages[30])
+        languages.record(10, "ko")
+        assertNull(languages[10])
+        assertNull(languages[21])
+        assertNull(languages[null])
+        assertEquals("fr", languages[20])
+        assertEquals("en", languages[30])
+    }
+
+    @Test fun windowLanguageCacheIgnoresUnknownWithoutOverwritingKnownDetection() {
+        val languages = CaptionWindowLanguages()
+        languages.record(1, "ja")
+        assertNull(languages.record(1, null))
+        assertNull(languages.record(2, "unsupported"))
+        assertEquals("ja", languages[1])
+        assertNull(languages[2])
+        languages.clear()
+        assertNull(languages[1])
+    }
+
+    @Test fun defaultWindowLanguageCacheBoundsTheSessionToSixtyFourWindows() {
+        val languages = CaptionWindowLanguages()
+        for (id in 1L..65L) languages.record(id, "en")
+        assertNull(languages[1])
+        for (id in 2L..65L) assertEquals("en", languages[id])
     }
 }

@@ -4,8 +4,8 @@
 #include <string>
 
 namespace {
-void fail(JNIEnv * env, const char * message) {
-    if (!env->ExceptionCheck()) env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), message);
+void fail(JNIEnv * env, const char * message, const char * type = "java/lang/IllegalStateException") {
+    if (!env->ExceptionCheck()) env->ThrowNew(env->FindClass(type), message);
 }
 }
 
@@ -36,6 +36,9 @@ Java_com_charles_livecaptionn_translation_NativeTranslationBridge_translate(
         jbyteArray bytes = env->NewByteArray(static_cast<jsize>(result.size()));
         if (bytes) env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(result.size()), reinterpret_cast<const jbyte *>(result.data()));
         return bytes;
+    } catch (const livecaption::TranslationTimeoutError & error) {
+        fail(env, error.what(), "java/util/concurrent/TimeoutException");
+        return nullptr;
     } catch (const std::exception & error) { fail(env, error.what()); return nullptr; }
 }
 
