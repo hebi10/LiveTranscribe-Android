@@ -47,7 +47,7 @@ class PreviewWorkflowTest(unittest.TestCase):
         self.assertIn("name: hebi-live-translate-TEST-ONLY-debug", self.preview)
         self.assertNotIn("run-id:", self.preview)
         self.assertNotIn("assembleRelease", self.preview)
-        self.assertIn("LiveTranslate-v1.3.0-arm64-preview-separate.apk", self.preview)
+        self.assertIn("LiveTranslate-v1.3.1-arm64-preview-separate.apk", self.preview)
         self.assertIn('sha256sum "$PREVIEW_APK" > "$PREVIEW_APK.sha256"', self.preview)
         self.assertIn('--prerelease --latest=false --verify-tag', self.preview)
         self.assertIn('"$PREVIEW_APK" "$PREVIEW_APK.sha256"', self.preview)
@@ -73,7 +73,7 @@ class PreviewWorkflowTest(unittest.TestCase):
                           'exit 0\n')
             gh.chmod(0o700)
             (directory / "preview-release").mkdir()
-            (directory / "preview-release/LiveTranslate-v1.3.0-arm64-preview-separate.apk").write_bytes(b"fixture APK")
+            (directory / "preview-release/LiveTranslate-v1.3.1-arm64-preview-separate.apk").write_bytes(b"fixture APK")
             environment = os.environ.copy()
             environment.update({"PATH": f"{directory}:{environment.get('PATH', '')}",
                                 "GH_CALLS": str(calls), "GITHUB_REPOSITORY": "fixture/repository",
@@ -84,7 +84,7 @@ class PreviewWorkflowTest(unittest.TestCase):
             self.assertIn("already exists", result.stdout + result.stderr)
             invocation = calls.read_text()
             self.assertIn("api --method POST", invocation)
-            self.assertIn("ref=refs/tags/v1.3.0-preview", invocation)
+            self.assertIn("ref=refs/tags/v1.3.1-preview", invocation)
             self.assertNotIn("release create", invocation)
             self.assertNotIn("--force", invocation)
 
@@ -99,7 +99,7 @@ class PreviewWorkflowTest(unittest.TestCase):
             gh.chmod(0o700)
             output = directory / "preview-release"
             output.mkdir()
-            name = "LiveTranslate-v1.3.0-arm64-preview-separate.apk"
+            name = "LiveTranslate-v1.3.1-arm64-preview-separate.apk"
             (output / name).write_bytes(b"fixture APK")
             environment = os.environ.copy()
             environment.update({"PATH": f"{directory}:{environment.get('PATH', '')}",
@@ -113,7 +113,7 @@ class PreviewWorkflowTest(unittest.TestCase):
             invocation = calls.read_text().splitlines()
             self.assertEqual(2, len(invocation))
             self.assertIn("api --method POST", invocation[0])
-            self.assertIn(f"release create v1.3.0-preview {name} {name}.sha256", invocation[1])
+            self.assertIn(f"release create v1.3.1-preview {name} {name}.sha256", invocation[1])
             self.assertIn("--prerelease --latest=false --verify-tag", invocation[1])
             self.assertIn("com.hebi.livetranslate.debug", (output / "release-notes.md").read_text())
 

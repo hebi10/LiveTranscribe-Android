@@ -76,6 +76,11 @@ for path in (app / "src/main/java").rglob("*.kt"):
             raise SystemExit("Model transport cannot upload a request body")
     elif re.search(network_pattern, text):
         raise SystemExit(f"Forbidden behavior in {path.relative_to(root)}: direct network access")
+    if "Intent.ACTION_VIEW" in text:
+        policy_intent = r'Intent\(Intent\.ACTION_VIEW,\s*Uri\.parse\("https://hebi10\.github\.io/LiveTranscribe-Android/privacy-policy\.html"\)\)'
+        if (path.name != "MainScreen.kt" or text.count("Intent.ACTION_VIEW") != 1
+                or not re.search(policy_intent, text)):
+            raise SystemExit("External browser access is limited to the fixed public privacy policy")
     for pattern in bad_patterns:
         if re.search(pattern, text):
             raise SystemExit(f"Forbidden behavior in {path.relative_to(root)}: {pattern}")
@@ -83,6 +88,6 @@ assert (root / "scripts/prepare_language_id.py").exists(), "Language ID model in
 assert (root / "app/src/main/java/com/charles/livecaptionn/speech/OfflineSpokenLanguageIdentifier.kt").exists()
 assert (root / "app/src/main/java/com/charles/livecaptionn/translation/TranslationModelSetup.kt").exists()
 assert (root / "app/src/main/java/com/charles/livecaptionn/speech/LanguageRecommendationTracker.kt").exists()
-print("OK: explicit model GET transport only; ML Kit removed; known upload/sharing patterns blocked; backup domains excluded")
+print("OK: explicit model GET transport and fixed external privacy link only; known upload/sharing patterns blocked; backup domains excluded")
 print("Static source audit only: SDK internals/telemetry, merged manifest and device traffic unverified")
 

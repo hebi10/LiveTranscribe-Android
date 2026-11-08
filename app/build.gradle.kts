@@ -12,6 +12,16 @@ val releaseSigningNames = listOf(
 )
 val releaseSigningEnvironment = releaseSigningNames.associateWith { providers.environmentVariable(it).orNull }
 val hasReleaseSigning = releaseSigningEnvironment.values.all { !it.isNullOrBlank() }
+val requestedVersionCode = providers.gradleProperty("versionCode")
+    .orElse(providers.environmentVariable("ANDROID_VERSION_CODE")).orElse("14").get()
+val releaseVersionCode = requestedVersionCode.toIntOrNull()
+    ?.takeIf { it in 14..2100000000 }
+    ?: throw GradleException("versionCode / ANDROID_VERSION_CODE must be an integer between 14 and 2100000000")
+val playCaptureAbi = providers.gradleProperty("playCaptureAbi").orNull
+if (playCaptureAbi != null && (playCaptureAbi != "x86_64" ||
+        gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) })) {
+    throw GradleException("playCaptureAbi=x86_64 is allowed only for debug screenshot capture")
+}
 
 android {
     namespace = "com.charles.livecaptionn"
@@ -22,9 +32,9 @@ android {
         applicationId = "com.hebi.livetranslate"
         minSdk = 29
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.3.0"
-        ndk { abiFilters += "arm64-v8a" }
+        versionCode = releaseVersionCode
+        versionName = "1.3.1"
+        ndk { abiFilters += playCaptureAbi ?: "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DANDROID_STL=c++_static" } }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -64,6 +74,7 @@ android {
         buildConfig = true
     }
     packaging {
+        jniLibs { useLegacyPackaging = false }
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
     androidResources {
@@ -82,6 +93,7 @@ android {
 
 val verifyReleaseSigning by tasks.registering(Exec::class) {
     doFirst {
+        if (playCaptureAbi != null) throw GradleException("Release builds cannot use playCaptureAbi")
         val missing = releaseSigningNames.filter { releaseSigningEnvironment[it].isNullOrBlank() }
         if (missing.isNotEmpty()) {
             throw GradleException("Release signing requires the existing release signer: ${missing.joinToString()}")

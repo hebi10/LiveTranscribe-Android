@@ -1,5 +1,9 @@
 package com.charles.livecaptionn.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +49,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
@@ -77,6 +82,7 @@ fun MainScreen(
     audioPermissionSettingsRequired: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val ui by viewModel.state.collectAsStateWithLifecycle()
     val sessionBusy = ui.runtime.running || ui.runtime.stopping || startPending
     val setup = ui.setupState(startPending, audioPermissionSettingsRequired)
@@ -322,6 +328,14 @@ fun MainScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    TextButton(onClick = {
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW,
+                                Uri.parse("https://hebi10.github.io/LiveTranscribe-Android/privacy-policy.html")))
+                        } catch (_: ActivityNotFoundException) {
+                            Toast.makeText(context, "웹 브라우저를 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
+                        }
+                    }) { Text("개인정보처리방침 (외부 브라우저)") }
                 }
             }
             Spacer(Modifier.height(12.dp))

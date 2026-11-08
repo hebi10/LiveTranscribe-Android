@@ -37,7 +37,9 @@ jobs:
       - name: Verify source privacy contract
         run: python scripts/audit_privacy.py
       - name: Python regression tests
-        run: python -m unittest discover -s scripts -p 'test_*.py'
+        run: |
+          python -m unittest discover -s scripts -p 'test_*.py'
+          python -m unittest discover -s scripts/play/tests -v
       - name: Cache pinned speech support and language-ID assets
         uses: actions/cache@v4
         with:
@@ -81,6 +83,16 @@ jobs:
           done
       - name: Verify APK support assets and model download boundary
         run: python scripts/verify_apk_assets.py app/build/outputs/apk/debug/app-debug.apk
+      - name: Verify actual debug native and ZIP 16 KB alignment
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, 'scripts/play')
+          from verify_native import inspect_archive
+          libraries = inspect_archive('app/build/outputs/apk/debug/app-debug.apk', apk=True)
+          print('Verified native libraries:', len(libraries))
+          PY
+          "${ANDROID_HOME}/build-tools/36.0.0/zipalign" -c -P 16 -v 4 app/build/outputs/apk/debug/app-debug.apk
       - name: Upload test-only debug APK (separate application ID)
         uses: actions/upload-artifact@v4
         with:
@@ -183,14 +195,14 @@ jobs:
         run: |
           test -f preview-artifact/app-debug.apk
           mkdir preview-release
-          mv preview-artifact/app-debug.apk preview-release/LiveTranslate-v1.3.0-arm64-preview-separate.apk
+          mv preview-artifact/app-debug.apk preview-release/LiveTranslate-v1.3.1-arm64-preview-separate.apk
       - name: Publish the separate-install preview
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd preview-release
-          PREVIEW_TAG=v1.3.0-preview
-          PREVIEW_APK=LiveTranslate-v1.3.0-arm64-preview-separate.apk
+          PREVIEW_TAG=v1.3.1-preview
+          PREVIEW_APK=LiveTranslate-v1.3.1-arm64-preview-separate.apk
           sha256sum "$PREVIEW_APK" > "$PREVIEW_APK.sha256"
           cat > release-notes.md <<'NOTES'
           변경 사항
@@ -211,4 +223,4 @@ jobs:
             echo "::error::Preview tag $PREVIEW_TAG already exists or could not be created. No existing tag or release was overwritten."
             exit 1
           fi
-          gh release create "$PREVIEW_TAG" "$PREVIEW_APK" "$PREVIEW_APK.sha256" --repo "$GITHUB_REPOSITORY" --title 'LiveTranslate v1.3.0 — 별도 설치 프리뷰' --notes-file release-notes.md --prerelease --latest=false --verify-tag
+          gh release create "$PREVIEW_TAG" "$PREVIEW_APK" "$PREVIEW_APK.sha256" --repo "$GITHUB_REPOSITORY" --title 'LiveTranslate v1.3.1 — 별도 설치 프리뷰' --notes-file release-notes.md --prerelease --latest=false --verify-tag

@@ -112,6 +112,26 @@ class PrivacyAuditTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("Forbidden behavior", result.stderr)
 
+    def write_browser_link(self, code):
+        path = self.root / "app/src/main/java/com/charles/livecaptionn/ui/MainScreen.kt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(code, encoding="utf-8")
+
+    def test_fixed_external_privacy_policy_is_permitted(self):
+        self.write_browser_link('Intent(Intent.ACTION_VIEW, Uri.parse("https://hebi10.github.io/LiveTranscribe-Android/privacy-policy.html"))')
+        result = self.audit()
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_transcript_in_external_browser_url_is_rejected(self):
+        self.write_browser_link('Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com/?text=$transcript"))')
+        result = self.audit()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("fixed public privacy policy", result.stderr)
+
+    def test_additional_external_browser_intent_is_rejected(self):
+        self.write_browser_link('Intent(Intent.ACTION_VIEW, Uri.parse("https://hebi10.github.io/LiveTranscribe-Android/privacy-policy.html"))\nIntent(Intent.ACTION_VIEW, arbitraryUri)')
+        self.assertNotEqual(0, self.audit().returncode)
+
     def test_device_transfer_shared_preferences_exclusion_is_required(self):
         path = self.root / "app/src/main/res/xml/data_extraction_rules.xml"
         contents = path.read_text()

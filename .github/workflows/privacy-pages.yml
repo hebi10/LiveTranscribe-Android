@@ -1,0 +1,43 @@
+name: Publish public privacy policy
+
+on:
+  push:
+    branches: [main]
+    paths: [docs/privacy-policy.html, .github/workflows/privacy-pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: privacy-policy-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare only the public policy
+        run: |
+          mkdir -p policy-site
+          cp docs/privacy-policy.html policy-site/privacy-policy.html
+          cp docs/privacy-policy.html policy-site/index.html
+          touch policy-site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: policy-site
+      - name: Deploy public policy
+        id: deployment
+        uses: actions/deploy-pages@v4
