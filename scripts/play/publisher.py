@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -20,6 +21,12 @@ MAX_VERSION = 2100000000
 
 class ReleaseError(RuntimeError):
     pass
+
+
+class PlayApiError(ReleaseError):
+    def __init__(self, method, status):
+        self.http_status = status
+        super().__init__(f'Play API {method} failed with HTTP {status}; inspect Console registration, permissions and validation')
 
 
 def version_code(value):
@@ -54,7 +61,8 @@ class HttpTransport:
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
             # Response bodies can contain supplied credentials or private listing data.
-            raise ReleaseError(f'Play API {method} failed with HTTP {error.code}; inspect Console permissions and validation') from None
+            error.close()
+            raise PlayApiError(method, error.code) from None
         except (urllib.error.URLError, TimeoutError, ValueError):
             raise ReleaseError('Play API request or response failed; no successful deployment can be claimed') from None
 
@@ -64,7 +72,7 @@ class Publisher:
         self.request = transport
 
     @contextlib.contextmanager
-    def edit(self):
+    def edit(self, ignore_delete_error=True):
         edit_id = self.request('POST', '/edits', {})['id']
         if not str(edit_id).isalnum():
             raise ReleaseError('Invalid edit id from Play')
@@ -72,15 +80,21 @@ class Publisher:
         try:
             yield path
         finally:
+            failed = sys.exc_info()[0] is not None
             try:
                 self.request('DELETE', path)
             except ReleaseError:
-                pass  # A committed edit no longer exists; do not hide the original failure.
+                if not ignore_delete_error and not failed:
+                    raise
 
-    def used_versions(self, edit):
+    def inventory(self, edit):
         bundles = self.request('GET', edit + '/bundles').get('bundles', [])
         apks = self.request('GET', edit + '/apks').get('apks', [])
         tracks = self.request('GET', edit + '/tracks').get('tracks', [])
+        return bundles, apks, tracks
+
+    def used_versions(self, edit, inventory=None):
+        bundles, apks, tracks = inventory if inventory is not None else self.inventory(edit)
         values = [item['versionCode'] for item in bundles + apks]
         for track in tracks:
             for release in track.get('releases', []):
@@ -91,6 +105,15 @@ class Publisher:
         with self.edit() as edit:
             code = max(self.used_versions(edit) | {MIN_VERSION - 1}) + 1
             return version_code(code)
+
+    def inspect(self):
+        with self.edit(ignore_delete_error=False) as edit:
+            inventory = self.inventory(edit)
+            used = self.used_versions(edit, inventory)
+        return {'package': PACKAGE,
+                'status': 'api_access_verified' if inventory[0] or inventory[1] else 'requires_first_console_upload',
+                'highestVersionCode': max(used) if used else None,
+                'deployment': 'not_attempted'}
 
     def commit(self, edit, changes_not_sent_for_review=False):
         self.request('POST', edit + ':validate', {})
@@ -122,13 +145,20 @@ class Publisher:
                 raise ReleaseError(f'versionCode {code} is already used; allocate a fresh version before building')
             if code <= max(used | {MIN_VERSION - 1}):
                 raise ReleaseError('Version allocation is stale; allocate above every current Play artifact and rebuild before uploading')
-            uploaded = self.request('POST', edit + '/bundles?uploadType=media', Path(bundle).read_bytes(), 'application/octet-stream')
+            bundle_bytes = Path(bundle).read_bytes()
+            bundle_hash = hashlib.sha256(bundle_bytes).hexdigest()
+            uploaded = self.request('POST', edit + '/bundles?uploadType=media', bundle_bytes, 'application/octet-stream')
             if version_code(uploaded['versionCode']) != code:
                 raise ReleaseError('Uploaded bundle versionCode does not match the allocated version')
+            uploaded_hash = uploaded.get('sha256')
+            if not isinstance(uploaded_hash, str) or not re.fullmatch(r'[a-fA-F0-9]{64}', uploaded_hash) or uploaded_hash.lower() != bundle_hash:
+                raise ReleaseError('Uploaded bundle SHA-256 is missing, invalid or does not match the local AAB; release was not committed')
             self.request('PUT', edit + '/tracks/internal', {'track': 'internal', 'releases': [
                 {'name': f'1.3.1 ({code})', 'versionCodes': [str(code)], 'status': release_status}]})
             self.commit(edit, changes_not_sent_for_review)
-        return self.verify_track(track, code, release_status)
+        result = self.verify_track(track, code, release_status)
+        result['uploadedBundleSHA256'] = bundle_hash
+        return result
 
     def promote(self, code, track='alpha', changes_not_sent_for_review=False):
         if track != 'alpha':
@@ -154,6 +184,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--report', type=Path)
     sub = parser.add_subparsers(dest='command', required=True)
+    sub.add_parser('inspect')
     sub.add_parser('allocate')
     deploy = sub.add_parser('deploy')
     deploy.add_argument('--bundle', required=True)
@@ -167,9 +198,12 @@ def main():
     args = parser.parse_args()
     try:
         from preflight import require_initialized
-        require_initialized(os.environ)
+        if args.command != 'inspect':
+            require_initialized(os.environ)
         client = Publisher(HttpTransport(os.environ.get('PLAY_ACCESS_TOKEN', '')))
-        if args.command == 'allocate':
+        if args.command == 'inspect':
+            result = client.inspect()
+        elif args.command == 'allocate':
             code = client.allocate_version()
             result = {'package': PACKAGE, 'versionCode': code, 'status': 'version_allocated_not_uploaded'}
             if os.environ.get('GITHUB_OUTPUT'):
@@ -187,6 +221,14 @@ def main():
         return 0
     except (ReleaseError, KeyError, OSError, RuntimeError) as error:
         message = str(error) if isinstance(error, RuntimeError) else 'Release input or API response is invalid'
+        if args.command == 'inspect':
+            result = {'package': PACKAGE, 'status': 'api_preflight_blocked', 'deployment': 'not_attempted'}
+            if isinstance(error, PlayApiError):
+                result['httpStatus'] = error.http_status
+            if args.report:
+                args.report.parent.mkdir(parents=True, exist_ok=True)
+                args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            print(json.dumps(result, ensure_ascii=False))
         print('Release failed: ' + message, file=sys.stderr)
         return 1
 
