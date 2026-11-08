@@ -11,6 +11,22 @@ REPO = 'hebi10/LiveTranscribe-Android'
 
 
 class SourceTests(unittest.TestCase):
+    def test_initialize_mode_requires_explicit_manual_input_or_trusted_main_subject_marker(self):
+        manual = {'GITHUB_REPOSITORY': REPO, 'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_REF': 'refs/heads/main', 'GITHUB_SHA': SHA}
+        self.assertEqual(source.release_mode(dict(manual, PLAY_REQUESTED_MODE='initialize'), {}, 'ordinary'), 'initialize')
+        self.assertEqual(source.release_mode(dict(manual, PLAY_REQUESTED_MODE='check'), {}, '[initialize-play]'), 'check')
+        run = {'name': 'Private Android APK', 'path': '.github/workflows/build.yml', 'event': 'push', 'conclusion': 'success', 'head_branch': 'main', 'head_sha': SHA, 'head_repository': {'full_name': REPO}}
+        env = {'GITHUB_REPOSITORY': REPO, 'GITHUB_EVENT_NAME': 'workflow_run'}
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Initial upload [initialize-play] (#20)'), 'initialize')
+        for subject in ('ordinary', 'ordinary\n[initialize-play]', '[initialize-play]-example', 'x[initialize-play]'):
+            self.assertEqual(source.release_mode(env, {'workflow_run': run}, subject), 'deploy')
+        for key, value in (('event', 'pull_request'), ('head_branch', 'feature'), ('conclusion', 'failure'), ('head_repository', {'full_name': 'attacker/fork'})):
+            with self.assertRaises(source.SourceError):
+                source.release_mode(env, {'workflow_run': dict(run, **{key: value})}, '[initialize-play]')
+        for ref in ('refs/tags/v1', 'refs/heads/feature'):
+            with self.assertRaises(source.SourceError):
+                source.release_mode(dict(manual, GITHUB_REF=ref, PLAY_REQUESTED_MODE='initialize'), {}, '[initialize-play]')
+
     def test_manual_dispatch_only_accepts_main(self):
         for ref in ('refs/heads/feature', 'refs/tags/v1'):
             with self.assertRaises(source.SourceError):

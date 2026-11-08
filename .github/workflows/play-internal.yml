@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'check = exact-source and Play access checks; build = signed bootstrap AAB; deploy = internal upload'
+        description: 'check = validation/access; build = signed AAB; initialize = first internal draft; deploy = internal update'
         required: true
         type: choice
         default: check
-        options: [check, build, deploy]
+        options: [check, build, initialize, deploy]
       version_code:
         description: 'Build-only versionCode (minimum/default 14); deploy allocates above all Play artifacts'
         type: string
@@ -43,7 +43,7 @@ jobs:
       actions: read
     outputs:
       sha: ${{ steps.source.outputs.sha }}
-      mode: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.mode }}
+      mode: ${{ steps.source.outputs.release_mode }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,6 +54,7 @@ jobs:
         id: source
         env:
           GH_TOKEN: ${{ github.token }}
+          PLAY_REQUESTED_MODE: ${{ inputs.mode }}
         run: python3 scripts/play/source.py
 
   gates:
@@ -64,7 +65,7 @@ jobs:
 
   release:
     needs: [source, gates]
-    if: needs.source.outputs.mode != 'check'
+    if: needs.source.outputs.mode == 'build' || needs.source.outputs.mode == 'deploy' || (needs.source.outputs.mode == 'initialize' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_run'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: google-play
@@ -109,7 +110,7 @@ jobs:
           echo "ANDROID_RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/live-translate-release.jks" >> "$GITHUB_ENV"
       - name: Check Play authentication configuration
         id: credentials
-        if: needs.source.outputs.mode == 'deploy'
+        if: needs.source.outputs.mode == 'deploy' || needs.source.outputs.mode == 'initialize'
         env:
           PLAY_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
           PLAY_SERVICE_ACCOUNT: ${{ vars.PLAY_SERVICE_ACCOUNT }}
@@ -117,7 +118,7 @@ jobs:
         run: python3 scripts/play/preflight.py auth
       - name: Authenticate with Workload Identity Federation
         id: wif
-        if: needs.source.outputs.mode == 'deploy' && steps.credentials.outputs.auth_mode == 'wif'
+        if: (needs.source.outputs.mode == 'deploy' || needs.source.outputs.mode == 'initialize') && steps.credentials.outputs.auth_mode == 'wif'
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
@@ -127,7 +128,7 @@ jobs:
           create_credentials_file: false
       - name: Authenticate with legacy service-account JSON
         id: json
-        if: needs.source.outputs.mode == 'deploy' && steps.credentials.outputs.auth_mode == 'json'
+        if: (needs.source.outputs.mode == 'deploy' || needs.source.outputs.mode == 'initialize') && steps.credentials.outputs.auth_mode == 'json'
         uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
@@ -136,11 +137,18 @@ jobs:
           create_credentials_file: false
       - name: Allocate version above every Play bundle APK and track
         id: version
-        if: needs.source.outputs.mode == 'deploy'
+        if: needs.source.outputs.mode == 'deploy' || needs.source.outputs.mode == 'initialize'
         env:
           PLAY_CONSOLE_INITIALIZED: ${{ vars.PLAY_CONSOLE_INITIALIZED }}
           PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
-        run: python3 scripts/play/publisher.py --report output/play-allocation.json allocate
+          PLAY_RELEASE_MODE: ${{ needs.source.outputs.mode }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: |
+          if [[ "$PLAY_RELEASE_MODE" == 'initialize' ]]; then
+            python3 scripts/play/publisher.py --report output/play-allocation.json allocate-first
+          else
+            python3 scripts/play/publisher.py --report output/play-allocation.json allocate
+          fi
       - name: Install pinned native build and verification tools
         run: |
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
@@ -179,11 +187,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Reject stale source immediately before upload
-        if: needs.source.outputs.mode == 'deploy'
+        if: needs.source.outputs.mode == 'deploy' || needs.source.outputs.mode == 'initialize'
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
         run: python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
+      - name: Submit first internal draft only after empty-inventory and artifact verification
+        if: needs.source.outputs.mode == 'initialize'
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+          PLAY_RELEASE_MODE: ${{ needs.source.outputs.mode }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: |
+          python3 scripts/play/publisher.py --report output/play-initialization.json initialize --bundle app/build/outputs/bundle/release/app-release.aab
+          echo 'Initial internal draft API upload and fresh hash/track readback passed. No release was published and PLAY_CONSOLE_INITIALIZED was not changed. App Signing and Console state require separate confirmation.' >> "$GITHUB_STEP_SUMMARY"
       - name: Submit internal release and require fresh Play readback
         if: needs.source.outputs.mode == 'deploy'
         env:
