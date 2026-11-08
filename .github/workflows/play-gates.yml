@@ -1,0 +1,70 @@
+name: Play exact-source verification
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Exact-source privacy and Publisher checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify privacy and regression tests without paid or cloud API calls
+        run: |
+          python3 scripts/audit_privacy.py
+          python3 -m unittest discover -s scripts -p 'test_*.py' -v
+          python3 -m unittest discover -s scripts/play/tests -v
+
+  native:
+    name: Native 16 KB artifact checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare the exact pinned native dependencies
+        run: |
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+          python3 scripts/prepare_speech_support.py
+          python3 scripts/prepare_language_id.py
+          python3 scripts/prepare_native_translation.py
+          python3 scripts/prepare_speech_support.py --verify-only
+          python3 scripts/prepare_language_id.py --verify-only
+      - name: Build and test actual arm64 APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+          python3 scripts/verify_apk_assets.py app/build/outputs/apk/debug/app-debug.apk
+      - name: Inspect every packaged ELF and real APK ZIP alignment
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, 'scripts/play')
+          from verify_native import inspect_archive
+          libraries = inspect_archive('app/build/outputs/apk/debug/app-debug.apk', apk=True)
+          print('Actual APK ELF libraries verified:', len(libraries))
+          PY
+          "${ANDROID_HOME}/build-tools/36.0.0/zipalign" -c -P 16 -v 4 app/build/outputs/apk/debug/app-debug.apk

@@ -1,0 +1,221 @@
+name: Play internal release
+
+on:
+  workflow_run:
+    workflows: ["Private Android APK"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'check = exact-source checks; build = signed bootstrap AAB; deploy = internal upload'
+        required: true
+        type: choice
+        default: check
+        options: [check, build, deploy]
+      version_code:
+        description: 'Build-only versionCode (minimum/default 14); deploy allocates above all Play artifacts'
+        type: string
+        default: '14'
+      release_status:
+        description: 'completed = API release; draft = Console draft, neither guarantees installability'
+        type: choice
+        default: completed
+        options: [completed, draft]
+      changes_not_sent_for_review:
+        description: 'Keep committed changes pending explicit Console review submission'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-com-hebi-livetranslate
+  cancel-in-progress: false
+
+jobs:
+  source:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      mode: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require exact main source and successful build job
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/play/source.py
+
+  gates:
+    needs: source
+    uses: ./.github/workflows/play-gates.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+
+  release:
+    needs: [source, gates]
+    if: needs.source.outputs.mode != 'check'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: google-play
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ANDROID_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/live-translate-release.jks
+      ANDROID_RELEASE_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
+      - name: Require first Console AAB upload and existing signer enrollment before API deployment
+        if: needs.source.outputs.mode == 'deploy'
+        env:
+          PLAY_CONSOLE_INITIALIZED: ${{ vars.PLAY_CONSOLE_INITIALIZED }}
+        run: python3 scripts/play/preflight.py bootstrap
+      - name: Reject superseded source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
+      - name: Provision the existing app release signer without replacement or generation
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: python3 scripts/release_signing.py prepare --keystore "$ANDROID_RELEASE_KEYSTORE_PATH"
+      - name: Check Play authentication configuration
+        id: credentials
+        if: needs.source.outputs.mode == 'deploy'
+        env:
+          PLAY_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          PLAY_SERVICE_ACCOUNT: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: python3 scripts/play/preflight.py auth
+      - name: Authenticate with Workload Identity Federation
+        id: wif
+        if: needs.source.outputs.mode == 'deploy' && steps.credentials.outputs.auth_mode == 'wif'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Authenticate with legacy service-account JSON
+        id: json
+        if: needs.source.outputs.mode == 'deploy' && steps.credentials.outputs.auth_mode == 'json'
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Allocate version above every Play bundle APK and track
+        id: version
+        if: needs.source.outputs.mode == 'deploy'
+        env:
+          PLAY_CONSOLE_INITIALIZED: ${{ vars.PLAY_CONSOLE_INITIALIZED }}
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+        run: python3 scripts/play/publisher.py --report output/play-allocation.json allocate
+      - name: Install pinned native build and verification tools
+        run: |
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+          python3 scripts/play/prepare_bundletool.py "$RUNNER_TEMP/bundletool.jar"
+      - name: Prepare and verify pinned support assets and native source
+        run: |
+          python3 scripts/prepare_speech_support.py
+          python3 scripts/prepare_language_id.py
+          python3 scripts/prepare_native_translation.py
+          python3 scripts/prepare_speech_support.py --verify-only
+          python3 scripts/prepare_language_id.py --verify-only
+          python3 scripts/audit_privacy.py
+      - name: Build release AAB and APK with the existing release signer
+        env:
+          ANDROID_VERSION_CODE: ${{ steps.version.outputs.version_code || inputs.version_code || '14' }}
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --no-build-cache --no-configuration-cache lintRelease bundleRelease assembleRelease
+      - name: Verify AAB and APK match the existing app certificate
+        run: |
+          python3 scripts/play/preflight.py verify-bundle --bundle app/build/outputs/bundle/release/app-release.aab
+          python3 scripts/release_signing.py verify-apk --apk app/build/outputs/apk/release/app-release.apk --apksigner "${ANDROID_HOME}/build-tools/36.0.0/apksigner"
+          python3 scripts/verify_apk_assets.py app/build/outputs/apk/release/app-release.apk
+      - name: Require real release ELF AAB and APK 16 KB checks
+        run: python3 scripts/play/verify_native.py --bundle app/build/outputs/bundle/release/app-release.aab --apk app/build/outputs/apk/release/app-release.apk --bundletool "$RUNNER_TEMP/bundletool.jar" --zipalign "${ANDROID_HOME}/build-tools/36.0.0/zipalign" --report output/play-native.json
+      - name: Preserve verified bootstrap AAB and signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-translate-signed-release-${{ steps.version.outputs.version_code || inputs.version_code || '14' }}
+          path: |
+            app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Reject stale source immediately before upload
+        if: needs.source.outputs.mode == 'deploy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
+      - name: Submit internal release and require fresh Play readback
+        if: needs.source.outputs.mode == 'deploy'
+        env:
+          PLAY_CONSOLE_INITIALIZED: ${{ vars.PLAY_CONSOLE_INITIALIZED }}
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          RELEASE_STATUS: ${{ inputs.release_status || 'completed' }}
+          KEEP_FOR_REVIEW: ${{ inputs.changes_not_sent_for_review || false }}
+        shell: bash
+        run: |
+          args=()
+          if [[ "$KEEP_FOR_REVIEW" == 'true' ]]; then args+=(--changes-not-sent-for-review); fi
+          python3 scripts/play/publisher.py --report output/play-release.json deploy --bundle app/build/outputs/bundle/release/app-release.aab --version-code "$VERSION_CODE" --status "$RELEASE_STATUS" "${args[@]}"
+          echo 'Play API commit and fresh readback passed. Console review, publication and tester installability still require confirmation.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Report build-only result
+        if: needs.source.outputs.mode == 'build'
+        run: echo 'Signed bootstrap AAB verified. No Play API call or deployment was performed. Upload this AAB in Console using the existing app certificate.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve non-secret release reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-translate-play-report-${{ github.run_id }}
+          path: output/play-*.json
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Remove private signer material
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/live-translate-release.jks"
+
+  checked:
+    needs: [source, gates]
+    if: needs.source.outputs.mode == 'check'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report validation result
+        run: echo 'Exact-source CI, privacy, Python, Android and static debug native checks passed. No signed AAB or Play API deployment was performed; 16 KB device inference is unverified.' >> "$GITHUB_STEP_SUMMARY"

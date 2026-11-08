@@ -1,0 +1,131 @@
+name: Play current UI captures
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/play-capture.yml
+      - app/src/androidTest/**
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Verify source privacy contract
+        run: python scripts/audit_privacy.py
+      - name: Cache pinned build-time support assets
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/src/main/assets/speech
+            app/src/main/assets/language-id
+            app/libs
+          key: ${{ runner.os }}-local-ai-support-${{ hashFiles('scripts/prepare_speech_support.py', 'scripts/prepare_language_id.py') }}
+      - name: Prepare verified support assets and native source
+        run: |
+          python scripts/prepare_speech_support.py
+          python scripts/prepare_language_id.py
+          python scripts/prepare_speech_support.py --verify-only
+          python scripts/prepare_language_id.py --verify-only
+          python scripts/prepare_native_translation.py
+      - name: Install pinned native build tools
+        run: |
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358' 'cmake;3.22.1'
+      - name: Build capture-only debug and instrumentation APKs
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon -PplayCaptureAbi=x86_64 assembleDebug assembleDebugAndroidTest
+      - name: Enable emulator hardware acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Prepare device capture script
+        run: |
+          cat > "$RUNNER_TEMP/play-capture.sh" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          adb shell wm size 1080x1920
+          adb shell wm density 420
+          adb logcat -c
+          mkdir -p play-captures
+          set +e
+          ./gradlew --no-daemon -PplayCaptureAbi=x86_64 -Pandroid.testInstrumentationRunnerArguments.class=com.charles.livecaptionn.PlayStoreCaptureTest -Pandroid.testInstrumentationRunnerArguments.captureRevision="$GITHUB_SHA" connectedDebugAndroidTest
+          capture_status=$?
+          adb logcat -d > play-captures/logcat.txt
+          adb pull /sdcard/Download/hebi-play-captures/. play-captures/
+          pull_status=$?
+          set -e
+          test "$capture_status" -eq 0
+          test "$pull_status" -eq 0
+          test -f play-captures/capture-manifest.json
+          SH
+      - name: Capture genuine current app screens
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash "$RUNNER_TEMP/play-capture.sh"
+      - name: Verify capture set and source provenance
+        env:
+          CAPTURE_REVISION: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import struct
+          from pathlib import Path
+
+          directory = Path("play-captures")
+          manifest = json.loads((directory / "capture-manifest.json").read_text(encoding="utf-8"))
+          assert manifest["sourceRevision"] == os.environ["CAPTURE_REVISION"]
+          assert manifest["applicationId"] == "com.hebi.livetranslate.debug"
+          assert len(manifest["screenshots"]) == 5
+          for name in manifest["screenshots"]:
+              assert Path(name).name == name
+              with (directory / name).open("rb") as image:
+                  header = image.read(24)
+              assert header[:8] == b"\x89PNG\r\n\x1a\n", name
+              assert struct.unpack(">II", header[16:24]) == (1080, 1920), name
+          assert {item["file"]: (item["width"], item["height"]) for item in manifest["graphics"]} == {
+              "icon.png": (512, 512), "featureGraphic.png": (1024, 500)
+          }
+          for item in manifest["graphics"]:
+              name = item["file"]
+              assert Path(name).name == name
+              with (directory / name).open("rb") as image:
+                  header = image.read(24)
+              assert header[:8] == b"\x89PNG\r\n\x1a\n", name
+              assert struct.unpack(">II", header[16:24]) == (item["width"], item["height"]), name
+          print("Verified five 1080x1920 device PNGs for this source revision; idle UI only.")
+          PY
+      - name: Upload current UI captures and device reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: play-current-ui-${{ github.sha }}
+          path: |
+            play-captures/
+            app/build/reports/androidTests/connected/
+            app/build/outputs/androidTest-results/connected/
+          if-no-files-found: error
