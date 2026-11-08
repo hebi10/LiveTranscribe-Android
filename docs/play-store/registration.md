@@ -111,6 +111,10 @@ GitHub Actions의 `Play internal release`에서 `Run workflow`를 누르고 `mai
 
 접근 진단이 HTTP 403·404로 실패하면 안전한 보고서에 상태 코드만 기록합니다. 이는 등록·권한·설정 검토의 근거이며, 해당 코드만으로 원인을 단정하지 않습니다. 최초 제출의 실패 보고서는 단계·HTTP 상태와 허용한 canonical 오류 상태만 기록합니다. 커밋 응답이나 재조회가 불확실하면 Console 확인 전 자동 재시도하지 않습니다. 보고서에는 토큰·원문 응답·서명키를 포함하지 않습니다. 최초 제출도 App Signing·약관 동의·키 교체 API를 호출하지 않습니다.
 
+최초 제출 실행 #42497815200은 AAB 업로드·해시 확인·내부 초안 설정·검증을 통과했지만 최종 커밋에서 HTTP 400으로 중단됐습니다. 그 결과만으로 원인을 확정하지 않습니다. 다음 명시적 최초 제출에서도 새 inventory가 빈 상태인지 먼저 확인합니다. 커밋이 HTTP 400과 정확히 알려진 심사 보류 파라미터 금지 문장을 함께 반환한 경우에만 고정 reason `CHANGES_NOT_SENT_FOR_REVIEW_FORBIDDEN`으로 분류하고, 같은 편집의 커밋을 한 번만 해당 파라미터 없이 재시도합니다. `ERROR_IF_IN_REVIEW`는 유지하며 업로드·검증을 반복하지 않습니다. 다른 오류나 불확실한 응답은 재시도하지 않습니다. 실제 생략 시에만 `reviewHoldParameterOmitted`를 기록합니다.
+
+이 예외에서 Google의 자동 심사 동작이 적용되면 Console에 대기 중인 다른 변경도 심사로 전송될 수 있습니다. [Google의 동시 작업 안내](https://developers.google.com/android-publisher/concurrency-considerations)에 명시된 동작입니다. 내부 바이너리는 계속 `draft`로만 제출되며, 이 파라미터 예외를 일반 배포·비공개 승격·스토어 변경에 적용하지 않습니다.
+
 ## 공식 근거
 
 - https://support.google.com/googleplay/android-developer/answer/10787469
