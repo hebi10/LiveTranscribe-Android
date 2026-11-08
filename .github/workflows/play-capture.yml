@@ -69,7 +69,7 @@ jobs:
           ./gradlew --no-daemon -PplayCaptureAbi=x86_64 -Pandroid.testInstrumentationRunnerArguments.class=com.charles.livecaptionn.PlayStoreCaptureTest -Pandroid.testInstrumentationRunnerArguments.captureRevision="$GITHUB_SHA" connectedDebugAndroidTest
           capture_status=$?
           adb logcat -d > play-captures/logcat.txt
-          adb pull /sdcard/Android/data/com.hebi.livetranslate.debug/files/play-captures/. play-captures/
+          adb pull /sdcard/Download/hebi-play-captures/. play-captures/
           pull_status=$?
           set -e
           test "$capture_status" -eq 0

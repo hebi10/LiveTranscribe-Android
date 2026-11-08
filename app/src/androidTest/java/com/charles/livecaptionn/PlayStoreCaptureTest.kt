@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -97,6 +98,7 @@ class PlayStoreCaptureTest {
             put("scope", "Actual MainActivity idle UI. Models not downloaded; no audio capture or inference exercised; no fabricated transcripts.")
         }
         File(directory, "capture-manifest.json").writeText(manifest.toString(2), Charsets.UTF_8)
+        preserveCapturesBeforeTestAppRemoval()
     }
 
     private fun capture(directory: File, name: String) {
@@ -171,4 +173,17 @@ class PlayStoreCaptureTest {
             assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
         }
     }
+
+    private fun preserveCapturesBeforeTestAppRemoval() {
+        readShellOutput("mkdir -p /sdcard/Download/hebi-play-captures")
+        readShellOutput("cp -R /sdcard/Android/data/com.hebi.livetranslate.debug/files/play-captures/. /sdcard/Download/hebi-play-captures/")
+        val exported = readShellOutput("ls -1 /sdcard/Download/hebi-play-captures")
+            .lineSequence().filter { it.isNotBlank() }.toSet()
+        val expected = (captureNames + listOf("icon.png", "featureGraphic.png", "capture-manifest.json")).toSet()
+        assertEquals("All device captures must survive Gradle's test app cleanup", expected, exported)
+    }
+
+    private fun readShellOutput(command: String): String =
+        ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command))
+            .bufferedReader().use { it.readText() }
 }
