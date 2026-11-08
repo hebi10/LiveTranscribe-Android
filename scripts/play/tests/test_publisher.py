@@ -1,9 +1,17 @@
 import importlib.util
+import contextlib
+import hashlib
+import io
+import json
+import os
 import pathlib
+import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SCRIPT = pathlib.Path(__file__).parents[1] / 'publisher.py'
+sys.path.insert(0, str(SCRIPT.parent))
 spec = importlib.util.spec_from_file_location('publisher', SCRIPT)
 publisher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publisher)
@@ -37,7 +45,7 @@ class PlayServer:
                 return self.pending
             return next((track for track in self.tracks if track['track'] == target), {'track': target, 'releases': []})
         if method == 'POST' and path.endswith('/bundles?uploadType=media'):
-            return {'versionCode': 35}
+            return {'versionCode': 35, 'sha256': hashlib.sha256(body).hexdigest()}
         if method == 'PUT' and '/tracks/' in path:
             self.pending = body
             return body
@@ -54,6 +62,96 @@ def track(name, code, status='completed'):
 
 
 class PublisherTests(unittest.TestCase):
+    def test_inspect_reads_artifacts_and_closes_without_upload_or_commit(self):
+        server = PlayServer(bundles=[34], apks=[33], tracks=[track('internal', 34)])
+        result = publisher.Publisher(server).inspect()
+        self.assertEqual(result['status'], 'api_access_verified')
+        self.assertEqual(result['highestVersionCode'], 34)
+        self.assertEqual(server.calls, [
+            ('POST', '/edits', {}), ('GET', '/edits/1/bundles', None),
+            ('GET', '/edits/1/apks', None), ('GET', '/edits/1/tracks', None),
+            ('DELETE', '/edits/1', None)])
+        self.assertFalse(server.committed)
+
+    def test_inspect_empty_app_requires_first_console_upload(self):
+        result = publisher.Publisher(PlayServer()).inspect()
+        self.assertEqual(result['status'], 'requires_first_console_upload')
+        self.assertIsNone(result['highestVersionCode'])
+
+    def test_inspect_track_codes_without_artifacts_do_not_confirm_first_upload(self):
+        result = publisher.Publisher(PlayServer(tracks=[track('internal', 34)])).inspect()
+        self.assertEqual(result['status'], 'requires_first_console_upload')
+
+    def test_inspect_read_failure_still_closes_edit(self):
+        server = PlayServer()
+        def fail(method, path, body=None, content_type=None):
+            if method == 'GET':
+                raise publisher.PlayApiError(method, 403)
+            return server(method, path, body, content_type)
+        with self.assertRaises(publisher.ReleaseError):
+            publisher.Publisher(fail).inspect()
+        self.assertEqual(server.calls[-1], ('DELETE', '/edits/1', None))
+
+    def test_inspect_cleanup_failure_cannot_report_verified_access(self):
+        server = PlayServer(bundles=[34])
+        def fail(method, path, body=None, content_type=None):
+            if method == 'DELETE':
+                raise publisher.PlayApiError(method, 403)
+            return server(method, path, body, content_type)
+        with self.assertRaises(publisher.ReleaseError):
+            publisher.Publisher(fail).inspect()
+
+    def test_inspect_cli_does_not_require_initialized_and_preserves_safe_http_status(self):
+        for status in (403, 404):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                report = pathlib.Path(directory) / 'probe.json'
+                def fail(*args):
+                    raise publisher.PlayApiError('POST', status)
+                output, errors = io.StringIO(), io.StringIO()
+                with mock.patch.dict(os.environ, {'PLAY_ACCESS_TOKEN': 'test-only-token', 'PLAY_CONSOLE_INITIALIZED': ''}), mock.patch.object(publisher, 'HttpTransport', return_value=fail), mock.patch('sys.argv', ['publisher.py', '--report', str(report), 'inspect']), contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                    self.assertEqual(publisher.main(), 1)
+                result = json.loads(report.read_text())
+                self.assertEqual(result['status'], 'api_preflight_blocked')
+                self.assertEqual(result['httpStatus'], status)
+                self.assertNotIn('test-only-token', output.getvalue() + errors.getvalue() + report.read_text())
+                self.assertNotIn('bootstrap', errors.getvalue())
+
+    def test_mutating_cli_commands_still_require_console_initialization_before_api(self):
+        commands = (['allocate'], ['deploy', '--bundle', 'unused.aab', '--version-code', '35'], ['promote', '--version-code', '35'])
+        for command in commands:
+            with self.subTest(command=command), mock.patch.dict(os.environ, {'PLAY_CONSOLE_INITIALIZED': ''}), mock.patch.object(publisher, 'HttpTransport') as transport, mock.patch('sys.argv', ['publisher.py'] + command), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(publisher.main(), 1)
+                transport.assert_not_called()
+
+    def test_uploaded_hash_missing_invalid_or_mismatched_blocks_track_and_commit(self):
+        for returned in (None, '', 'x' * 64, 'a' * 64):
+            server = PlayServer()
+            def request(method, path, body=None, content_type=None):
+                response = server(method, path, body, content_type)
+                if 'uploadType=media' in path:
+                    response['sha256'] = returned
+                return response
+            with self.subTest(returned=returned), tempfile.NamedTemporaryFile() as bundle:
+                bundle.write(b'verified AAB bytes')
+                bundle.flush()
+                with self.assertRaisesRegex(publisher.ReleaseError, 'SHA-256'):
+                    publisher.Publisher(request).deploy(bundle.name, 35)
+                self.assertFalse(any(method == 'PUT' for method, _, _ in server.calls))
+                self.assertFalse(server.committed)
+
+    def test_uploaded_uppercase_hash_is_accepted_when_bytes_match(self):
+        server = PlayServer()
+        def request(method, path, body=None, content_type=None):
+            response = server(method, path, body, content_type)
+            if 'uploadType=media' in path:
+                response['sha256'] = response['sha256'].upper()
+            return response
+        with tempfile.NamedTemporaryFile() as bundle:
+            bundle.write(b'verified AAB bytes')
+            bundle.flush()
+            result = publisher.Publisher(request).deploy(bundle.name, 35)
+        self.assertEqual(result['uploadedBundleSHA256'], hashlib.sha256(b'verified AAB bytes').hexdigest())
+
     def test_allocation_includes_unassigned_bundles_apks_and_draft_tracks(self):
         server = PlayServer(bundles=[9, 32], apks=[34], tracks=[track('internal', 20), track('alpha', 33, 'draft')])
         self.assertEqual(publisher.Publisher(server).allocate_version(), 35)
@@ -136,12 +234,15 @@ class PublisherTests(unittest.TestCase):
         import io
         import urllib.error
         secret = 'private-token-should-never-appear'
+        response = io.BytesIO(secret.encode())
         def fail(request, **kwargs):
-            raise urllib.error.HTTPError(request.full_url, 403, secret, {}, io.BytesIO(secret.encode()))
+            raise urllib.error.HTTPError(request.full_url, 403, secret, {}, response)
         with self.assertRaises(publisher.ReleaseError) as error:
             publisher.HttpTransport(secret, opener=fail)('POST', '/edits', {})
         self.assertNotIn(secret, str(error.exception))
         self.assertIn('403', str(error.exception))
+        self.assertEqual(error.exception.http_status, 403)
+        self.assertTrue(response.closed)
 
 
 if __name__ == '__main__':
