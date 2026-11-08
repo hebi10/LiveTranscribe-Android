@@ -70,7 +70,7 @@ IP는 실제 처리 목적에 따라 분류하며, IP가 통신에 사용된다�
 
 Play App Signing은 최초 AAB 업로드 과정에서 등록·확인합니다. 업로드 인증서와 Google Play가 설치본에 사용하는 앱 서명 인증서는 역할이 다르므로 각각 기록하고 확인합니다. 기존 APK 인증서 가져오기는 필요하지 않습니다. 이전 직접 설치 APK는 새 Play 설치본과 호환되는 업데이트로 취급하지 않으며, 직접 배포용 APK와 Play 설치본도 서명 방식에 따라 다를 수 있습니다.
 
-개발자 정책 준수 선언·미국 수출법 동의를 거쳐 Console 앱 생성을 완료했습니다. 최초 서명 AAB 업로드와 Play App Signing 확인은 아직 남아 있습니다. 첫 AAB가 등록되고 Console의 패키지·업로드 및 앱 서명 인증서, 전용 계정의 필요한 Play 권한이 확인된 뒤 `PLAY_CONSOLE_INITIALIZED=true`를 설정합니다. 그 전에는 일반 자동 API 배포를 활성화하지 않습니다. 아래의 명시적 최초 `initialize`는 빈 앱에 내부 초안만 제출하는 별도 시도이며 이 변수를 변경하지 않습니다. 앱 생성과 내부 테스트 설치 가능 상태는 별개입니다.
+개발자 정책 준수 선언·미국 수출법 동의를 거쳐 Console 앱 생성을 완료했습니다. 일반 API 작업은 매 실행마다 인증 후 실제 등록 AAB·APK가 있는지 조회해 판단합니다. 수동으로 GitHub 초기화 변수를 바꾸지 않습니다. 아래의 명시적 최초 `initialize`는 빈 앱에 내부 초안만 제출하는 별도 시도이며 영구 변수를 변경하지 않습니다. 등록 바이너리 조회 성공이 Play App Signing 인증서 일치·게시·실제 설치까지 입증하는 것은 아니므로 각각 별도로 확인합니다.
 
 ## 자동화 설정
 
@@ -85,12 +85,14 @@ Play Console에서는 전용 서비스 계정이 이 앱에만 초대·활성화
 | 환경 | `google-play` 새 Play 빌드·서명·배포, `release-signing` 기존 수동 APK 경로 |
 | 서명 Secrets | `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_STORE_PASSWORD`, `ANDROID_RELEASE_KEY_ALIAS`, `ANDROID_RELEASE_KEY_PASSWORD`, `ANDROID_RELEASE_CERT_SHA256` |
 | 등록한 Play Variables | `PLAY_WORKLOAD_IDENTITY_PROVIDER`, `PLAY_SERVICE_ACCOUNT` |
-| 최초 업로드 확인 후 설정 | `PLAY_CONSOLE_INITIALIZED=true` |
+| 작업 내 자동 검증 입력 | `PLAY_CONSOLE_INITIALIZED` ← `steps.readiness.outputs.initialized` · 영구 저장하지 않음 |
 | 선택적 대체 인증 | `PLAY_SERVICE_ACCOUNT_JSON` (현재 미사용·미등록) |
 
 새 Play 워크플로의 `google-play` 환경은 main 브랜치만 허용하며, 준비한 새 업로드 키의 다섯 서명 Secrets를 등록했습니다. 기존 수동 APK 작업의 `release-signing` 환경에 있는 값은 전달되지 않으며, 그 환경에 새 키가 등록되었다고 가정하지 않습니다. 수동 APK 경로를 사용할 때도 별도로 main 제한과 서명 설정을 확인합니다. 인증 정보는 코드·출력·일반 문서에 기록하지 않습니다.
 
-`Private Android APK`의 정확한 main 커밋 검증이 성공한 뒤 내부 배포를 진행합니다. AAB·APK의 고정한 업로드 인증서, 모든 포함 네이티브 라이브러리의 ELF 정렬, APK ZIP 정렬, AAB의 16KB 설정을 검사합니다. 16KB 실기기 실행은 별도 검증 항목입니다. 버전 코드는 Play의 모든 트랙·APK·AAB보다 큰 값으로 할당하며 업로드 직전에 다시 확인합니다.
+`Private Android APK`의 정확한 main 커밋 검증이 성공한 뒤 내부 배포를 진행합니다. 단기 인증 후 `inspect --require-binary`가 실제 등록 번들·APK 및 편집 정리를 확인한 경우에만 `initialized=true`를 해당 스텝 출력에 씁니다. 빈 목록, 트랙의 버전만 있는 상태, API 오류, 편집 정리 실패는 출력을 만들지 않아 이후 작업이 중단됩니다. 일반 배포·스토어 변경·비공개 승격은 이 실행의 출력만 기존 CLI 가드에 전달하며, 이전 GitHub 변수 값으로 대체하지 않습니다.
+
+AAB·APK의 고정한 업로드 인증서, 모든 포함 네이티브 라이브러리의 ELF 정렬, APK ZIP 정렬, AAB의 16KB 설정을 검사합니다. 16KB 실기기 실행은 별도 검증 항목입니다. 버전 코드는 Play의 모든 트랙·APK·AAB보다 큰 값으로 할당하며 업로드 직전에 다시 확인합니다. 최초 `initialize`는 등록 바이너리 요구 검사를 건너뛰고 빌드 전·업로드 직전의 빈 목록을 확인하는 제한을 그대로 유지합니다.
 
 업로드한 AAB에 대해 Play가 반환하는 SHA-256과 실제 업로드 파일의 SHA-256이 같아야 트랙 변경과 커밋을 진행합니다. API 커밋 후 새 편집에서 버전·트랙·등록정보를 다시 읽고, Console의 심사·게시 상태와 실제 테스터 설치도 별도로 확인합니다. 프로덕션 배포는 이 작업 범위에 포함하지 않습니다.
 
@@ -103,15 +105,15 @@ GitHub Actions의 `Play internal release`에서 `Run workflow`를 누르고 `mai
 | `check` | 정확한 main 소스와 기존 검증을 확인하고, 단기 WIF 인증 후 이 앱의 번들·APK·트랙을 조회합니다. 미커밋 편집을 닫고 업로드·트랙 변경·배포 활성화는 하지 않습니다. |
 | `build` | 고정한 업로드 키로 AAB·APK를 빌드·검증해 Actions 산출물에 보관합니다. Play에 제출하지 않습니다. 최초 Console 업로드용 AAB도 이 모드로 만듭니다. |
 | `initialize` | 명시적으로 요청한 최초 AAB 제출입니다. 빌드 전과 업로드 직전의 번들·APK·모든 트랙 버전이 비어 있어야 하며, 고정 코드 14를 `internal`의 `draft`로만 제출·재조회합니다. 게시·App Signing 설정·초기화 변수 변경은 하지 않습니다. |
-| `deploy` | 최초 등록이 확인된 앱에서 현재 모든 Play 산출물보다 큰 버전 코드를 할당하고, 서명 빌드·검증 후 내부 테스트에 업로드·커밋·재조회합니다. |
+| `deploy` | 인증된 등록 바이너리 조회가 성공하면 현재 모든 Play 산출물보다 큰 버전 코드를 할당하고, 서명 빌드·검증 후 내부 테스트에 업로드·커밋·재조회합니다. 수동 변수 설정은 필요하지 않습니다. |
 
 정상적인 main 빌드가 성공하면 기본 자동 배포 대상은 내부 테스트입니다. 다만 검증된 main 커밋 **제목**에 독립 토큰 `[initialize-play]`가 있으면 그 커밋의 정확한 검증 실행에 한해 `initialize`를 선택합니다. 커밋 본문에 있는 예시나 PR·포크·태그·다른 브랜치는 이 최초 제출을 시작하지 않습니다. 내부 초안이 이미 있거나 다른 산출물이 등록되면 재실행은 중단됩니다. 비공개 테스트는 `Play closed promotion`에서 명시적으로 실행하며, 이미 내부 테스트에 등록한 정확한 버전만 `alpha`로 승격합니다. 새 번들을 비공개·프로덕션으로 바로 업로드하지 않습니다.
 
-[Google의 Edits 안내](https://developers.google.com/android-publisher/edits)는 최초 Console 업로드가 있는 기존 앱을 기준으로 설명합니다. 실제 이 앱의 [check 실행 #42495705657](https://github.com/hebi10/LiveTranscribe-Android/actions/runs/42495705657)에서는 WIF 인증과 편집 생성·번들·APK·트랙 조회가 성공했고 등록 버전은 없었습니다. 따라서 이전 보고서의 `requires_first_console_upload`는 빈 목록에 대한 클라이언트 안내였으며 Google가 업로드 요청을 거절한 결과가 아닙니다. 현재 출력은 중립적인 `requires_initial_upload`를 사용합니다. 사용자가 요청한 Actions 직접 제출을 `initialize`로 명시적으로 시도하며, 실제 업로드·검증·커밋 허용 여부는 그 실행에서 확인해야 합니다. 첫 AAB와 App Signing·인증서를 확인한 후에만 `PLAY_CONSOLE_INITIALIZED=true`를 설정합니다.
+[Google의 Edits 안내](https://developers.google.com/android-publisher/edits)는 최초 Console 업로드가 있는 기존 앱을 기준으로 설명합니다. 실제 이 앱의 [check 실행 #42495705657](https://github.com/hebi10/LiveTranscribe-Android/actions/runs/42495705657)에서는 WIF 인증과 편집 생성·번들·APK·트랙 조회가 성공했고 등록 버전은 없었습니다. 따라서 이전 보고서의 `requires_first_console_upload`는 빈 목록에 대한 클라이언트 안내였으며 Google가 업로드 요청을 거절한 결과가 아닙니다. 현재 출력은 중립적인 `requires_initial_upload`를 사용합니다. 명시적인 `initialize` 실행 #42500075887에서 최초 AAB 업로드·검증·초안 커밋이 실제로 성공했습니다. 이후 일반 작업은 인증된 등록 바이너리 조회 결과로 자동 판정합니다. App Signing 인증서·게시·실제 설치 검증은 이 판정과 별개입니다.
 
 접근 진단이 HTTP 403·404로 실패하면 안전한 보고서에 상태 코드만 기록합니다. 이는 등록·권한·설정 검토의 근거이며, 해당 코드만으로 원인을 단정하지 않습니다. 최초 제출의 실패 보고서는 단계·HTTP 상태와 허용한 canonical 오류 상태만 기록합니다. 커밋 응답이나 재조회가 불확실하면 Console 확인 전 자동 재시도하지 않습니다. 보고서에는 토큰·원문 응답·서명키를 포함하지 않습니다. 최초 제출도 App Signing·약관 동의·키 교체 API를 호출하지 않습니다.
 
-최초 제출 실행 #42497815200은 AAB 업로드·해시 확인·내부 초안 설정·검증을 통과했지만 최종 커밋에서 HTTP 400으로 중단됐습니다. 그 결과만으로 원인을 확정하지 않습니다. 다음 명시적 최초 제출에서도 새 inventory가 빈 상태인지 먼저 확인합니다. 커밋이 HTTP 400과 정확히 알려진 심사 보류 파라미터 금지 문장을 함께 반환한 경우에만 고정 reason `CHANGES_NOT_SENT_FOR_REVIEW_FORBIDDEN`으로 분류하고, 같은 편집의 커밋을 한 번만 해당 파라미터 없이 재시도합니다. `ERROR_IF_IN_REVIEW`는 유지하며 업로드·검증을 반복하지 않습니다. 다른 오류나 불확실한 응답은 재시도하지 않습니다. 실제 생략 시에만 `reviewHoldParameterOmitted`를 기록합니다.
+최초 제출 실행 #42497815200은 AAB 업로드·해시 확인·내부 초안 설정·검증을 통과했지만 최종 커밋에서 HTTP 400으로 중단됐습니다. 이후 [실행 #42500075887](https://github.com/hebi10/LiveTranscribe-Android/actions/runs/42500075887)은 새 inventory의 빈 상태를 확인하고 코드 14를 제출했습니다. 정확히 알려진 심사 보류 파라미터 금지 응답을 확인한 경우에만 같은 편집에서 해당 파라미터를 제외해 한 번 재시도했고, 커밋과 새 편집의 번들 해시·내부 초안 재조회까지 성공했습니다. 결과는 `initial_draft_committed_and_verified`, `reviewHoldParameterOmitted=true`이며 AAB SHA-256은 `515f1250fb1c3fd2d236dcb3a92021afa0374ee6905b97e68af3ccc60905da18`입니다. `ERROR_IF_IN_REVIEW`는 유지하며 업로드·검증을 반복하지 않습니다. 다른 오류나 불확실한 응답은 재시도하지 않습니다.
 
 이 예외에서 Google의 자동 심사 동작이 적용되면 Console에 대기 중인 다른 변경도 심사로 전송될 수 있습니다. [Google의 동시 작업 안내](https://developers.google.com/android-publisher/concurrency-considerations)에 명시된 동작입니다. 내부 바이너리는 계속 `draft`로만 제출되며, 이 파라미터 예외를 일반 배포·비공개 승격·스토어 변경에 적용하지 않습니다.
 
@@ -137,16 +139,17 @@ GitHub Actions의 `Play internal release`에서 `Run workflow`를 누르고 `mai
 | --- | --- |
 | Console 앱 생성 | 완료: 실시간 영상 번역 · `com.hebi.livetranslate` |
 | 기본 Console 신고·스토어 설정 | 개인정보처리방침 URL·로그인 제한 없음·광고 없음·정부 앱 아님·금융 및 건강 기능 없음·도구 분류·문의 이메일 저장 완료 |
-| Console 대시보드 | 12개 중 7개 완료 확인, 남은 5개는 콘텐츠 등급·대상 연령·Data Safety·판매자 상태·스토어 등록정보 |
+| 마지막 Console 대시보드 확인 | 12개 중 7개 완료 확인, 남은 5개는 콘텐츠 등급·대상 연령·Data Safety·판매자 상태·스토어 등록정보. API 제출 이후 화면은 별도 확인 필요 |
 | 남은 Console 등록 | 대상 연령·콘텐츠 등급·판매자 상태·스토어 문구 및 이미지 미완료, Data Safety는 내부 전용 예외 범위에서 미제출 유지 |
 | 신규 업로드 서명자 | 준비·인증서 일치 확인·main 전용 환경의 Secrets 등록·소유자 전용 백업 확인 완료 |
 | 전용 서비스 계정·WIF | Cloud 구성·GitHub 변수 등록·이 앱에 한정된 Play 계정 활성화와 권한 확인 완료, 실제 WIF·API 조회 성공 |
 | Actions API 접근 진단 | 2026-11-09 확인: 실행 #42495705657의 WIF·편집 생성·번들·APK·트랙 조회 성공, 등록 버전 없음 |
 | 최초 서명 AAB 빌드 | [실행 #42490409646](https://github.com/hebi10/LiveTranscribe-Android/actions/runs/42490409646) 성공: `1.3.1` · code `14` · `com.hebi.livetranslate`, 업로드 인증서 고정 검증과 AAB·APK 16KB 정렬 검사 통과 |
 | 릴리스 파일 보관 | 검증된 AAB·APK ZIP의 소유자 전용 보관 확인 완료 |
-| 최초 AAB 업로드·Play App Signing | 미완료: 기존 check는 조회만 수행함. 명시적 Actions `initialize`의 실제 최초 제출 결과와 App Signing 확인은 아직 남음 |
-| 자동 API 배포 활성화 | 미완료: `PLAY_CONSOLE_INITIALIZED` 미설정 상태 유지 |
-| 내부 테스트 준비 | `1.3.1 (14)` 초안의 출시 노트와 본인 테스터 목록 저장 완료, AAB가 없는 미게시 초안 |
-| 내부 테스트 | Console에서 주소를 확인했으나 현재 비활성 상태, 릴리스 게시·설치 가능 여부 확인 전 |
+| 최초 AAB API 제출 | [실행 #42500075887](https://github.com/hebi10/LiveTranscribe-Android/actions/runs/42500075887) 성공: 코드 14 · internal draft 커밋과 새 편집의 번들 해시·트랙 재조회 통과. 아직 게시된 버전은 아님 |
+| Play App Signing·게시 확인 | 설치용 앱 서명 인증서와 Console 게시 상태는 별도 확인 필요 |
+| 일반 API 작업의 등록 확인 | 인증된 `inspect --require-binary` 결과를 실행 중에만 전달하도록 구성, 수동 초기화 변수 설정 없음 · 실제 실행 검증은 별도 |
+| 내부 테스트 준비 | 본인 테스터 목록 저장 완료, `1.3.1 (14)` AAB가 API로 접수된 미게시 내부 초안 |
+| 내부 테스트 | API상 코드 14 초안 접수 확인, 완료 릴리스 제출·Console 게시·설치 가능 여부 확인 전 |
 
-확인된 내부 테스트 주소는 https://play.google.com/apps/internaltest/4701453452188240193 입니다. 주소 확보나 서명 빌드·API 조회 성공은 배포 완료를 의미하지 않습니다. 최초 AAB 제출 결과, 패키지·업로드 및 앱 서명 인증서 확인, 릴리스 게시와 실제 테스터 설치 확인을 순서대로 마무리해야 합니다. 명시적 최초 제출이 성공해도 일반 배포의 초기화 가드를 자동 해제하지 않습니다.
+확인된 내부 테스트 주소는 https://play.google.com/apps/internaltest/4701453452188240193 입니다. 주소 확보나 서명 빌드·API 조회 성공은 배포 완료를 의미하지 않습니다. 최초 AAB 초안 접수는 확인됐으며, 패키지·업로드 및 앱 서명 인증서 확인, 완료 릴리스 제출·게시와 실제 테스터 설치 확인을 순서대로 마무리해야 합니다. 일반 API 작업도 매 실행의 인증된 바이너리 존재 확인을 통과해야 하며, CLI 가드는 그대로 유지합니다.

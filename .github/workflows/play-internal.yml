@@ -89,11 +89,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-disabled: true
-      - name: Require first Console AAB upload and existing signer enrollment before API deployment
-        if: needs.source.outputs.mode == 'deploy'
-        env:
-          PLAY_CONSOLE_INITIALIZED: ${{ vars.PLAY_CONSOLE_INITIALIZED }}
-        run: python3 scripts/play/preflight.py bootstrap
       - name: Reject superseded source
         env:
           GH_TOKEN: ${{ github.token }}
@@ -135,11 +130,17 @@ jobs:
           token_format: access_token
           access_token_scopes: https://www.googleapis.com/auth/androidpublisher
           create_credentials_file: false
+      - name: Verify registered binary before normal API deployment
+        id: readiness
+        if: needs.source.outputs.mode == 'deploy'
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+        run: python3 scripts/play/publisher.py --report output/play-readiness.json inspect --require-binary
       - name: Allocate version above every Play bundle APK and track
         id: version
         if: needs.source.outputs.mode == 'deploy' || needs.source.outputs.mode == 'initialize'
         env:
-          PLAY_CONSOLE_INITIALIZED: ${{ vars.PLAY_CONSOLE_INITIALIZED }}
+          PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
           PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
           PLAY_RELEASE_MODE: ${{ needs.source.outputs.mode }}
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
@@ -204,7 +205,7 @@ jobs:
       - name: Submit internal release and require fresh Play readback
         if: needs.source.outputs.mode == 'deploy'
         env:
-          PLAY_CONSOLE_INITIALIZED: ${{ vars.PLAY_CONSOLE_INITIALIZED }}
+          PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
           PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
           VERSION_CODE: ${{ steps.version.outputs.version_code }}
           RELEASE_STATUS: ${{ inputs.release_status || 'completed' }}

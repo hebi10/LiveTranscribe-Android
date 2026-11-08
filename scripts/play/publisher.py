@@ -146,10 +146,12 @@ class Publisher:
             code = max(self.used_versions(edit) | {MIN_VERSION - 1}) + 1
             return version_code(code)
 
-    def inspect(self):
+    def inspect(self, require_binary=False):
         with self.edit(ignore_delete_error=False) as edit:
             inventory = self.inventory(edit)
             used = self.used_versions(edit, inventory)
+        if require_binary and not (inventory[0] or inventory[1]):
+            raise ReleaseError('No registered AAB or APK was found; complete the explicit initial upload before normal API changes')
         return {'package': PACKAGE,
                 'status': 'api_access_verified' if inventory[0] or inventory[1] else 'requires_initial_upload',
                 'highestVersionCode': max(used) if used else None,
@@ -304,7 +306,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--report', type=Path)
     sub = parser.add_subparsers(dest='command', required=True)
-    sub.add_parser('inspect')
+    inspect = sub.add_parser('inspect')
+    inspect.add_argument('--require-binary', action='store_true')
     sub.add_parser('allocate-first')
     initialize = sub.add_parser('initialize')
     initialize.add_argument('--bundle', required=True)
@@ -327,7 +330,10 @@ def main():
             require_initialized(os.environ)
         client = Publisher(HttpTransport(os.environ.get('PLAY_ACCESS_TOKEN', '')))
         if args.command == 'inspect':
-            result = client.inspect()
+            result = client.inspect(require_binary=args.require_binary)
+            if args.require_binary and os.environ.get('GITHUB_OUTPUT'):
+                with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+                    output.write('initialized=true\n')
         elif args.command in ('allocate', 'allocate-first'):
             code = client.allocate_first() if args.command == 'allocate-first' else client.allocate_version()
             result = {'package': PACKAGE, 'versionCode': code, 'status': 'version_allocated_not_uploaded'}

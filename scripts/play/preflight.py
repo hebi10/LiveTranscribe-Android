@@ -17,7 +17,7 @@ class PreflightError(RuntimeError):
 
 def require_initialized(env):
     if env.get('PLAY_CONSOLE_INITIALIZED', '').strip().lower() != 'true':
-        raise PreflightError('Console bootstrap is not confirmed. Build the signed AAB, upload it in Console with the existing app signer, complete Play App Signing, then set PLAY_CONSOLE_INITIALIZED=true. Nothing was deployed.')
+        raise PreflightError('Registered-binary readiness is not confirmed. Run authenticated inspect --require-binary and pass its verified runtime output before normal API changes. Nothing was deployed.')
 
 
 def auth_mode(env):

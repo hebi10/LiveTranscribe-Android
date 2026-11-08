@@ -74,10 +74,6 @@ jobs:
         with:
           ref: ${{ needs.source.outputs.sha }}
           persist-credentials: false
-      - name: Require completed first Console upload and App Signing bootstrap
-        env:
-          PLAY_CONSOLE_INITIALIZED: ${{ vars.PLAY_CONSOLE_INITIALIZED }}
-        run: python3 scripts/play/preflight.py bootstrap
       - name: Check Play authentication configuration
         id: credentials
         env:
@@ -104,6 +100,11 @@ jobs:
           token_format: access_token
           access_token_scopes: https://www.googleapis.com/auth/androidpublisher
           create_credentials_file: false
+      - name: Verify registered binary before API promotion
+        id: readiness
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+        run: python3 scripts/play/publisher.py --report output/play-readiness.json inspect --require-binary
       - name: Reject source superseded during verification
         env:
           GH_TOKEN: ${{ github.token }}
@@ -111,7 +112,7 @@ jobs:
         run: python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
       - name: Promote exact existing internal version without bundle upload
         env:
-          PLAY_CONSOLE_INITIALIZED: ${{ vars.PLAY_CONSOLE_INITIALIZED }}
+          PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
           PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
           VERSION_CODE: ${{ inputs.version_code }}
           KEEP_FOR_REVIEW: ${{ inputs.changes_not_sent_for_review }}
@@ -125,7 +126,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: play-closed-report-${{ github.run_id }}
-          path: output/play-promotion.json
+          path: |
+            output/play-promotion.json
+            output/play-readiness.json
           if-no-files-found: ignore
           retention-days: 30
 
