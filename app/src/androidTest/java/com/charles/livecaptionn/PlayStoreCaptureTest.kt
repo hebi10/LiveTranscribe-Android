@@ -21,6 +21,8 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -102,8 +104,18 @@ class PlayStoreCaptureTest {
     }
 
     private fun capture(directory: File, name: String) {
+        compose.mainClock.advanceTimeByFrame()
         compose.waitForIdle()
         instrumentation.waitForIdleSync()
+        val frameCommitted = CountDownLatch(1)
+        compose.runOnUiThread {
+            val view = compose.activity.window.decorView
+            view.viewTreeObserver.registerFrameCommitCallback { frameCommitted.countDown() }
+            view.postInvalidateOnAnimation()
+        }
+        assertTrue("The current Android frame must be committed before capture",
+            frameCommitted.await(10, TimeUnit.SECONDS))
+        instrumentation.uiAutomation.waitForIdle(1_000, 10_000)
         val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot()) {
             "Android did not return a device screenshot"
         }
@@ -115,6 +127,10 @@ class PlayStoreCaptureTest {
             }
         } finally {
             bitmap.recycle()
+        }
+        captureNames.lastOrNull()?.let { previous ->
+            assertTrue("Different app screens must not repeat the previous device frame",
+                !File(directory, name).readBytes().contentEquals(File(directory, previous).readBytes()))
         }
         captureNames += name
     }

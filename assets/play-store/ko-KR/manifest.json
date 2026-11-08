@@ -1,0 +1,34 @@
+{
+  "language": "ko-KR",
+  "images": {
+    "icon": [
+      "icon.png"
+    ],
+    "featureGraphic": [
+      "featureGraphic.png"
+    ],
+    "phoneScreenshots": [
+      "01-home-preparation.png",
+      "02-model-preparation.png",
+      "03-language-settings.png",
+      "05-history-empty.png"
+    ]
+  },
+  "provenance": {
+    "captureRun": "https://github.com/hebi10/LiveTranscribe-Android/actions/runs/42487257962",
+    "artifactId": 13619869006,
+    "capturedSourceRevision": "b6b3b47f5a970f0e5cbba8e5bd60d3622d2a788c",
+    "headRevision": "830bd4d710172d0399308142417b0a60757712d7",
+    "device": "API 35 x86_64 emulator; debug package",
+    "scope": "Real idle app UI and existing launcher resources. No model download, audio capture or inference exercised.",
+    "excluded": "04-privacy-settings.png repeated the previous rendered frame and was excluded after visual inspection.",
+    "sha256": {
+      "icon.png": "aba2c20d5869faff48141db178fdea0df33ae985ab94b57d615cf63d7d02e44f",
+      "featureGraphic.png": "73ee4b28102ae48cd6eea424e3600b050afc119ba613f4f0afe59cbb88651063",
+      "01-home-preparation.png": "15997c99516be7edbb5596903d742192158bfa0a2fefd5391d340a7971ed1c6f",
+      "02-model-preparation.png": "6f8d71ed8b1fa61fcdf59c58fd120c9464dbffd7e53ea9f313787b1340ce6124",
+      "03-language-settings.png": "ac22342ba2840a63feaa784820b1b0c75092e79450aa55ccdd45473795bcbae8",
+      "05-history-empty.png": "35c5a85872ec954b0370880c860b7716b7a84d67566b5a3ec43750bce84335a2"
+    }
+  }
+}

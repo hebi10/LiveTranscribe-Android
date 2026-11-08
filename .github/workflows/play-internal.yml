@@ -72,7 +72,6 @@ jobs:
       contents: read
       id-token: write
     env:
-      ANDROID_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/live-translate-release.jks
       ANDROID_RELEASE_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}
     steps:
       - uses: actions/checkout@v4
@@ -105,7 +104,9 @@ jobs:
           ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
-        run: python3 scripts/release_signing.py prepare --keystore "$ANDROID_RELEASE_KEYSTORE_PATH"
+        run: |
+          python3 scripts/release_signing.py prepare --keystore "$RUNNER_TEMP/live-translate-release.jks"
+          echo "ANDROID_RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/live-translate-release.jks" >> "$GITHUB_ENV"
       - name: Check Play authentication configuration
         id: credentials
         if: needs.source.outputs.mode == 'deploy'
