@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -17,6 +18,9 @@ API = 'https://androidpublisher.googleapis.com'
 BASE = f'/androidpublisher/v3/applications/{PACKAGE}'
 MIN_VERSION = 14
 MAX_VERSION = 2100000000
+API_STATUSES = {'CANCELLED', 'UNKNOWN', 'INVALID_ARGUMENT', 'DEADLINE_EXCEEDED', 'NOT_FOUND',
+                'ALREADY_EXISTS', 'PERMISSION_DENIED', 'RESOURCE_EXHAUSTED', 'FAILED_PRECONDITION',
+                'ABORTED', 'OUT_OF_RANGE', 'UNIMPLEMENTED', 'INTERNAL', 'UNAVAILABLE', 'DATA_LOSS', 'UNAUTHENTICATED'}
 
 
 class ReleaseError(RuntimeError):
@@ -24,9 +28,27 @@ class ReleaseError(RuntimeError):
 
 
 class PlayApiError(ReleaseError):
-    def __init__(self, method, status):
+    def __init__(self, method, status, api_status=None):
         self.http_status = status
+        self.api_status = api_status if api_status in API_STATUSES else None
         super().__init__(f'Play API {method} failed with HTTP {status}; inspect Console registration, permissions and validation')
+
+
+def require_initialization_request(env):
+    import source
+    try:
+        if env.get('PLAY_RELEASE_MODE') != 'initialize' or env.get('GITHUB_REF') != 'refs/heads/main':
+            raise ReleaseError('Initial upload requires an explicit trusted main initialize request')
+        event = {} if env.get('GITHUB_EVENT_NAME') == 'workflow_dispatch' else json.loads(Path(env['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
+        sha = source.resolve(env, event)
+        if sha != env.get('SOURCE_SHA'):
+            raise ReleaseError('Initialization source does not match the verified release source')
+        if env.get('GITHUB_EVENT_NAME') == 'workflow_run':
+            subject = subprocess.run(['git', 'show', '-s', '--format=%s', sha], capture_output=True, check=False, text=True)
+            if subject.returncode or source.release_mode(env, event, subject.stdout) != 'initialize':
+                raise ReleaseError('Automatic initialization requires the explicit trusted main subject marker')
+    except (source.SourceError, KeyError, OSError, ValueError):
+        raise ReleaseError('Initial upload request metadata is missing or untrusted') from None
 
 
 def version_code(value):
@@ -61,8 +83,20 @@ class HttpTransport:
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
             # Response bodies can contain supplied credentials or private listing data.
-            error.close()
-            raise PlayApiError(method, error.code) from None
+            api_status = None
+            try:
+                raw = error.read(65537)
+                if len(raw) <= 65536:
+                    payload = json.loads(raw)
+                    if isinstance(payload, dict) and isinstance(payload.get('error'), dict):
+                        candidate = payload['error'].get('status')
+                        if isinstance(candidate, str) and candidate in API_STATUSES:
+                            api_status = candidate
+            except (OSError, ValueError):
+                pass
+            finally:
+                error.close()
+            raise PlayApiError(method, error.code, api_status) from None
         except (urllib.error.URLError, TimeoutError, ValueError):
             raise ReleaseError('Play API request or response failed; no successful deployment can be claimed') from None
 
@@ -111,11 +145,76 @@ class Publisher:
             inventory = self.inventory(edit)
             used = self.used_versions(edit, inventory)
         return {'package': PACKAGE,
-                'status': 'api_access_verified' if inventory[0] or inventory[1] else 'requires_first_console_upload',
+                'status': 'api_access_verified' if inventory[0] or inventory[1] else 'requires_initial_upload',
                 'highestVersionCode': max(used) if used else None,
                 'deployment': 'not_attempted'}
 
-    def commit(self, edit, changes_not_sent_for_review=False):
+    @contextlib.contextmanager
+    def initial_stage(self, stage):
+        try:
+            yield
+        except (ReleaseError, KeyError, OSError, TypeError) as error:
+            if not isinstance(error, ReleaseError):
+                error = ReleaseError('Initial upload input or API response is invalid')
+            if not getattr(error, 'stage', None):
+                error.stage = stage
+            raise error from None
+
+    def require_empty(self, edit):
+        inventory = self.inventory(edit)
+        if inventory[0] or inventory[1] or self.used_versions(edit, inventory):
+            raise ReleaseError('First upload requires empty bundle, APK and track version inventories')
+
+    def allocate_first(self):
+        with self.initial_stage('inventory'), self.edit(ignore_delete_error=False) as edit:
+            self.require_empty(edit)
+        return MIN_VERSION
+
+    def initialize(self, bundle):
+        with self.initial_stage('edit_create'), self.edit() as edit:
+            with self.initial_stage('inventory'):
+                self.require_empty(edit)
+            with self.initial_stage('upload'):
+                bundle_bytes = Path(bundle).read_bytes()
+                bundle_hash = hashlib.sha256(bundle_bytes).hexdigest()
+                uploaded = self.request('POST', edit + '/bundles?uploadType=media', bundle_bytes, 'application/octet-stream')
+                if version_code(uploaded['versionCode']) != MIN_VERSION:
+                    raise ReleaseError('Initial bundle must have versionCode 14')
+                uploaded_hash = uploaded.get('sha256')
+                if not isinstance(uploaded_hash, str) or not re.fullmatch(r'[a-fA-F0-9]{64}', uploaded_hash) or uploaded_hash.lower() != bundle_hash:
+                    raise ReleaseError('Initial bundle SHA-256 does not match the verified local AAB')
+            with self.initial_stage('track_update'):
+                self.request('PUT', edit + '/tracks/internal', {'track': 'internal', 'releases': [
+                    {'name': '1.3.1 (14)', 'versionCodes': ['14'], 'status': 'draft'}]})
+            self.commit(edit, changes_not_sent_for_review=True, fail_if_in_review=True)
+        try:
+            with self.initial_stage('readback'), self.edit(ignore_delete_error=False) as edit:
+                bundles = self.request('GET', edit + '/bundles').get('bundles', [])
+                matches = [item for item in bundles if str(item.get('versionCode')) == str(MIN_VERSION)]
+                if len(matches) != 1 or not isinstance(matches[0].get('sha256'), str) or matches[0]['sha256'].lower() != bundle_hash:
+                    raise ReleaseError('Initial bundle readback does not match the uploaded AAB')
+                track = self.request('GET', edit + '/tracks/internal')
+                if not any(release.get('status') == 'draft' and release.get('versionCodes') == ['14'] for release in track.get('releases', [])):
+                    raise ReleaseError('Initial internal draft readback does not match versionCode 14')
+        except (ReleaseError, KeyError, TypeError) as error:
+            failure = ReleaseError('Initial draft committed but fresh readback failed; inspect Console before retrying')
+            failure.committed = True
+            failure.stage = 'readback'
+            if isinstance(error, PlayApiError):
+                failure.http_status, failure.api_status = error.http_status, error.api_status
+            raise failure from None
+        return {'package': PACKAGE, 'track': 'internal', 'versionCode': MIN_VERSION,
+                'releaseStatus': 'draft', 'status': 'initial_draft_committed_and_verified',
+                'uploadedBundleSHA256': bundle_hash, 'availability': 'draft_not_published',
+                'appSigning': 'requires_console_check', 'initializationFlagChanged': False}
+
+    def commit(self, edit, changes_not_sent_for_review=False, fail_if_in_review=False):
+        if fail_if_in_review:
+            with self.initial_stage('validate'):
+                self.request('POST', edit + ':validate', {})
+            with self.initial_stage('commit'):
+                self.request('POST', edit + ':commit?changesNotSentForReview=true&changesInReviewBehavior=ERROR_IF_IN_REVIEW', {})
+            return
         self.request('POST', edit + ':validate', {})
         query = '?changesNotSentForReview=true' if changes_not_sent_for_review else ''
         self.request('POST', edit + ':commit' + query, {})
@@ -185,6 +284,9 @@ def main():
     parser.add_argument('--report', type=Path)
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('inspect')
+    sub.add_parser('allocate-first')
+    initialize = sub.add_parser('initialize')
+    initialize.add_argument('--bundle', required=True)
     sub.add_parser('allocate')
     deploy = sub.add_parser('deploy')
     deploy.add_argument('--bundle', required=True)
@@ -198,17 +300,21 @@ def main():
     args = parser.parse_args()
     try:
         from preflight import require_initialized
-        if args.command != 'inspect':
+        if args.command in ('allocate-first', 'initialize'):
+            require_initialization_request(os.environ)
+        elif args.command != 'inspect':
             require_initialized(os.environ)
         client = Publisher(HttpTransport(os.environ.get('PLAY_ACCESS_TOKEN', '')))
         if args.command == 'inspect':
             result = client.inspect()
-        elif args.command == 'allocate':
-            code = client.allocate_version()
+        elif args.command in ('allocate', 'allocate-first'):
+            code = client.allocate_first() if args.command == 'allocate-first' else client.allocate_version()
             result = {'package': PACKAGE, 'versionCode': code, 'status': 'version_allocated_not_uploaded'}
             if os.environ.get('GITHUB_OUTPUT'):
                 with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
                     output.write(f'version_code={code}\n')
+        elif args.command == 'initialize':
+            result = client.initialize(args.bundle)
         elif args.command == 'deploy':
             result = client.deploy(args.bundle, args.version_code, release_status=args.status,
                                    changes_not_sent_for_review=args.changes_not_sent_for_review)
@@ -221,10 +327,22 @@ def main():
         return 0
     except (ReleaseError, KeyError, OSError, RuntimeError) as error:
         message = str(error) if isinstance(error, RuntimeError) else 'Release input or API response is invalid'
-        if args.command == 'inspect':
+        if args.command in ('inspect', 'allocate-first', 'initialize'):
             result = {'package': PACKAGE, 'status': 'api_preflight_blocked', 'deployment': 'not_attempted'}
-            if isinstance(error, PlayApiError):
+            if args.command != 'inspect':
+                result.update(status='initialization_committed_readback_failed' if getattr(error, 'committed', False) else 'initialization_blocked',
+                              stage=getattr(error, 'stage', 'request_guard'))
+                if args.command == 'initialize':
+                    result['deployment'] = 'not_published'
+                    if result['stage'] in ('commit', 'readback'):
+                        result['commitOutcome'] = 'unconfirmed'
+                        result['retry'] = 'inspect_console_before_retry'
+                if getattr(error, 'committed', False):
+                    result['draftReadback'] = 'not_verified'
+            if getattr(error, 'http_status', None) is not None:
                 result['httpStatus'] = error.http_status
+            if getattr(error, 'api_status', None) is not None:
+                result['apiStatus'] = error.api_status
             if args.report:
                 args.report.parent.mkdir(parents=True, exist_ok=True)
                 args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

@@ -73,14 +73,14 @@ class PublisherTests(unittest.TestCase):
             ('DELETE', '/edits/1', None)])
         self.assertFalse(server.committed)
 
-    def test_inspect_empty_app_requires_first_console_upload(self):
+    def test_inspect_empty_app_requires_initial_upload(self):
         result = publisher.Publisher(PlayServer()).inspect()
-        self.assertEqual(result['status'], 'requires_first_console_upload')
+        self.assertEqual(result['status'], 'requires_initial_upload')
         self.assertIsNone(result['highestVersionCode'])
 
     def test_inspect_track_codes_without_artifacts_do_not_confirm_first_upload(self):
         result = publisher.Publisher(PlayServer(tracks=[track('internal', 34)])).inspect()
-        self.assertEqual(result['status'], 'requires_first_console_upload')
+        self.assertEqual(result['status'], 'requires_initial_upload')
 
     def test_inspect_read_failure_still_closes_edit(self):
         server = PlayServer()

@@ -70,7 +70,7 @@ IP는 실제 처리 목적에 따라 분류하며, IP가 통신에 사용된다�
 
 Play App Signing은 최초 AAB 업로드 과정에서 등록·확인합니다. 업로드 인증서와 Google Play가 설치본에 사용하는 앱 서명 인증서는 역할이 다르므로 각각 기록하고 확인합니다. 기존 APK 인증서 가져오기는 필요하지 않습니다. 이전 직접 설치 APK는 새 Play 설치본과 호환되는 업데이트로 취급하지 않으며, 직접 배포용 APK와 Play 설치본도 서명 방식에 따라 다를 수 있습니다.
 
-개발자 정책 준수 선언·미국 수출법 동의를 거쳐 Console 앱 생성을 완료했습니다. 최초 서명 AAB 업로드와 Play App Signing 등록은 아직 남아 있습니다. 첫 AAB가 등록되고 Console의 패키지·업로드 및 앱 서명 인증서, 전용 계정의 필요한 Play 권한이 확인된 뒤 `PLAY_CONSOLE_INITIALIZED=true`를 설정합니다. 그 전에는 자동 API 배포를 활성화하지 않습니다. 앱 생성과 내부 테스트 설치 가능 상태는 별개입니다.
+개발자 정책 준수 선언·미국 수출법 동의를 거쳐 Console 앱 생성을 완료했습니다. 최초 서명 AAB 업로드와 Play App Signing 확인은 아직 남아 있습니다. 첫 AAB가 등록되고 Console의 패키지·업로드 및 앱 서명 인증서, 전용 계정의 필요한 Play 권한이 확인된 뒤 `PLAY_CONSOLE_INITIALIZED=true`를 설정합니다. 그 전에는 일반 자동 API 배포를 활성화하지 않습니다. 아래의 명시적 최초 `initialize`는 빈 앱에 내부 초안만 제출하는 별도 시도이며 이 변수를 변경하지 않습니다. 앱 생성과 내부 테스트 설치 가능 상태는 별개입니다.
 
 ## 자동화 설정
 
@@ -102,18 +102,21 @@ GitHub Actions의 `Play internal release`에서 `Run workflow`를 누르고 `mai
 | --- | --- |
 | `check` | 정확한 main 소스와 기존 검증을 확인하고, 단기 WIF 인증 후 이 앱의 번들·APK·트랙을 조회합니다. 미커밋 편집을 닫고 업로드·트랙 변경·배포 활성화는 하지 않습니다. |
 | `build` | 고정한 업로드 키로 AAB·APK를 빌드·검증해 Actions 산출물에 보관합니다. Play에 제출하지 않습니다. 최초 Console 업로드용 AAB도 이 모드로 만듭니다. |
+| `initialize` | 명시적으로 요청한 최초 AAB 제출입니다. 빌드 전과 업로드 직전의 번들·APK·모든 트랙 버전이 비어 있어야 하며, 고정 코드 14를 `internal`의 `draft`로만 제출·재조회합니다. 게시·App Signing 설정·초기화 변수 변경은 하지 않습니다. |
 | `deploy` | 최초 등록이 확인된 앱에서 현재 모든 Play 산출물보다 큰 버전 코드를 할당하고, 서명 빌드·검증 후 내부 테스트에 업로드·커밋·재조회합니다. |
 
-정상적인 main 빌드가 성공하면 기본 자동 배포 대상은 내부 테스트입니다. 비공개 테스트는 `Play closed promotion`에서 명시적으로 실행하며, 이미 내부 테스트에 등록한 정확한 버전만 `alpha`로 승격합니다. 새 번들을 비공개·프로덕션으로 바로 업로드하지 않습니다.
+정상적인 main 빌드가 성공하면 기본 자동 배포 대상은 내부 테스트입니다. 다만 검증된 main 커밋 **제목**에 독립 토큰 `[initialize-play]`가 있으면 그 커밋의 정확한 검증 실행에 한해 `initialize`를 선택합니다. 커밋 본문에 있는 예시나 PR·포크·태그·다른 브랜치는 이 최초 제출을 시작하지 않습니다. 내부 초안이 이미 있거나 다른 산출물이 등록되면 재실행은 중단됩니다. 비공개 테스트는 `Play closed promotion`에서 명시적으로 실행하며, 이미 내부 테스트에 등록한 정확한 버전만 `alpha`로 승격합니다. 새 번들을 비공개·프로덕션으로 바로 업로드하지 않습니다.
 
-[Google의 Edits 안내](https://developers.google.com/android-publisher/edits)는 Console을 통한 최소 한 번의 최초 업로드를 요구합니다. `check`의 인증 성공이나 앱 생성만으로 이 요건이 충족되지 않습니다. 첫 AAB와 App Signing·인증서를 확인한 후에만 `PLAY_CONSOLE_INITIALIZED=true`를 설정합니다.
+[Google의 Edits 안내](https://developers.google.com/android-publisher/edits)는 최초 Console 업로드가 있는 기존 앱을 기준으로 설명합니다. 실제 이 앱의 [check 실행 #42495705657](https://github.com/hebi10/LiveTranscribe-Android/actions/runs/42495705657)에서는 WIF 인증과 편집 생성·번들·APK·트랙 조회가 성공했고 등록 버전은 없었습니다. 따라서 이전 보고서의 `requires_first_console_upload`는 빈 목록에 대한 클라이언트 안내였으며 Google가 업로드 요청을 거절한 결과가 아닙니다. 현재 출력은 중립적인 `requires_initial_upload`를 사용합니다. 사용자가 요청한 Actions 직접 제출을 `initialize`로 명시적으로 시도하며, 실제 업로드·검증·커밋 허용 여부는 그 실행에서 확인해야 합니다. 첫 AAB와 App Signing·인증서를 확인한 후에만 `PLAY_CONSOLE_INITIALIZED=true`를 설정합니다.
 
-접근 진단이 HTTP 403·404로 실패하면 안전한 보고서에 상태 코드만 기록합니다. 이는 등록·권한·설정 검토의 근거이며, 해당 코드만으로 원인을 단정하지 않습니다. 조회는 성공했지만 등록 AAB·APK가 없으면 `requires_first_console_upload`로 구분합니다. 보고서에는 토큰·원문 응답·서명키를 포함하지 않습니다.
+접근 진단이 HTTP 403·404로 실패하면 안전한 보고서에 상태 코드만 기록합니다. 이는 등록·권한·설정 검토의 근거이며, 해당 코드만으로 원인을 단정하지 않습니다. 최초 제출의 실패 보고서는 단계·HTTP 상태와 허용한 canonical 오류 상태만 기록합니다. 커밋 응답이나 재조회가 불확실하면 Console 확인 전 자동 재시도하지 않습니다. 보고서에는 토큰·원문 응답·서명키를 포함하지 않습니다. 최초 제출도 App Signing·약관 동의·키 교체 API를 호출하지 않습니다.
 
 ## 공식 근거
 
 - https://support.google.com/googleplay/android-developer/answer/10787469
 - https://developers.google.com/android-publisher/edits
+- https://developers.google.com/android-publisher/api-ref/rest/v3/edits.bundles/upload
+- https://developers.google.com/android-publisher/api-ref/rest/v3/edits/commit
 - https://developer.android.com/guide/practices/page-sizes
 - https://developer.android.com/develop/background-work/services/fgs/service-types
 - https://support.google.com/googleplay/android-developer/answer/14094294
@@ -133,12 +136,13 @@ GitHub Actions의 `Play internal release`에서 `Run workflow`를 누르고 `mai
 | Console 대시보드 | 12개 중 7개 완료 확인, 남은 5개는 콘텐츠 등급·대상 연령·Data Safety·판매자 상태·스토어 등록정보 |
 | 남은 Console 등록 | 대상 연령·콘텐츠 등급·판매자 상태·스토어 문구 및 이미지 미완료, Data Safety는 내부 전용 예외 범위에서 미제출 유지 |
 | 신규 업로드 서명자 | 준비·인증서 일치 확인·main 전용 환경의 Secrets 등록·소유자 전용 백업 확인 완료 |
-| 전용 서비스 계정·WIF | Cloud 구성·GitHub 변수 등록·이 앱에 한정된 Play 계정 활성화와 권한 확인 완료, 실제 API 접근은 검증 전 |
+| 전용 서비스 계정·WIF | Cloud 구성·GitHub 변수 등록·이 앱에 한정된 Play 계정 활성화와 권한 확인 완료, 실제 WIF·API 조회 성공 |
+| Actions API 접근 진단 | 2026-11-09 확인: 실행 #42495705657의 WIF·편집 생성·번들·APK·트랙 조회 성공, 등록 버전 없음 |
 | 최초 서명 AAB 빌드 | [실행 #42490409646](https://github.com/hebi10/LiveTranscribe-Android/actions/runs/42490409646) 성공: `1.3.1` · code `14` · `com.hebi.livetranslate`, 업로드 인증서 고정 검증과 AAB·APK 16KB 정렬 검사 통과 |
 | 릴리스 파일 보관 | 검증된 AAB·APK ZIP의 소유자 전용 보관 확인 완료 |
-| 최초 AAB 업로드·Play App Signing | 미완료: Console이 아직 첫 AAB를 수신하지 않음, 사용자의 최초 파일 업로드 단계로 인계 |
+| 최초 AAB 업로드·Play App Signing | 미완료: 기존 check는 조회만 수행함. 명시적 Actions `initialize`의 실제 최초 제출 결과와 App Signing 확인은 아직 남음 |
 | 자동 API 배포 활성화 | 미완료: `PLAY_CONSOLE_INITIALIZED` 미설정 상태 유지 |
 | 내부 테스트 준비 | `1.3.1 (14)` 초안의 출시 노트와 본인 테스터 목록 저장 완료, AAB가 없는 미게시 초안 |
 | 내부 테스트 | Console에서 주소를 확인했으나 현재 비활성 상태, 릴리스 게시·설치 가능 여부 확인 전 |
 
-확인된 내부 테스트 주소는 https://play.google.com/apps/internaltest/4701453452188240193 입니다. 주소 확보나 서명 빌드 성공은 배포 완료를 의미하지 않습니다. 사용자가 Console에서 최초 AAB 파일을 업로드한 뒤 패키지·업로드 및 앱 서명 인증서 확인, 릴리스 게시, API 접근·읽기 확인과 실제 테스터 설치 확인을 순서대로 마무리해야 합니다. 최초 업로드 전에는 부트스트랩 가드를 해제하지 않습니다.
+확인된 내부 테스트 주소는 https://play.google.com/apps/internaltest/4701453452188240193 입니다. 주소 확보나 서명 빌드·API 조회 성공은 배포 완료를 의미하지 않습니다. 최초 AAB 제출 결과, 패키지·업로드 및 앱 서명 인증서 확인, 릴리스 게시와 실제 테스터 설치 확인을 순서대로 마무리해야 합니다. 명시적 최초 제출이 성공해도 일반 배포의 초기화 가드를 자동 해제하지 않습니다.

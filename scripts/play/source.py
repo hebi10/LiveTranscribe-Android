@@ -43,6 +43,17 @@ def require_current_main(sha, current_main):
         raise SourceError('Release source is stale; rerun from the current verified main commit')
 
 
+def release_mode(env, event, commit_subject):
+    resolve(env, event)
+    if env.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
+        mode = env.get('PLAY_REQUESTED_MODE', 'check')
+        if mode not in ('check', 'build', 'deploy', 'initialize'):
+            raise SourceError('Unsupported Play release mode')
+        return mode
+    subject = commit_subject.splitlines()[0] if commit_subject else ''
+    return 'initialize' if re.search(r'(?<!\S)\[initialize-play\](?!\S)', subject) else 'deploy'
+
+
 def verify_ci(sha, run, jobs):
     if (run.get('head_sha') != sha or run.get('head_branch') != 'main' or run.get('conclusion') != 'success'
             or run.get('event') not in ('push', 'workflow_dispatch') or run.get('path') != WORKFLOW):
@@ -86,8 +97,12 @@ def main():
         run = max(candidates, key=lambda value: value['id'])
         jobs = gh(f'repos/{REPO}/actions/runs/{run["id"]}/jobs?per_page=100')['jobs']
         verify_ci(sha, run, jobs)
+        subject = subprocess.run(['git', 'show', '-s', '--format=%s', sha], capture_output=True, check=False, text=True)
+        if subject.returncode:
+            raise SourceError('Could not inspect the trusted release commit subject')
+        mode = release_mode(os.environ, event, subject.stdout)
         with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-            output.write(f'sha={sha}\nverify_run_id={run["id"]}\n')
+            output.write(f'sha={sha}\nverify_run_id={run["id"]}\nrelease_mode={mode}\n')
         print(f'Trusted main source {sha}; required CI run {run["id"]} passed')
         return 0
     except (SourceError, KeyError, OSError, ValueError) as error:
