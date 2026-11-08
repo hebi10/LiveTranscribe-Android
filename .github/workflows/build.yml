@@ -36,10 +36,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Verify source privacy contract
         run: python scripts/audit_privacy.py
+      - name: Validate GitHub Actions expressions and workflow structure
+        run: |
+          curl --fail --location --retry 2 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz --output "$RUNNER_TEMP/actionlint.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar --extract --gzip --file "$RUNNER_TEMP/actionlint.tar.gz" --directory "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes= .github/workflows/*.yml
       - name: Python regression tests
         run: |
           python -m unittest discover -s scripts -p 'test_*.py'
           python -m unittest discover -s scripts/play/tests -v
+      - name: Validate reviewed Korean store text and real image inputs
+        run: python scripts/play/listing.py check
       - name: Cache pinned speech support and language-ID assets
         uses: actions/cache@v4
         with:
