@@ -21,6 +21,8 @@ MAX_VERSION = 2100000000
 API_STATUSES = {'CANCELLED', 'UNKNOWN', 'INVALID_ARGUMENT', 'DEADLINE_EXCEEDED', 'NOT_FOUND',
                 'ALREADY_EXISTS', 'PERMISSION_DENIED', 'RESOURCE_EXHAUSTED', 'FAILED_PRECONDITION',
                 'ABORTED', 'OUT_OF_RANGE', 'UNIMPLEMENTED', 'INTERNAL', 'UNAVAILABLE', 'DATA_LOSS', 'UNAUTHENTICATED'}
+REVIEW_HOLD_FORBIDDEN_MESSAGE = 'Changes are sent for review automatically. The query parameter changesNotSentForReview must not be set.'
+REVIEW_HOLD_FORBIDDEN_REASON = 'CHANGES_NOT_SENT_FOR_REVIEW_FORBIDDEN'
 
 
 class ReleaseError(RuntimeError):
@@ -28,9 +30,10 @@ class ReleaseError(RuntimeError):
 
 
 class PlayApiError(ReleaseError):
-    def __init__(self, method, status, api_status=None):
+    def __init__(self, method, status, api_status=None, safe_reason=None):
         self.http_status = status
         self.api_status = api_status if api_status in API_STATUSES else None
+        self.safe_reason = safe_reason if safe_reason == REVIEW_HOLD_FORBIDDEN_REASON else None
         super().__init__(f'Play API {method} failed with HTTP {status}; inspect Console registration, permissions and validation')
 
 
@@ -84,6 +87,7 @@ class HttpTransport:
         except urllib.error.HTTPError as error:
             # Response bodies can contain supplied credentials or private listing data.
             api_status = None
+            safe_reason = None
             try:
                 raw = error.read(65537)
                 if len(raw) <= 65536:
@@ -92,11 +96,13 @@ class HttpTransport:
                         candidate = payload['error'].get('status')
                         if isinstance(candidate, str) and candidate in API_STATUSES:
                             api_status = candidate
+                        if error.code == 400 and payload['error'].get('message') == REVIEW_HOLD_FORBIDDEN_MESSAGE:
+                            safe_reason = REVIEW_HOLD_FORBIDDEN_REASON
             except (OSError, ValueError):
                 pass
             finally:
                 error.close()
-            raise PlayApiError(method, error.code, api_status) from None
+            raise PlayApiError(method, error.code, api_status, safe_reason) from None
         except (urllib.error.URLError, TimeoutError, ValueError):
             raise ReleaseError('Play API request or response failed; no successful deployment can be claimed') from None
 
@@ -186,7 +192,7 @@ class Publisher:
             with self.initial_stage('track_update'):
                 self.request('PUT', edit + '/tracks/internal', {'track': 'internal', 'releases': [
                     {'name': '1.3.1 (14)', 'versionCodes': ['14'], 'status': 'draft'}]})
-            self.commit(edit, changes_not_sent_for_review=True, fail_if_in_review=True)
+            commit_result = self.commit(edit, changes_not_sent_for_review=True, fail_if_in_review=True)
         try:
             with self.initial_stage('readback'), self.edit(ignore_delete_error=False) as edit:
                 bundles = self.request('GET', edit + '/bundles').get('bundles', [])
@@ -202,18 +208,33 @@ class Publisher:
             failure.stage = 'readback'
             if isinstance(error, PlayApiError):
                 failure.http_status, failure.api_status = error.http_status, error.api_status
+            if commit_result:
+                failure.review_hold_parameter_omitted = True
             raise failure from None
-        return {'package': PACKAGE, 'track': 'internal', 'versionCode': MIN_VERSION,
+        result = {'package': PACKAGE, 'track': 'internal', 'versionCode': MIN_VERSION,
                 'releaseStatus': 'draft', 'status': 'initial_draft_committed_and_verified',
                 'uploadedBundleSHA256': bundle_hash, 'availability': 'draft_not_published',
                 'appSigning': 'requires_console_check', 'initializationFlagChanged': False}
+        if commit_result:
+            result.update(commit_result)
+        return result
 
     def commit(self, edit, changes_not_sent_for_review=False, fail_if_in_review=False):
         if fail_if_in_review:
             with self.initial_stage('validate'):
                 self.request('POST', edit + ':validate', {})
             with self.initial_stage('commit'):
-                self.request('POST', edit + ':commit?changesNotSentForReview=true&changesInReviewBehavior=ERROR_IF_IN_REVIEW', {})
+                try:
+                    self.request('POST', edit + ':commit?changesNotSentForReview=true&changesInReviewBehavior=ERROR_IF_IN_REVIEW', {})
+                except PlayApiError as error:
+                    if error.http_status != 400 or error.safe_reason != REVIEW_HOLD_FORBIDDEN_REASON:
+                        raise
+                    try:
+                        self.request('POST', edit + ':commit?changesInReviewBehavior=ERROR_IF_IN_REVIEW', {})
+                    except ReleaseError as retry_error:
+                        retry_error.review_hold_parameter_omitted = True
+                        raise
+                    return {'reviewHoldParameterOmitted': True, 'reason': REVIEW_HOLD_FORBIDDEN_REASON}
             return
         self.request('POST', edit + ':validate', {})
         query = '?changesNotSentForReview=true' if changes_not_sent_for_review else ''
@@ -343,6 +364,8 @@ def main():
                 result['httpStatus'] = error.http_status
             if getattr(error, 'api_status', None) is not None:
                 result['apiStatus'] = error.api_status
+            if getattr(error, 'review_hold_parameter_omitted', False):
+                result.update(reviewHoldParameterOmitted=True, reason=REVIEW_HOLD_FORBIDDEN_REASON)
             if args.report:
                 args.report.parent.mkdir(parents=True, exist_ok=True)
                 args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
