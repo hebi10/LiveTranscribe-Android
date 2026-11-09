@@ -8,7 +8,7 @@ data class OverlayTheme(val id: String, val label: String, val backgroundRgb: In
 object OverlayThemeCatalog {
     const val FREE_THEME_ID = "default"
     val THEMES: List<OverlayTheme> = listOf(
-        OverlayTheme("default", "기본", Color.rgb(17, 17, 17), Color.WHITE),
+        OverlayTheme("default", "기본", Color.rgb(16, 16, 16), Color.WHITE),
         OverlayTheme("highContrast", "고대비", Color.BLACK, Color.WHITE)
     )
     fun find(id: String): OverlayTheme = THEMES.firstOrNull { it.id == id } ?: THEMES.first()
