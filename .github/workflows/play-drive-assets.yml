@@ -1,4 +1,4 @@
-name: Play approved Drive image set
+name: Play approved store images
 
 on:
   workflow_run:
@@ -91,21 +91,19 @@ jobs:
           set -euo pipefail
           [[ -n "$PLAY_WORKLOAD_IDENTITY_PROVIDER" && -n "$PLAY_SERVICE_ACCOUNT" ]] ||
             { echo 'App-specific Workload Identity Federation is not configured.' >&2; exit 1; }
-      - name: Authenticate for read-only Drive asset and Play editing
+      - name: Authenticate for Play editing
         id: auth
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.PLAY_SERVICE_ACCOUNT }}
           token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/androidpublisher,https://www.googleapis.com/auth/drive.readonly
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
           create_credentials_file: false
-      - name: Fetch and verify fixed digest store image ZIP
+      - name: Verify committed SHA-pinned store image ZIP
         id: images
-        env:
-          PLAY_DRIVE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: python3 scripts/play/drive_assets.py
-      - name: Reject stale source after downloading images
+      - name: Reject stale source after verifying images
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
