@@ -19,7 +19,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: play-com-hebi-livetranslate
+  group: play-com-hebi-livetranslate-store-images
   cancel-in-progress: false
 
 jobs:
