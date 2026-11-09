@@ -755,11 +755,11 @@ class CaptionForegroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(uiStrings["Captioning in progress"])
             .setContentText(uiStrings["Listening and translating speech."])
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(R.drawable.ic_overlay_captions)
             .setContentIntent(pending)
             .setOngoing(true)
-            .addAction(android.R.drawable.ic_media_pause, uiStrings["Pause/Resume"], pauseIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, uiStrings["Stop"], stopIntent)
+            .addAction(R.drawable.ic_overlay_pause, uiStrings["Pause/Resume"], pauseIntent)
+            .addAction(R.drawable.ic_overlay_close, uiStrings["Stop"], stopIntent)
             .build()
     }
 

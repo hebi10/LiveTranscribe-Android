@@ -19,14 +19,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.VerticalSplit
-import androidx.compose.material.icons.filled.PictureInPictureAlt
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
+import androidx.compose.material.icons.outlined.Subtitles
+import androidx.compose.material.icons.outlined.VerticalSplit
+import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalButton
@@ -108,13 +108,13 @@ fun MainScreen(
             TopAppBar(
                 title = {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Filled.Translate, contentDescription = null)
+                        Icon(Icons.Outlined.Subtitles, contentDescription = null)
                         Text("실시간 영상 번역", fontWeight = FontWeight.SemiBold)
                     }
                 },
                 actions = {
                     IconButton(onClick = onHistory) {
-                        Icon(Icons.Filled.History, contentDescription = "번역 기록")
+                        Icon(Icons.Outlined.History, contentDescription = "번역 기록")
                     }
                 }
             )
@@ -137,7 +137,7 @@ fun MainScreen(
                         )) {
                             val selected = ui.settings.captionPlacement == placement
                             val icon = if (placement == CaptionPlacement.SPLIT_SCREEN)
-                                Icons.Filled.VerticalSplit else Icons.Filled.PictureInPictureAlt
+                                Icons.Outlined.VerticalSplit else Icons.Outlined.PictureInPictureAlt
                             val content: @Composable () -> Unit = {
                                 Icon(icon, contentDescription = null)
                                 Text(label, modifier = Modifier.padding(start = 8.dp))
@@ -386,7 +386,7 @@ private fun StartSetupGuidance(
         if (setup.isComplete) {
             TextButton(onClick = { showCompletedDetails = !showCompletedDetails }) {
                 Text(if (showCompletedDetails) "준비 항목 접기" else "준비 항목 확인")
-                Icon(if (showCompletedDetails) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                Icon(if (showCompletedDetails) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
                     contentDescription = null)
             }
         } else {
@@ -502,7 +502,7 @@ private fun SetupChecklistItem(
     content: @Composable () -> Unit = {}
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Icon(if (completed) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+        Icon(if (completed) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
             contentDescription = null, modifier = Modifier.padding(top = 2.dp),
             tint = if (completed || next) MaterialTheme.colorScheme.onSurface
                 else MaterialTheme.colorScheme.onSurfaceVariant)

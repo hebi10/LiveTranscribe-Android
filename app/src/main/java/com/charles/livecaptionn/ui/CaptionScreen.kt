@@ -15,12 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.HelpOutline
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -127,15 +127,15 @@ fun CaptionScreen(
                     IconButton(onClick = if (busy) onPauseResume else if (ui.canStart) onStart else onSettings,
                         enabled = !stopping && !startPending, modifier = Modifier.size(48.dp)) {
                         val paused = ui.runtime.paused || !busy
-                        Icon(if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        Icon(if (paused) Icons.Outlined.PlayArrow else Icons.Outlined.Pause,
                             contentDescription = if (!busy) { if (ui.canStart) "번역 시작" else "시작 준비" }
                             else if (paused) "번역 계속" else "번역 일시정지")
                     }
                     if (busy) IconButton(onClick = onStop, enabled = !stopping, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Default.Stop, contentDescription = if (startPending) "시작 취소" else "번역 종료")
+                        Icon(Icons.Outlined.Stop, contentDescription = if (startPending) "시작 취소" else "번역 종료")
                     }
                     IconButton(onClick = { showMore = true }, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "자막 설정 및 더 보기")
+                        Icon(Icons.Outlined.MoreVert, contentDescription = "자막 설정 및 더 보기")
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -176,11 +176,11 @@ fun CaptionScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = onChooseApp, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                            Icon(Icons.Default.Apps, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Outlined.Apps, contentDescription = null, modifier = Modifier.size(20.dp))
                             Text("함께 볼 앱 선택", Modifier.padding(start = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         IconButton(onClick = onSplitHelp, modifier = Modifier.size(48.dp)) {
-                            Icon(Icons.Default.HelpOutline, contentDescription = "분할 화면 안내")
+                            Icon(Icons.Outlined.HelpOutline, contentDescription = "분할 화면 안내")
                         }
                     }
                 }
