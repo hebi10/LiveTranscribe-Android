@@ -8,7 +8,6 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNode
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -84,7 +83,7 @@ class HistoryUiCaptureTest {
         capture(output, "qa-11-history-no-results.png")
 
         compose.onNodeWithContentDescription("검색어 지우기").performClick()
-        compose.onAllNodesWithContentDescription("삭제").onFirst().performClick()
+        compose.onAllNodesWithContentDescription("삭제")[0].performClick()
         compose.onNodeWithText("기록 삭제").assertIsDisplayed()
         capture(output, "qa-12-history-delete-confirm.png")
         compose.onNodeWithText("취소").performClick()
