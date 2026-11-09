@@ -155,12 +155,14 @@ fun MainScreen(
                         }
                         if (action.kind == HomeActionKind.STOP) {
                             OutlinedButton(
+                                shape = RectangleShape,
                                 onClick = onStop,
                                 enabled = action.enabled,
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             ) { Text(action.label) }
                         } else {
                             Button(
+                                shape = RectangleShape,
                                 onClick = onStart,
                                 enabled = action.enabled,
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -231,11 +233,13 @@ fun MainScreen(
                             Text(label, modifier = Modifier.padding(start = 8.dp))
                         }
                         if (selected) FilledTonalButton(
+                            shape = RectangleShape,
                             onClick = { viewModel.updateCaptionPlacement(placement) },
                             enabled = !sessionBusy,
                             modifier = Modifier.semantics { this.selected = true }
                         ) { content() }
                         else OutlinedButton(
+                            shape = RectangleShape,
                             onClick = { viewModel.updateCaptionPlacement(placement) },
                             enabled = !sessionBusy,
                             modifier = Modifier.semantics { this.selected = false }
@@ -251,7 +255,7 @@ fun MainScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN) {
-                    OutlinedButton(onClick = onOpenCaptions, enabled = !startPending,
+                    OutlinedButton(shape = RectangleShape, onClick = onOpenCaptions, enabled = !startPending,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                         Text(if (ui.runtime.running || ui.runtime.transcriptLines.isNotEmpty())
                             "자막 화면으로" else "자막 화면 미리 보기")
@@ -266,21 +270,25 @@ fun MainScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     val system = ui.settings.audioSource == AudioSource.SYSTEM
                     if (system) FilledTonalButton(
+                        shape = RectangleShape,
                         onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
                         enabled = !sessionBusy,
                         modifier = Modifier.semantics { selected = true }
                     ) { Text("동영상 음성") }
                     else OutlinedButton(
+                        shape = RectangleShape,
                         onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
                         enabled = !sessionBusy,
                         modifier = Modifier.semantics { selected = false }
                     ) { Text("동영상 음성") }
                     if (!system) FilledTonalButton(
+                        shape = RectangleShape,
                         onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
                         enabled = !sessionBusy,
                         modifier = Modifier.semantics { selected = true }
                     ) { Text("마이크") }
                     else OutlinedButton(
+                        shape = RectangleShape,
                         onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
                         enabled = !sessionBusy,
                         modifier = Modifier.semantics { selected = false }
@@ -304,11 +312,13 @@ fun MainScreen(
                     )) {
                         val selected = ui.settings.sourceLanguageCode == code
                         if (selected) FilledTonalButton(
+                            shape = RectangleShape,
                             onClick = { viewModel.selectSourceLanguage(code) },
                             enabled = !sessionBusy,
                             modifier = Modifier.semantics { this.selected = true }
                         ) { Text(label) }
                         else OutlinedButton(
+                            shape = RectangleShape,
                             onClick = { viewModel.selectSourceLanguage(code) },
                             enabled = !sessionBusy,
                             modifier = Modifier.semantics { this.selected = false }
@@ -349,10 +359,12 @@ fun MainScreen(
                         )) {
                             val selected = ui.settings.captionDisplayMode == mode
                             if (selected) FilledTonalButton(
+                                shape = RectangleShape,
                                 onClick = { viewModel.updateCaptionDisplayMode(mode) },
                                 modifier = Modifier.semantics { this.selected = true }
                             ) { Text(label) }
                             else OutlinedButton(
+                                shape = RectangleShape,
                                 onClick = { viewModel.updateCaptionDisplayMode(mode) },
                                 modifier = Modifier.semantics { this.selected = false }
                             ) { Text(label) }
@@ -377,7 +389,7 @@ fun MainScreen(
                         Text("팝업 불투명도: " + (ui.settings.overlayOpacity * 100).toInt() + "%")
                         Slider(value = ui.settings.overlayOpacity, onValueChange = viewModel::updateOpacity,
                             valueRange = 0.2f..1f)
-                        OutlinedButton(onClick = viewModel::resetOverlayPosition) {
+                        OutlinedButton(shape = RectangleShape, onClick = viewModel::resetOverlayPosition) {
                             Text("팝업 위치·크기 초기화")
                         }
                     }
@@ -395,10 +407,12 @@ fun MainScreen(
                         )) {
                             val selected = ui.settings.appThemeMode == mode
                             if (selected) FilledTonalButton(
+                                shape = RectangleShape,
                                 onClick = { viewModel.updateAppThemeMode(mode) },
                                 modifier = Modifier.semantics { this.selected = true }
                             ) { Text(label) }
                             else OutlinedButton(
+                                shape = RectangleShape,
                                 onClick = { viewModel.updateAppThemeMode(mode) },
                                 modifier = Modifier.semantics { this.selected = false }
                             ) { Text(label) }

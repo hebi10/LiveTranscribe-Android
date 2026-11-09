@@ -12,6 +12,7 @@ import com.charles.livecaptionn.overlay.OverlayController
 import com.charles.livecaptionn.overlay.OverlayUiState
 import com.charles.livecaptionn.service.CaptionPhase
 import com.charles.livecaptionn.settings.CaptionSettings
+import com.charles.livecaptionn.ui.l10n.KoreanUiStrings
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +44,8 @@ class OverlayVisualCaptureTest {
         ).bufferedReader().use { it.readText() }
         assertTrue("Emulator overlay permission required: $permissionOutput", Settings.canDrawOverlays(context))
 
-        val prefs = MutableStateFlow(CaptionSettings())
+        val defaults = CaptionSettings()
+        val prefs = MutableStateFlow(defaults)
         val settings = object : SettingsRepository {
             override val settingsFlow: Flow<CaptionSettings> = prefs
             override suspend fun update(transform: (CaptionSettings) -> CaptionSettings) {
@@ -52,13 +54,21 @@ class OverlayVisualCaptureTest {
         }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         var controller: OverlayController? = null
-        val idle = OverlayUiState(phase = CaptionPhase.WAITING)
+        val idle = OverlayUiState(
+            phase = CaptionPhase.WAITING,
+            opacity = defaults.overlayOpacity,
+            showOriginal = defaults.showOriginal,
+            textSizeSp = defaults.textSizeSp,
+            themeId = defaults.overlayThemeId,
+            fontId = defaults.overlayFontId
+        )
         try {
             activity.scenario.onActivity { screen ->
                 controller = OverlayController(
                     context = screen.applicationContext, scope = scope, settingsRepository = settings,
                     onPauseResume = {}, onClose = {}, onToggleMinimize = {},
-                    onAcceptLanguageSuggestion = {}, onDismissLanguageSuggestion = {}
+                    onAcceptLanguageSuggestion = {}, onDismissLanguageSuggestion = {},
+                    uiStrings = { KoreanUiStrings.values }
                 )
                 controller!!.show(24, 420, 340, 160)
                 controller!!.update(idle)
