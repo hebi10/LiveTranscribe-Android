@@ -302,7 +302,7 @@ class CaptionForegroundService : Service() {
                         val elapsedMs = ((System.nanoTime() - request.submittedAtNanos).coerceAtLeast(0L) / 1_000_000)
                         app.container.runtimeStore.update {
                             if (it.sessionId == captionSessionId)
-                                it.copy(translating = false, translationElapsedMs = elapsedMs) else it
+                                it.recordTranslationTiming(elapsedMs).copy(translating = false) else it
                         }
                     }
                 }
@@ -393,7 +393,7 @@ class CaptionForegroundService : Service() {
                 },
                 onRecognitionLatency = { elapsedMs ->
                     app.container.runtimeStore.update {
-                        if (it.sessionId == captionSessionId) it.copy(recognitionElapsedMs = elapsedMs.coerceAtLeast(0L)) else it
+                        if (it.sessionId == captionSessionId) it.recordRecognitionTiming(elapsedMs) else it
                     }
                 },
                 onLanguageIdentified = { windowId, detected ->
@@ -687,7 +687,8 @@ class CaptionForegroundService : Service() {
                     skippedSpeechSegments = it.skippedSpeechSegments,
                     restartLanguageCode = it.restartLanguageCode,
                     sessionPlacement = sessionPlacement, retainedLines = it.transcriptLines, sessionId = it.sessionId,
-                    recognitionElapsedMs = it.recognitionElapsedMs, translationElapsedMs = it.translationElapsedMs)
+                    recognitionElapsedMs = it.recognitionElapsedMs, translationElapsedMs = it.translationElapsedMs,
+                    recognitionLatency = it.recognitionLatency, translationLatency = it.translationLatency)
             }
             if (!destroyed) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
