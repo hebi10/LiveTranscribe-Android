@@ -15,12 +15,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -52,14 +54,21 @@ fun SplitAppPicker(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RectangleShape,
         title = { Text("함께 볼 앱 선택") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("영상 앱을 옆 창으로 엽니다. 앱과 기기에 따라 직접 화면을 나눠야 할 수 있습니다.",
                     style = MaterialTheme.typography.bodySmall)
                 when {
-                    loading -> CircularProgressIndicator()
-                    error != null -> Text(error)
+                    loading -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.heightIn(max = 24.dp), strokeWidth = 2.dp)
+                        Text("앱 목록을 불러오는 중", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    error != null -> Text(error, color = MaterialTheme.colorScheme.error)
                     apps.isEmpty() -> Text("실행할 앱이 없습니다. 최근 앱에서 분할 화면을 열어 주세요.")
                     else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
                         items(apps, key = { it.packageName + "/" + it.activityName }) { app ->
@@ -73,6 +82,7 @@ fun SplitAppPicker(
                                 Text(app.label, Modifier.weight(1f))
                                 Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null)
                             }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
                 }
@@ -86,6 +96,7 @@ fun SplitAppPicker(
 fun SplitScreenHelp(message: String?, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RectangleShape,
         title = { Text("분할 화면 안내") },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {

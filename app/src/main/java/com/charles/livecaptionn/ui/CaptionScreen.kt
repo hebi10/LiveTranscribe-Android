@@ -204,6 +204,7 @@ fun CaptionScreen(
     }
     if (showMore) AlertDialog(
         onDismissRequest = { showMore = false },
+        shape = RectangleShape,
         title = { Text("자막 보기") },
         text = {
             Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
@@ -242,7 +243,7 @@ fun CaptionScreen(
         confirmButton = { TextButton(onClick = { showMore = false }) { Text("닫기") } }
     )
     if (showDetails) AlertDialog(
-        onDismissRequest = { showDetails = false }, title = { Text(status) },
+        onDismissRequest = { showDetails = false }, shape = RectangleShape, title = { Text(status) },
         text = {
             Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
                 Text(notice.ifBlank { "음성 인식과 번역은 기기에서 처리됩니다. 함께 볼 앱을 선택해도 캡처 대상이 그 앱으로 제한되지는 않습니다." })
