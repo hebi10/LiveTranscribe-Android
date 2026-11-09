@@ -149,23 +149,23 @@ class OverlayController(
         val frame = FrameLayout(context)
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            background = roundedBackground(Color.parseColor("#AA111111"))
-            setPadding(dp(12), dp(4), dp(12), dp(8))
+            background = flatBackground(Color.parseColor("#AA101010"))
+            setPadding(dp(8), dp(OverlayChromeMetrics.VERTICAL_PADDING_DP), dp(8), dp(OverlayChromeMetrics.VERTICAL_PADDING_DP))
             layoutParams = FrameLayout.LayoutParams(-1, -1)
         }
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(-1, dp(44))
+            layoutParams = LinearLayout.LayoutParams(-1, dp(OverlayChromeMetrics.TOUCH_DP))
         }
         normalHeader = header
         statusText = TextView(context).apply {
-            textSize = 12f
+            textSize = 13f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER_VERTICAL
             setSingleLine(true)
             ellipsize = TextUtils.TruncateAt.END
-            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(OverlayChromeMetrics.TOUCH_DP), 1f)
             tooltipText = uiStrings()["Move caption window"]
             isFocusable = true
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
@@ -215,7 +215,7 @@ class OverlayController(
         minimizedHeader = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(-1, dp(44))
+            layoutParams = LinearLayout.LayoutParams(-1, dp(OverlayChromeMetrics.TOUCH_DP))
             visibility = View.GONE
             addView(makeCompactControl(minimizedCloseButton!!, "닫기"))
             addView(makeCompactControl(minimizedRestoreButton!!, "펼치기"))
@@ -256,7 +256,7 @@ class OverlayController(
         statusDetail = TextView(context).apply {
             textSize = 12f
             // Present only for an actionable hint/error, with bounded height while visible.
-            minLines = 2
+            minLines = 1
             maxLines = 2
             visibility = View.GONE
             ellipsize = TextUtils.TruncateAt.END
@@ -321,7 +321,7 @@ class OverlayController(
         frame.addView(container)
 
         resizeHandle = makeButton(R.drawable.ic_overlay_resize, "Resize caption window") { resizeBy(dp(24)) }.apply {
-            layoutParams = FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END)
+            layoutParams = FrameLayout.LayoutParams(dp(OverlayChromeMetrics.TOUCH_DP), dp(OverlayChromeMetrics.TOUCH_DP), Gravity.BOTTOM or Gravity.END)
             setOnTouchListener(ResizeTouchListener())
             accessibilityDelegate = object : View.AccessibilityDelegate() {
                 override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
@@ -370,6 +370,7 @@ class OverlayController(
         val frame = root ?: return
         val container = frame.getChildAt(0) as? LinearLayout ?: return
         val previous = latestUi
+        val chrome = overlayChromeState(ui, followingLatest)
         val suggestionVisibilityChanged = previous != null && ui.controlsExpanded && !ui.minimized &&
             (previous.suggestedLanguageCode != null) != (ui.suggestedLanguageCode != null)
         val layoutChanged = previous == null || previous.minimized != ui.minimized ||
@@ -407,14 +408,14 @@ class OverlayController(
             contentDescription = information
         }
         for (button in listOf(pauseButton, closeButton, minimizedCloseButton)) {
-            button?.isEnabled = !ui.stopping
-            button?.alpha = if (ui.stopping) 0.4f else 1f
+            button?.isEnabled = chrome.stopEnabled
+            button?.alpha = if (chrome.stopEnabled) 1f else 0.4f
         }
-        normalHeader?.visibility = if (ui.minimized) View.GONE else View.VISIBLE
-        minimizedHeader?.visibility = if (ui.minimized) View.VISIBLE else View.GONE
-        controls?.visibility = if (ui.controlsExpanded && !ui.minimized) View.VISIBLE else View.GONE
-        body?.visibility = if (ui.minimized) View.GONE else View.VISIBLE
-        resizeHandle?.visibility = if (ui.minimized) View.GONE else View.VISIBLE
+        normalHeader?.visibility = if (chrome.normalHeader) View.VISIBLE else View.GONE
+        minimizedHeader?.visibility = if (chrome.minimizedHeader) View.VISIBLE else View.GONE
+        controls?.visibility = if (chrome.expandedControls) View.VISIBLE else View.GONE
+        body?.visibility = if (chrome.captionBody) View.VISIBLE else View.GONE
+        resizeHandle?.visibility = if (chrome.resizeHandle) View.VISIBLE else View.GONE
         setButton(pauseButton, if (ui.status == RecognitionStatus.PAUSED) R.drawable.ic_overlay_play else R.drawable.ic_overlay_pause,
             if (ui.status == RecognitionStatus.PAUSED) "Resume captioning" else "Pause captioning")
         setButton(expandButton, when {
@@ -441,7 +442,7 @@ class OverlayController(
             label.alpha = button.alpha
             (label.parent as? View)?.isEnabled = button.isEnabled
         }
-        latestAction?.background = roundedBackground(withAlpha(theme.backgroundRgb, 245))
+        latestAction?.background = flatBackground(withAlpha(theme.backgroundRgb, 245))
         setButton(latestAction, R.drawable.ic_overlay_latest, "Latest captions")
         suggestionCode = ui.suggestedLanguageCode.takeUnless { ui.stopping }
         suggestionLabel?.apply {
@@ -473,7 +474,9 @@ class OverlayController(
             if (content.messages.lastOrNull() != lastContent?.messages?.lastOrNull()) {
                 pendingViewport = pendingViewport?.let { it.copy(revealLatest = it.following) }
             }
-            renderCaptions(content, theme.textRgb, font.typeface)
+            renderCaptions(content, theme.textRgb, font.typeface,
+                if (ui.fontId == OverlayFontCatalog.FREE_FONT_ID)
+                    Typeface.create("sans-serif-medium", Typeface.NORMAL) else font.typeface)
             lastContent = content
             lastAppearance = appearance
             restoreViewportAfterLayout()
@@ -485,7 +488,7 @@ class OverlayController(
         updateLatestAction()
     }
 
-    private fun renderCaptions(content: CaptionContent, color: Int, typeface: Typeface) {
+    private fun renderCaptions(content: CaptionContent, color: Int, typeface: Typeface, translationTypeface: Typeface) {
         val display = content.display
         val chat = content.mode == CaptionDisplayMode.CHAT
         originalContainer?.visibility = if (!chat && display.showOriginal) View.VISIBLE else View.GONE
@@ -498,7 +501,7 @@ class OverlayController(
         dividerView?.setBackgroundColor(withAlpha(color, 45))
         translatedText?.let {
             setTextIfChanged(it, display.translatedText)
-            applyCaptionStyle(it, color, typeface, display.translatedTextSizeSp)
+            applyCaptionStyle(it, color, translationTypeface, display.translatedTextSizeSp)
         }
         if (!chat) return
         val parent = chatContainer ?: return
@@ -527,7 +530,7 @@ class OverlayController(
             setTextIfChanged(row.translated, translated)
             setTextIfChanged(row.source, message.originalText)
             row.source.visibility = if (sourceVisible) View.VISIBLE else View.GONE
-            applyCaptionStyle(row.translated, color, typeface, display.translatedTextSizeSp)
+            applyCaptionStyle(row.translated, color, translationTypeface, display.translatedTextSizeSp)
             applyCaptionStyle(row.source, withAlpha(color, 180), typeface, display.originalTextSizeSp)
         }
     }
@@ -646,7 +649,7 @@ class OverlayController(
     }
 
     private fun updateLatestAction() {
-        latestAction?.visibility = if (!followingLatest && latestUi?.minimized != true) View.VISIBLE else View.GONE
+        latestAction?.visibility = if (latestUi?.let { overlayChromeState(it, followingLatest).latestAction } == true) View.VISIBLE else View.GONE
     }
 
     fun hide() {
@@ -710,25 +713,23 @@ class OverlayController(
     private fun refreshDimensions() {
         val frame = root ?: return
         val container = frame.getChildAt(0) as? LinearLayout ?: return
-        container.setPadding(dp(12), dp(4), dp(12), dp(8))
-        (container.background as? GradientDrawable)?.cornerRadius = dp(10).toFloat()
+        container.setPadding(dp(8), dp(OverlayChromeMetrics.VERTICAL_PADDING_DP), dp(8), dp(OverlayChromeMetrics.VERTICAL_PADDING_DP))
         listOf(normalHeader, minimizedHeader, statusText).forEach { view ->
-            view?.layoutParams?.height = dp(44)
+            view?.layoutParams?.height = dp(OverlayChromeMetrics.TOUCH_DP)
         }
         for (button in buttons) {
-            button.layoutParams?.apply { width = dp(44); height = dp(44) }
-            button.setPadding(dp(10), dp(10), dp(10), dp(10))
+            button.layoutParams?.apply { width = dp(OverlayChromeMetrics.TOUCH_DP); height = dp(OverlayChromeMetrics.TOUCH_DP) }
+            button.setPadding(dp(12), dp(12), dp(12), dp(12))
             // CENTER_INSIDE uses drawable intrinsic pixels, which also depend on density.
             (button.tag as? Int)?.let { button.setImageDrawable(context.getDrawable(it)) }
-            (button.background as? GradientDrawable)?.cornerRadius = dp(10).toFloat()
-        }
+                    }
         for ((_, label) in controlLabels) {
             val control = label.parent as? LinearLayout ?: continue
             val compact = control.orientation == LinearLayout.HORIZONTAL
-            label.textSize = if (compact) 12f else 11f
-            if (compact) control.layoutParams?.height = dp(44)
+            label.textSize = 12f
+            if (compact) control.layoutParams?.height = dp(OverlayChromeMetrics.TOUCH_DP)
             else {
-                control.minimumWidth = dp(64)
+                control.minimumWidth = dp(OverlayChromeMetrics.LABELED_CONTROL_MIN_WIDTH_DP)
                 control.setPadding(dp(6), 0, dp(6), dp(4))
             }
         }
@@ -736,8 +737,8 @@ class OverlayController(
             .forEach { it.textSize = 12f }
         statusDetail?.setPadding(0, dp(2), 0, dp(4))
         suggestionChoices.forEach {
-            it.minHeight = dp(44)
-            it.layoutParams?.height = dp(44)
+            it.minHeight = dp(OverlayChromeMetrics.TOUCH_DP)
+            it.layoutParams?.height = dp(OverlayChromeMetrics.TOUCH_DP)
         }
         (dividerView?.layoutParams as? LinearLayout.LayoutParams)?.apply {
             height = dp(1)
@@ -780,11 +781,11 @@ class OverlayController(
         tag = resId
         contentDescription = uiStrings()[key]
         tooltipText = contentDescription
-        background = roundedBackground(Color.TRANSPARENT)
+        background = flatBackground(Color.TRANSPARENT)
         setColorFilter(Color.WHITE)
-        setPadding(dp(10), dp(10), dp(10), dp(10))
+        setPadding(dp(12), dp(12), dp(12), dp(12))
         scaleType = ImageView.ScaleType.CENTER_INSIDE
-        layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
+        layoutParams = LinearLayout.LayoutParams(dp(OverlayChromeMetrics.TOUCH_DP), dp(OverlayChromeMetrics.TOUCH_DP))
         setOnClickListener { onClick() }
         buttons.add(this)
     }
@@ -802,7 +803,7 @@ class OverlayController(
     private fun makeLabeledControl(button: ImageButton, text: String) = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
-        minimumWidth = dp(64)
+        minimumWidth = dp(OverlayChromeMetrics.LABELED_CONTROL_MIN_WIDTH_DP)
         setPadding(dp(6), 0, dp(6), dp(4))
         layoutParams = LinearLayout.LayoutParams(-2, -2)
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -811,7 +812,7 @@ class OverlayController(
         addView(button) // Keep the original 44dp button and its single accessibility target.
         val label = TextView(context).apply {
             this.text = text
-            textSize = 11f
+            textSize = 12f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             setSingleLine(true)
@@ -826,7 +827,7 @@ class OverlayController(
     private fun makeCompactControl(button: ImageButton, text: String) = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
+        layoutParams = LinearLayout.LayoutParams(0, dp(OverlayChromeMetrics.TOUCH_DP), 1f)
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         isFocusable = false
         setOnClickListener { if (button.isEnabled) button.performClick() }
@@ -855,7 +856,7 @@ class OverlayController(
         val style = color to selected
         if (buttonStyles[button] == style) return
         button.setColorFilter(color)
-        button.background = roundedBackground(if (selected) withAlpha(color, 28) else Color.TRANSPARENT)
+        button.background = flatBackground(if (selected) withAlpha(color, 32) else Color.TRANSPARENT)
         buttonStyles[button] = style
     }
 
@@ -879,8 +880,8 @@ class OverlayController(
             text = label
             textSize = 12f
             gravity = Gravity.CENTER
-            minHeight = dp(44)
-            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
+            minHeight = dp(OverlayChromeMetrics.TOUCH_DP)
+            layoutParams = LinearLayout.LayoutParams(0, dp(OverlayChromeMetrics.TOUCH_DP), 1f)
             setTextColor(Color.WHITE)
             contentDescription = description
             isFocusable = true
@@ -897,8 +898,7 @@ class OverlayController(
 
     private fun dp(value: Int): Int = (value * density).roundToInt()
     private fun withAlpha(color: Int, alpha: Int): Int = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
-    private fun roundedBackground(color: Int) = GradientDrawable().apply {
-        cornerRadius = dp(10).toFloat()
+    private fun flatBackground(color: Int) = GradientDrawable().apply {
         setColor(color)
     }
 
@@ -930,7 +930,7 @@ class OverlayController(
 
     private fun displayGeometry(): OverlayGeometry? = geometryState?.display(
         usableBounds(), minimumWidth, minimumHeight,
-        minimizedHeight = if (latestUi?.minimized == true) dp(56) else null,
+        minimizedHeight = if (latestUi?.minimized == true) dp(OverlayChromeMetrics.MINIMIZED_HEIGHT_DP) else null,
         expandedMinHeight = overlayExpandedMinHeightDp(latestUi)?.let(::dp))
 
     private fun clampWindow() {
@@ -966,7 +966,7 @@ class OverlayController(
 
     private fun moveBy(dx: Int, dy: Int) {
         geometryState?.moveBy(dx, dy, usableBounds(), minimumWidth, minimumHeight,
-            minimizedHeight = if (latestUi?.minimized == true) dp(56) else null,
+            minimizedHeight = if (latestUi?.minimized == true) dp(OverlayChromeMetrics.MINIMIZED_HEIGHT_DP) else null,
             expandedMinHeight = overlayExpandedMinHeightDp(latestUi)?.let(::dp)) ?: return
         clampWindow()
         persistGeometry()
@@ -974,7 +974,7 @@ class OverlayController(
 
     private fun moveTo(x: Int, y: Int) {
         geometryState?.moveTo(x, y, usableBounds(), minimumWidth, minimumHeight,
-            minimizedHeight = if (latestUi?.minimized == true) dp(56) else null,
+            minimizedHeight = if (latestUi?.minimized == true) dp(OverlayChromeMetrics.MINIMIZED_HEIGHT_DP) else null,
             expandedMinHeight = overlayExpandedMinHeightDp(latestUi)?.let(::dp))
         clampWindow()
     }
