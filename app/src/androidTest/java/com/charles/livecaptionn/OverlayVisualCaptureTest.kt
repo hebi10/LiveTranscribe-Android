@@ -71,19 +71,22 @@ class OverlayVisualCaptureTest {
                 File(output, "08-popup-expanded.png").readBytes()))
             assertFalse(File(output, "08-popup-expanded.png").readBytes().contentEquals(
                 File(output, "09-popup-minimized.png").readBytes()))
-            val copyOutput = ParcelFileDescriptor.AutoCloseInputStream(
-                instrumentation.uiAutomation.executeShellCommand(
-                    "mkdir -p /sdcard/Download/hebi-overlay-captures && cp -R " +
-                        "/sdcard/Android/data/${context.packageName}/files/overlay-captures/. " +
-                        "/sdcard/Download/hebi-overlay-captures/"
-                )
-            ).bufferedReader().use { it.readText() }
-            assertTrue("Overlay screenshot export failed: $copyOutput", copyOutput.isBlank())
+            readShell("mkdir -p /sdcard/Download/hebi-overlay-captures")
+            readShell("cp -R /sdcard/Android/data/${context.packageName}/files/overlay-captures/. " +
+                "/sdcard/Download/hebi-overlay-captures/")
+            val exported = readShell("ls -1 /sdcard/Download/hebi-overlay-captures")
+                .lineSequence().filter { it.isNotBlank() }.toSet()
+            assertEquals(setOf("07-popup-compact.png", "08-popup-expanded.png", "09-popup-minimized.png"), exported)
         } finally {
             activity.scenario.onActivity { controller?.hide() }
             scope.cancel()
         }
     }
+
+    private fun readShell(command: String): String =
+        ParcelFileDescriptor.AutoCloseInputStream(
+            instrumentation.uiAutomation.executeShellCommand(command)
+        ).bufferedReader().use { it.readText() }
 
     private fun capture(directory: File, name: String) {
         instrumentation.waitForIdleSync()
