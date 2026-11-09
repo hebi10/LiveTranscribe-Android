@@ -71,9 +71,20 @@ jobs:
           adb logcat -d > play-captures/logcat.txt
           adb pull /sdcard/Download/hebi-play-captures/. play-captures/
           pull_status=$?
+          if [ "$capture_status" -eq 0 ] && [ "$pull_status" -eq 0 ]; then
+            ./gradlew --no-daemon -PplayCaptureAbi=x86_64 -Pandroid.testInstrumentationRunnerArguments.class=com.charles.livecaptionn.OverlayVisualCaptureTest connectedDebugAndroidTest
+            overlay_status=$?
+            adb pull /sdcard/Download/hebi-overlay-captures/. play-captures/
+            overlay_pull_status=$?
+          else
+            overlay_status=1
+            overlay_pull_status=1
+          fi
           set -e
           test "$capture_status" -eq 0
           test "$pull_status" -eq 0
+          test "$overlay_status" -eq 0
+          test "$overlay_pull_status" -eq 0
           test -f play-captures/capture-manifest.json
           SH
       - name: Capture genuine current app screens
@@ -107,6 +118,11 @@ jobs:
                   header = image.read(24)
               assert header[:8] == b"\x89PNG\r\n\x1a\n", name
               assert struct.unpack(">II", header[16:24]) == (1080, 1920), name
+          for name in ("07-popup-compact.png", "08-popup-expanded.png", "09-popup-minimized.png"):
+              with (directory / name).open("rb") as overlay_image:
+                  header = overlay_image.read(24)
+              assert header[:8] == b"\x89PNG\r\n\x1a\n", name
+              assert struct.unpack(">II", header[16:24]) == (1080, 1920), name
           assert {item["file"]: (item["width"], item["height"]) for item in manifest["graphics"]} == {
               "icon.png": (512, 512), "featureGraphic.png": (1024, 500)
           }
@@ -117,7 +133,7 @@ jobs:
                   header = image.read(24)
               assert header[:8] == b"\x89PNG\r\n\x1a\n", name
               assert struct.unpack(">II", header[16:24]) == (item["width"], item["height"]), name
-          print("Verified six 1080x1920 device PNGs for this source revision; idle and split preview UI only.")
+          print("Verified six regular and three popup overlay 1080x1920 device PNGs; no audio inference.")
           PY
       - name: Upload current UI captures and device reports
         if: always()
