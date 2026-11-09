@@ -24,16 +24,41 @@ API_STATUSES = {'CANCELLED', 'UNKNOWN', 'INVALID_ARGUMENT', 'DEADLINE_EXCEEDED',
 REVIEW_HOLD_FORBIDDEN_MESSAGE = 'Changes are sent for review automatically. The query parameter changesNotSentForReview must not be set.'
 REVIEW_HOLD_FORBIDDEN_REASON = 'CHANGES_NOT_SENT_FOR_REVIEW_FORBIDDEN'
 
+# Do not log the raw Google error message: it may contain private account details.
+# These categories contain only fixed strings and are diagnostic, never authorization.
+PLAY_VALIDATION_ISSUES = (
+    ('TESTER_CONFIGURATION', r'tester|test group|email list|testing list'),
+    ('COUNTRY_AVAILABILITY', r'countr|region|territor|distribution'),
+    ('DRAFT_APP_STATE', r'draft app|app is in draft|draft status|unpublished app'),
+    ('DECLARATION_INCOMPLETE', r'declaration|data safety|target audience|content rating|app access|privacy policy|permission declaration'),
+    ('STORE_LISTING_INCOMPLETE', r'store listing|graphic|description|screenshot|language listing'),
+    ('REVIEW_PENDING', r'in review|under review|pending review|changes in review'),
+    ('ALPHA_TRACK_STATE', r'alpha|closed test|closed track|testing track'),
+    ('RELEASE_VERSION', r'version code|versioncode|release status|release name'),
+)
+
+
+def safe_play_validation_issue(message):
+    if not isinstance(message, str):
+        return 'UNCLASSIFIED'
+    normalized = message.lower()
+    for issue, pattern in PLAY_VALIDATION_ISSUES:
+        if re.search(pattern, normalized):
+            return issue
+    return 'UNCLASSIFIED'
+
+
 
 class ReleaseError(RuntimeError):
     pass
 
 
 class PlayApiError(ReleaseError):
-    def __init__(self, method, status, api_status=None, safe_reason=None, diagnostic_reasons=()):
+    def __init__(self, method, status, api_status=None, safe_reason=None, diagnostic_reasons=(), validation_issue='UNCLASSIFIED'):
         self.http_status = status
         self.api_status = api_status if api_status in API_STATUSES else None
         self.safe_reason = safe_reason if safe_reason == REVIEW_HOLD_FORBIDDEN_REASON else None
+        self.validation_issue = validation_issue if validation_issue in {category for category, _ in PLAY_VALIDATION_ISSUES} else 'UNCLASSIFIED'
         self.diagnostic_reasons = tuple(reason for reason in diagnostic_reasons
                                         if isinstance(reason, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{1,79}', reason))[:8]
         super().__init__(f'Play API {method} failed with HTTP {status}; inspect Console registration, permissions and validation')
@@ -95,6 +120,7 @@ class HttpTransport:
             api_status = None
             safe_reason = None
             diagnostic_reasons = []
+            validation_issue = 'UNCLASSIFIED'
             try:
                 raw = error.read(65537)
                 if len(raw) <= 65536:
@@ -103,6 +129,7 @@ class HttpTransport:
                         candidate = payload['error'].get('status')
                         if isinstance(candidate, str) and candidate in API_STATUSES:
                             api_status = candidate
+                        validation_issue = safe_play_validation_issue(payload['error'].get('message'))
                         if error.code == 400 and payload['error'].get('message') == REVIEW_HOLD_FORBIDDEN_MESSAGE:
                             safe_reason = REVIEW_HOLD_FORBIDDEN_REASON
                         for detail in payload['error'].get('details', []):
@@ -114,7 +141,7 @@ class HttpTransport:
                 pass
             finally:
                 error.close()
-            raise PlayApiError(method, error.code, api_status, safe_reason, diagnostic_reasons) from None
+            raise PlayApiError(method, error.code, api_status, safe_reason, diagnostic_reasons, validation_issue) from None
         except (urllib.error.URLError, TimeoutError, ValueError):
             raise ReleaseError('Play API request or response failed; no successful deployment can be claimed') from None
 
@@ -356,7 +383,7 @@ class Publisher:
                 probe = '; ' + self.probe_draft_alpha_validation(code, release)
             raise ReleaseError(
                 f'Closed alpha promotion failed at {stage}: HTTP {error.http_status}, '
-                f'status {status}, reason {reason}{probe}; no successful promotion confirmed'
+                f'status {status}, reason {reason}, category {error.validation_issue}{probe}; no successful promotion confirmed'
             ) from None
 
 
