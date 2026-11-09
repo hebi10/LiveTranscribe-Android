@@ -16,19 +16,20 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ViewModelProvider
@@ -52,6 +53,7 @@ import com.charles.livecaptionn.ui.MainScreen
 import com.charles.livecaptionn.ui.MainViewModel
 import com.charles.livecaptionn.ui.MainViewModelFactory
 import com.charles.livecaptionn.ui.l10n.UiStringsProvider
+import com.charles.livecaptionn.ui.theme.CaptionFrameTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -129,46 +131,18 @@ class MainActivity : ComponentActivity() {
             val vm = mainViewModel
             val ui by vm.state.collectAsStateWithLifecycle()
             val captionStateHolder = rememberSaveableStateHolder()
+            val useDarkTheme = ui.settings.appThemeMode.useDarkColors(isSystemInDarkTheme())
+            SideEffect {
+                val controller = WindowCompat.getInsetsController(window, window.decorView)
+                controller.isAppearanceLightStatusBars = !useDarkTheme
+                controller.isAppearanceLightNavigationBars = !useDarkTheme
+                val barColor = if (useDarkTheme) android.graphics.Color.rgb(16, 16, 16)
+                    else android.graphics.Color.WHITE
+                window.statusBarColor = barColor
+                window.navigationBarColor = barColor
+            }
             UiStringsProvider {
-                MaterialTheme(
-                    colorScheme = darkColorScheme(
-                        primary = Color(0xFFEAEAEA),
-                        primaryContainer = Color(0xFF333333),
-                        onPrimaryContainer = Color(0xFFF5F5F5),
-                        secondary = Color(0xFFCCCCCC),
-                        onSecondary = Color(0xFF111111),
-                        secondaryContainer = Color(0xFF333333),
-                        onSecondaryContainer = Color(0xFFF5F5F5),
-                        tertiary = Color(0xFFCCCCCC),
-                        onTertiary = Color(0xFF111111),
-                        tertiaryContainer = Color(0xFF333333),
-                        onTertiaryContainer = Color(0xFFF5F5F5),
-                        error = Color(0xFFE0E0E0),
-                        onError = Color(0xFF111111),
-                        errorContainer = Color(0xFF3A3A3A),
-                        onErrorContainer = Color(0xFFF5F5F5),
-                        outline = Color(0xFF999999),
-                        outlineVariant = Color(0xFF555555),
-                        inverseSurface = Color(0xFFE0E0E0),
-                        inverseOnSurface = Color(0xFF111111),
-                        inversePrimary = Color(0xFF333333),
-                        surfaceTint = Color(0xFFEAEAEA),
-                        surfaceDim = Color(0xFF111111),
-                        surfaceBright = Color(0xFF3A3A3A),
-                        surfaceContainerLowest = Color(0xFF0C0C0C),
-                        surfaceContainerLow = Color(0xFF171717),
-                        surfaceContainer = Color(0xFF1C1C1C),
-                        surfaceContainerHigh = Color(0xFF242424),
-                        surfaceContainerHighest = Color(0xFF303030),
-                        onPrimary = Color(0xFF111111),
-                        background = Color(0xFF111111),
-                        onBackground = Color(0xFFF5F5F5),
-                        surface = Color(0xFF1C1C1C),
-                        onSurface = Color(0xFFF5F5F5),
-                        surfaceVariant = Color(0xFF292929),
-                        onSurfaceVariant = Color(0xFFCCCCCC)
-                    )
-                ) {
+                CaptionFrameTheme(darkTheme = useDarkTheme) {
                     Surface(color = MaterialTheme.colorScheme.background) {
                         Column(Modifier.fillMaxSize().navigationBarsPadding()) {
                             BackHandler(enabled = showHistory || showCaptions) {
