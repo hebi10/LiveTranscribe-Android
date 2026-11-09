@@ -1,0 +1,127 @@
+name: Play approved closed alpha 22
+
+on:
+  workflow_run:
+    workflows: ["Private Android APK"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-com-hebi-livetranslate
+  cancel-in-progress: false
+
+jobs:
+  source:
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == 'hebi10/LiveTranscribe-Android'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      approved: ${{ steps.approval.outputs.approved }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require successful exact-source main Android CI
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/play/source.py
+      - name: Require explicitly approved closed-alpha marker
+        id: approval
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          subject="$(git show -s --format=%s "$SOURCE_SHA")"
+          if [[ "$subject" != *"[promote-play-alpha-22]"* ]]; then
+            echo "No approved closed-alpha request in main source."
+            echo "approved=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "approved=true" >> "$GITHUB_OUTPUT"
+
+  gates:
+    needs: source
+    if: needs.source.outputs.approved == 'true'
+    uses: ./.github/workflows/play-gates.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+
+  promote:
+    needs: [source, gates]
+    if: needs.source.outputs.approved == 'true' && needs.gates.result == 'success'
+    runs-on: ubuntu-latest
+    environment: google-play
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - name: Verify configured Play identity
+        id: credentials
+        env:
+          PLAY_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          PLAY_SERVICE_ACCOUNT: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: python3 scripts/play/preflight.py auth
+      - name: Authenticate with app-scoped Workload Identity Federation
+        id: wif
+        if: steps.credentials.outputs.auth_mode == 'wif'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Authenticate with configured legacy service-account JSON
+        id: json
+        if: steps.credentials.outputs.auth_mode == 'json'
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Confirm registered binary without uploading new APK or AAB
+        id: readiness
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+        run: python3 scripts/play/publisher.py --report output/play-alpha-readiness.json inspect --require-binary
+      - name: Reject superseded source before closed-track change
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
+      - name: Promote ONLY existing completed internal version 22 to closed alpha
+        env:
+          PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+        run: |
+          python3 scripts/play/publisher.py --report output/play-alpha-promotion.json promote --version-code 22 --track alpha
+          echo "Closed alpha v22 API commit and fresh readback succeeded. Review and tester installability require Console confirmation." >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve non-secret promotion report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-transcribe-closed-alpha-22-${{ github.run_id }}
+          path: |
+            output/play-alpha-readiness.json
+            output/play-alpha-promotion.json
+          if-no-files-found: ignore
+          retention-days: 30
