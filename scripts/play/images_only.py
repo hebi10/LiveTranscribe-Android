@@ -33,7 +33,9 @@ def apply_images(client, images):
             client.request("POST", edit + ":validate", {})
             stage = "edit commit"
             print("Play image step: " + stage, flush=True)
-            client.commit(edit, changes_not_sent_for_review=True)
+            # Never retry generic failures. The shared publisher only retries the precise
+            # Google Play rejection of changesNotSentForReview, with review-state protection.
+            commit_result = client.commit(edit, changes_not_sent_for_review=True, fail_if_in_review=True) or {}
     except PlayApiError as error:
         status = error.api_status or "API_STATUS_UNAVAILABLE"
         reasons = ",".join(error.diagnostic_reasons) or "NO_STRUCTURED_REASON"
@@ -53,7 +55,8 @@ def apply_images(client, images):
         raise ReleaseError("Image edit committed, but independent readback failed; inspect Play Console before retrying") from None
     return {
         "package": PACKAGE, "language": "ko-KR", "status": "image_edit_committed_and_verified",
-        "changesNotSentForReview": True,
+        "changesNotSentForReview": not bool(commit_result.get("reviewHoldParameterOmitted")),
+        "reviewHoldParameterOmitted": bool(commit_result.get("reviewHoldParameterOmitted")),
         "imageCounts": {kind: len(images[kind]) for kind in CATEGORIES},
         "textChanged": False, "trackChanged": False
     }
