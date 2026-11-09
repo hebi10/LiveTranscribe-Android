@@ -230,6 +230,38 @@ class PublisherTests(unittest.TestCase):
         with self.assertRaisesRegex(publisher.ReleaseError, 'PLAY_ACCESS_TOKEN'):
             publisher.HttpTransport('')
 
+    def test_validate_and_commit_have_empty_request_bodies(self):
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_): pass
+            def read(self): return b'{}'
+        sent = []
+        def opener(request, **kwargs):
+            sent.append((request.get_method(), request.full_url, request.data))
+            return Response()
+        client = publisher.HttpTransport('synthetic-token', opener=opener)
+        client('POST', '/edits/123:validate', {})
+        client('POST', '/edits/123:commit?changesNotSentForReview=true', {})
+        client('POST', '/edits', {})
+        self.assertEqual(sent[0][2], b'')
+        self.assertEqual(sent[1][2], b'')
+        self.assertEqual(sent[2][2], b'{}')
+
+    def test_errorinfo_reason_is_filtered_and_never_exposes_metadata(self):
+        import urllib.error
+        secret = 'private-user-address@example.com'
+        body = json.dumps({'error': {'status': 'PERMISSION_DENIED', 'message': secret, 'details': [
+            {'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'DRAFT_APP_PERMISSION_REQUIRED',
+             'metadata': {'email': secret}},
+            {'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': secret}
+        ]}}).encode()
+        def fail(request, **kwargs):
+            raise urllib.error.HTTPError(request.full_url, 403, 'error', {}, io.BytesIO(body))
+        with self.assertRaises(publisher.PlayApiError) as ctx:
+            publisher.HttpTransport('synthetic-token', opener=fail)('POST', '/edits/123:validate', {})
+        self.assertEqual(ctx.exception.diagnostic_reasons, ('DRAFT_APP_PERMISSION_REQUIRED',))
+        self.assertNotIn(secret, str(ctx.exception))
+
     def test_http_errors_do_not_echo_server_or_credentials(self):
         import io
         import urllib.error
