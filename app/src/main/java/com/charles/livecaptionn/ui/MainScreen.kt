@@ -28,10 +28,10 @@ import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -49,6 +50,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -102,6 +104,16 @@ fun MainScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val action = ui.homeAction(startPending)
+    var showAdvancedSettings by rememberSaveable { mutableStateOf(false) }
+    val statusLabel = when {
+        ui.runtime.stopping -> ui.runtime.phase.label
+        startPending -> "권한 확인 및 시작 준비 중"
+        ui.runtime.running || ui.runtime.status == RecognitionStatus.ERROR -> ui.runtime.phase.label
+        ui.canStart -> "시작 가능"
+        else -> "시작 준비 필요"
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -118,76 +130,73 @@ fun MainScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            Column(Modifier.fillMaxWidth()) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RectangleShape
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (action.kind == HomeActionKind.BLOCKED) {
+                            Text("위 준비 항목을 완료하면 번역을 시작할 수 있습니다.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else if (action.kind == HomeActionKind.START &&
+                            ui.settings.audioSource == AudioSource.SYSTEM) {
+                            Text("동영상 음성은 시작할 때마다 화면 공유 확인이 필요합니다.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (action.kind == HomeActionKind.STOP) {
+                            OutlinedButton(
+                                onClick = onStop,
+                                enabled = action.enabled,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            ) { Text(action.label) }
+                        } else {
+                            Button(
+                                onClick = onStart,
+                                enabled = action.enabled,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            ) { Text(action.label) }
+                        }
+                    }
+                }
+            }
         }
     ) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("화면 배치", style = MaterialTheme.typography.titleMedium)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for ((placement, label) in listOf(
-                            CaptionPlacement.SPLIT_SCREEN to "분할 화면",
-                            CaptionPlacement.POPUP to "팝업"
-                        )) {
-                            val selected = ui.settings.captionPlacement == placement
-                            val icon = if (placement == CaptionPlacement.SPLIT_SCREEN)
-                                Icons.Outlined.VerticalSplit else Icons.Outlined.PictureInPictureAlt
-                            val content: @Composable () -> Unit = {
-                                Icon(icon, contentDescription = null)
-                                Text(label, modifier = Modifier.padding(start = 8.dp))
-                            }
-                            if (selected) FilledTonalButton(
-                                onClick = { viewModel.updateCaptionPlacement(placement) },
-                                enabled = !sessionBusy,
-                                modifier = Modifier.semantics { this.selected = true }
-                            ) { content() }
-                            else OutlinedButton(
-                                onClick = { viewModel.updateCaptionPlacement(placement) },
-                                enabled = !sessionBusy,
-                                modifier = Modifier.semantics { this.selected = false }
-                            ) { content() }
-                        }
-                    }
-                    Text(if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN)
-                        "영상 앱과 화면을 나눠 자막을 봅니다. 화면 비율은 Android의 구분선으로 조절합니다."
-                        else "영상 위에 작은 자막창을 띄웁니다. 창을 옮기거나 크기를 조절할 수 있습니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (sessionBusy) Text("화면 배치는 번역을 종료한 뒤 변경할 수 있습니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN) {
-                        OutlinedButton(onClick = onOpenCaptions,
-                            enabled = !startPending, modifier = Modifier.fillMaxWidth()) {
-                            Text(if (ui.runtime.running || ui.runtime.transcriptLines.isNotEmpty())
-                                "자막 화면으로" else "자막 화면 미리 보기")
-                        }
-                    }
-                }
-            }
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                shape = RectangleShape
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
                     Text("$languageLabel → 한국어 · $inputLabel", fontWeight = FontWeight.Medium)
-                    val statusText = when {
-                        ui.runtime.stopping -> ui.runtime.phase.label
-                        startPending -> "권한 확인 및 시작 준비 중"
-                        ui.runtime.running || ui.runtime.status == RecognitionStatus.ERROR -> ui.runtime.phase.label
-                        else -> null
-                    }
-                    statusText?.let { Text(it, fontWeight = FontWeight.SemiBold) }
+                    Text(statusLabel, style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                     ui.runtime.lastError?.takeIf { it.isNotBlank() }?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)
                     }
-                    ui.runtime.captureHint?.takeIf { ui.runtime.lastError.isNullOrBlank() && !ui.runtime.stopping && !ui.runtime.paused && it.isNotBlank() }?.let {
-                        Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    ui.runtime.captureHint?.takeIf {
+                        ui.runtime.lastError.isNullOrBlank() && !ui.runtime.stopping &&
+                            !ui.runtime.paused && it.isNotBlank()
+                    }?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     ui.runtime.restartNotice?.let {
                         Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -203,103 +212,159 @@ fun MainScreen(
                             onCancelModelPreparation = onCancelModelPreparation
                         )
                     }
-                    if (sessionBusy) {
-                        OutlinedButton(onClick = onStop, enabled = !ui.runtime.stopping,
-                            modifier = Modifier.fillMaxWidth()) {
-                            Text(if (ui.runtime.stopping) "종료 중" else if (startPending) "요청 취소" else "번역 중지")
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("화면 배치", style = MaterialTheme.typography.titleMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    for ((placement, label) in listOf(
+                        CaptionPlacement.SPLIT_SCREEN to "분할 화면",
+                        CaptionPlacement.POPUP to "팝업"
+                    )) {
+                        val selected = ui.settings.captionPlacement == placement
+                        val icon = if (placement == CaptionPlacement.SPLIT_SCREEN)
+                            Icons.Outlined.VerticalSplit else Icons.Outlined.PictureInPictureAlt
+                        val content: @Composable () -> Unit = {
+                            Icon(icon, contentDescription = null)
+                            Text(label, modifier = Modifier.padding(start = 8.dp))
                         }
-                    } else if (ui.canStart) {
-                        if (ui.settings.audioSource == AudioSource.SYSTEM) {
-                            Text("시작할 때마다 Android의 화면 공유 확인에서 허용해 주세요. " +
-                                "캡처를 허용하는 영상 앱의 소리만 인식합니다.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
-                            Text(if (ui.runtime.restartLanguageCode != null) "번역 다시 시작" else if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN) "분할 자막 시작" else "팝업 자막 시작")
-                        }
+                        if (selected) FilledTonalButton(
+                            onClick = { viewModel.updateCaptionPlacement(placement) },
+                            enabled = !sessionBusy,
+                            modifier = Modifier.semantics { this.selected = true }
+                        ) { content() }
+                        else OutlinedButton(
+                            onClick = { viewModel.updateCaptionPlacement(placement) },
+                            enabled = !sessionBusy,
+                            modifier = Modifier.semantics { this.selected = false }
+                        ) { content() }
+                    }
+                }
+                Text(if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN)
+                    "영상과 화면을 나눠 자막을 봅니다. 화면 비율은 Android 구분선으로 조절합니다."
+                    else "영상 위에 자막창을 띄웁니다. 위치와 크기를 조절할 수 있습니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (sessionBusy) Text("화면 배치는 번역 종료 후 변경할 수 있습니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN) {
+                    OutlinedButton(onClick = onOpenCaptions, enabled = !startPending,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text(if (ui.runtime.running || ui.runtime.transcriptLines.isNotEmpty())
+                            "자막 화면으로" else "자막 화면 미리 보기")
                     }
                 }
             }
 
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("음성 입력", style = MaterialTheme.typography.titleMedium)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        val system = ui.settings.audioSource == AudioSource.SYSTEM
-                        if (system) Button(onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
-                            enabled = !sessionBusy, modifier = Modifier.semantics { selected = true }) { Text("동영상 음성") }
-                        else OutlinedButton(onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
-                            enabled = !sessionBusy, modifier = Modifier.semantics { selected = false }) { Text("동영상 음성") }
-                        if (!system) Button(onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
-                            enabled = !sessionBusy, modifier = Modifier.semantics { selected = true }) { Text("마이크") }
-                        else OutlinedButton(onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
-                            enabled = !sessionBusy, modifier = Modifier.semantics { selected = false }) { Text("마이크") }
-                    }
-                    Text(if (ui.settings.audioSource == AudioSource.SYSTEM)
-                        "동영상 앱의 소리를 번역합니다. 화면 공유는 시작할 때마다 확인합니다."
-                        else "마이크로 들리는 주변 음성을 번역합니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("음성 입력", style = MaterialTheme.typography.titleMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val system = ui.settings.audioSource == AudioSource.SYSTEM
+                    if (system) FilledTonalButton(
+                        onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
+                        enabled = !sessionBusy,
+                        modifier = Modifier.semantics { selected = true }
+                    ) { Text("동영상 음성") }
+                    else OutlinedButton(
+                        onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
+                        enabled = !sessionBusy,
+                        modifier = Modifier.semantics { selected = false }
+                    ) { Text("동영상 음성") }
+                    if (!system) FilledTonalButton(
+                        onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
+                        enabled = !sessionBusy,
+                        modifier = Modifier.semantics { selected = true }
+                    ) { Text("마이크") }
+                    else OutlinedButton(
+                        onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
+                        enabled = !sessionBusy,
+                        modifier = Modifier.semantics { selected = false }
+                    ) { Text("마이크") }
                 }
+                Text(if (ui.settings.audioSource == AudioSource.SYSTEM)
+                    "캡처를 허용하는 동영상 앱의 소리만 인식합니다."
+                    else "마이크로 들리는 주변 음성을 번역합니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("음성 언어", style = MaterialTheme.typography.titleMedium)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for ((code, label) in listOf(RecognitionLanguages.AUTO to "자동 감지", "ja" to "일본어", "en" to "영어")) {
-                            val selected = ui.settings.sourceLanguageCode == code
-                            if (selected) Button(onClick = { viewModel.selectSourceLanguage(code) },
-                                enabled = !sessionBusy, modifier = Modifier.semantics { this.selected = true }) { Text(label) }
-                            else OutlinedButton(onClick = { viewModel.selectSourceLanguage(code) },
-                                enabled = !sessionBusy, modifier = Modifier.semantics { this.selected = false }) { Text(label) }
-                        }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("음성 언어", style = MaterialTheme.typography.titleMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    for ((code, label) in listOf(
+                        RecognitionLanguages.AUTO to "자동 감지",
+                        "ja" to "일본어", "en" to "영어"
+                    )) {
+                        val selected = ui.settings.sourceLanguageCode == code
+                        if (selected) FilledTonalButton(
+                            onClick = { viewModel.selectSourceLanguage(code) },
+                            enabled = !sessionBusy,
+                            modifier = Modifier.semantics { this.selected = true }
+                        ) { Text(label) }
+                        else OutlinedButton(
+                            onClick = { viewModel.selectSourceLanguage(code) },
+                            enabled = !sessionBusy,
+                            modifier = Modifier.semantics { this.selected = false }
+                        ) { Text(label) }
                     }
-                    Text("번역 결과: 한국어", fontWeight = FontWeight.Medium)
-                    Text(
-                        if (ui.settings.sourceLanguageCode == RecognitionLanguages.AUTO)
-                            "영어·일본어 등 지원 언어를 구간마다 감지해 한국어로 번역합니다. " +
-                                "짧은 말이나 여러 언어가 섞인 음성은 감지가 어려울 수 있습니다."
-                        else "${RecognitionLanguages.koreanLabel(ui.settings.sourceLanguageCode)}로 고정해 인식합니다. " +
-                            "여러 언어를 들으려면 자동 감지를 선택하세요.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text("모든 모드는 같은 모델을 사용하므로 추가 다운로드가 없습니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
+                Text("번역 결과: 한국어", fontWeight = FontWeight.Medium)
+                Text(
+                    if (ui.settings.sourceLanguageCode == RecognitionLanguages.AUTO)
+                        "구간마다 언어를 감지합니다. 짧은 발화나 혼합 음성은 감지가 어려울 수 있습니다."
+                    else "선택한 언어로 고정해 인식합니다. 여러 언어는 자동 감지를 선택하세요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text("모든 모드는 같은 모델을 사용하므로 추가 다운로드가 없습니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            TextButton(
+                onClick = { showAdvancedSettings = !showAdvancedSettings },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            ) {
+                Text(if (showAdvancedSettings) "자막 및 앱 설정 접기" else "자막 및 앱 설정 펼치기")
+                Icon(if (showAdvancedSettings) Icons.Outlined.ExpandLess
+                    else Icons.Outlined.ExpandMore, contentDescription = null)
+            }
+
+            if (showAdvancedSettings) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("읽기 방식", style = MaterialTheme.typography.titleMedium)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for ((mode, label) in listOf(CaptionDisplayMode.CAPTIONS to "최근 자막", CaptionDisplayMode.CHAT to "자막 목록")) {
+                        for ((mode, label) in listOf(
+                            CaptionDisplayMode.CAPTIONS to "최근 자막",
+                            CaptionDisplayMode.CHAT to "자막 목록"
+                        )) {
                             val selected = ui.settings.captionDisplayMode == mode
-                            if (selected) {
-                                FilledTonalButton(onClick = { viewModel.updateCaptionDisplayMode(mode) },
-                                    modifier = Modifier.semantics { this.selected = true }) { Text(label) }
-                            } else {
-                                OutlinedButton(onClick = { viewModel.updateCaptionDisplayMode(mode) },
-                                    modifier = Modifier.semantics { this.selected = false }) { Text(label) }
-                            }
+                            if (selected) FilledTonalButton(
+                                onClick = { viewModel.updateCaptionDisplayMode(mode) },
+                                modifier = Modifier.semantics { this.selected = true }
+                            ) { Text(label) }
+                            else OutlinedButton(
+                                onClick = { viewModel.updateCaptionDisplayMode(mode) },
+                                modifier = Modifier.semantics { this.selected = false }
+                            ) { Text(label) }
                         }
                     }
-                    Text(
-                        if (ui.settings.captionDisplayMode == CaptionDisplayMode.CHAT)
-                            "최근 40개 자막 구간을 모아 봅니다. 이전 자막을 읽을 때 자동 이동이 멈춥니다."
-                        else "최근 2개 자막 구간을 표시합니다. 화면 너비에 맞춰 줄바꿈됩니다.",
+                    Text(if (ui.settings.captionDisplayMode == CaptionDisplayMode.CHAT)
+                        "최근 40개 자막 구간을 모아 봅니다. 읽는 동안 자동 이동이 멈춥니다."
+                        else "최근 2개 자막 구간을 표시합니다. 창 너비에 따라 줄바꿈됩니다.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("말이 이어져도 확인된 문장부터 번역합니다. " +
-                        "문장 끝을 판단하기 어려우면 무음 또는 최대 8초 경계에서 처리하며, 속도는 기기에 따라 달라집니다. " +
+                        "문장 끝을 판단하기 어려우면 무음 또는 최대 8초 경계에서 처리합니다. " +
                         "인식이나 번역이 밀리면 일부 대기 구간을 생략하고 안내합니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -312,13 +377,14 @@ fun MainScreen(
                         Text("팝업 불투명도: " + (ui.settings.overlayOpacity * 100).toInt() + "%")
                         Slider(value = ui.settings.overlayOpacity, onValueChange = viewModel::updateOpacity,
                             valueRange = 0.2f..1f)
-                        OutlinedButton(onClick = viewModel::resetOverlayPosition) { Text("팝업 위치·크기 초기화") }
+                        OutlinedButton(onClick = viewModel::resetOverlayPosition) {
+                            Text("팝업 위치·크기 초기화")
+                        }
                     }
                 }
-            }
 
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("화면 테마", style = MaterialTheme.typography.titleMedium)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -328,7 +394,7 @@ fun MainScreen(
                             AppThemeMode.DARK to "다크"
                         )) {
                             val selected = ui.settings.appThemeMode == mode
-                            if (selected) Button(
+                            if (selected) FilledTonalButton(
                                 onClick = { viewModel.updateAppThemeMode(mode) },
                                 modifier = Modifier.semantics { this.selected = true }
                             ) { Text(label) }
@@ -338,24 +404,21 @@ fun MainScreen(
                             ) { Text(label) }
                         }
                     }
-                    Text("시스템을 선택하면 기기의 밝기 설정에 맞춰 화면이 바뀝니다.",
+                    Text("시스템 모드는 기기의 밝기 설정에 따라 변경됩니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            }
 
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("기록 및 개인정보", style = MaterialTheme.typography.titleMedium)
                     SettingToggle("번역 기록 저장 (기본 꺼짐)", ui.settings.saveHistory,
                         viewModel::updateSaveHistory)
-                    Text(
-                        "음성 인식과 번역은 기기 안에서 처리하며, 음성과 번역 문장을 외부 서버로 전송하지 않습니다. " +
-                            "광고·분석·오류 제보용 SDK를 사용하지 않습니다. " +
-                            "기록 저장은 기본 꺼짐이며 Android 백업은 사용하지 않습니다.",
+                    Text("음성 인식과 번역은 기기 안에서 처리합니다. " +
+                        "기록 저장은 기본 꺼짐이며 Android 백업을 사용하지 않습니다. " +
+                        "광고·분석·오류 수집 SDK는 포함되지 않습니다.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = {
                         try {
                             context.startActivity(Intent(Intent.ACTION_VIEW,
