@@ -23,6 +23,25 @@ data class CaptionRuntimeLine(
     val audioWindowId: Long? = null
 )
 
+/** Bounded in-memory timings. Never records speech or transcript content. */
+data class CaptionLatencyWindow(val samplesMs: List<Long> = emptyList()) {
+    val count: Int get() = samplesMs.size
+    val averageMs: Long get() = if (samplesMs.isEmpty()) 0L else
+        samplesMs.sumOf { it / samplesMs.size } + samplesMs.sumOf { it % samplesMs.size } / samplesMs.size
+    val maximumMs: Long get() = samplesMs.maxOrNull() ?: 0L
+
+    fun record(elapsedMs: Long): CaptionLatencyWindow =
+        CaptionLatencyWindow((samplesMs + elapsedMs.coerceAtLeast(0L)).takeLast(20))
+}
+
+internal fun CaptionRuntimeState.recordRecognitionTiming(elapsedMs: Long): CaptionRuntimeState =
+    copy(recognitionElapsedMs = elapsedMs.coerceAtLeast(0L),
+        recognitionLatency = recognitionLatency.record(elapsedMs))
+
+internal fun CaptionRuntimeState.recordTranslationTiming(elapsedMs: Long): CaptionRuntimeState =
+    copy(translationElapsedMs = elapsedMs.coerceAtLeast(0L),
+        translationLatency = translationLatency.record(elapsedMs))
+
 data class CaptionRuntimeState(
     val originalText: String = "",
     val translatedText: String = "",
@@ -51,7 +70,9 @@ data class CaptionRuntimeState(
     /** Queue wait plus recognition compute time, rather than end-to-end video delay. */
     val recognitionElapsedMs: Long = 0L,
     /** Queue wait plus translation compute time for the most recently completed request. */
-    val translationElapsedMs: Long = 0L
+    val translationElapsedMs: Long = 0L,
+    val recognitionLatency: CaptionLatencyWindow = CaptionLatencyWindow(),
+    val translationLatency: CaptionLatencyWindow = CaptionLatencyWindow()
 ) {
     val phase: CaptionPhase get() = when {
         stopping -> CaptionPhase.STOPPING
@@ -75,7 +96,8 @@ data class CaptionRuntimeState(
 
     val information: String? get() = listOfNotNull(infoMessage,
         captionBacklogMessage(skippedTranslations, skippedSpeechSegments),
-        captionProcessingTimesMessage(recognitionElapsedMs, translationElapsedMs))
+        captionProcessingTimesMessage(recognitionElapsedMs, translationElapsedMs),
+        captionLatencySummary(recognitionLatency, translationLatency))
         .takeIf { it.isNotEmpty() }?.joinToString("\n")
 }
 
@@ -83,6 +105,19 @@ private fun captionProcessingTimesMessage(recognitionMs: Long, translationMs: Lo
     if (recognitionMs <= 0L && translationMs <= 0L) return null
     fun seconds(milliseconds: Long) = String.format(Locale.ROOT, "%.1f", milliseconds.coerceAtLeast(0L) / 1_000.0)
     return "최근 처리 시간: 인식 ${seconds(recognitionMs)}초 · 번역 ${seconds(translationMs)}초"
+}
+
+private fun captionLatencySummary(recognition: CaptionLatencyWindow, translation: CaptionLatencyWindow): String? {
+    if (recognition.count < 3 && translation.count < 3) return null
+    fun seconds(value: Long) = String.format(Locale.ROOT, "%.1f", value / 1_000.0)
+    return listOfNotNull(
+        recognition.takeIf { it.count >= 3 }?.let {
+            "인식 최근 ${it.count}건 평균 ${seconds(it.averageMs)}초 · 최대 ${seconds(it.maximumMs)}초"
+        },
+        translation.takeIf { it.count >= 3 }?.let {
+            "번역 최근 ${it.count}건 평균 ${seconds(it.averageMs)}초 · 최대 ${seconds(it.maximumMs)}초"
+        }
+    ).joinToString("\n")
 }
 
 /** Enrich existing captions only; asynchronous detection never appends a second copy. */
@@ -152,7 +187,9 @@ internal fun completedCaptionSession(
     retainedLines: List<CaptionRuntimeLine> = emptyList(),
     sessionId: Long = 0L,
     recognitionElapsedMs: Long = 0L,
-    translationElapsedMs: Long = 0L
+    translationElapsedMs: Long = 0L,
+    recognitionLatency: CaptionLatencyWindow = CaptionLatencyWindow(),
+    translationLatency: CaptionLatencyWindow = CaptionLatencyWindow()
 ): CaptionRuntimeState {
     val error = terminalFailure ?: previousFailure ?: if (!drained)
         "번역 종료 시간이 초과되어 마지막 일부 문장이 저장되지 않았습니다." else null
@@ -168,6 +205,8 @@ internal fun completedCaptionSession(
         sessionId = sessionId,
         recognitionElapsedMs = recognitionElapsedMs,
         translationElapsedMs = translationElapsedMs,
+        recognitionLatency = recognitionLatency,
+        translationLatency = translationLatency,
         status = if (error == null) RecognitionStatus.IDLE else RecognitionStatus.ERROR,
         lastError = error,
         restartLanguageCode = restartLanguageCode,
