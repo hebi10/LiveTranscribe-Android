@@ -186,6 +186,54 @@ class PublisherTests(unittest.TestCase):
                              for method, _, body in server.calls if method == 'PUT'))
         self.assertFalse(server.committed)
 
+    def test_explicit_unpublished_app_fallback_commits_only_alpha_draft(self):
+        server = PlayServer(bundles=[22], tracks=[track('internal', 22)])
+
+        def request(method, path, body=None, content_type=None):
+            if method == 'POST' and ':validate' in path and server.pending['releases'][0]['status'] == 'completed':
+                server.calls.append((method, path, body))
+                raise publisher.PlayApiError(method, 400, 'INVALID_ARGUMENT',
+                                             validation_issue='DRAFT_APP_STATE')
+            return server(method, path, body, content_type)
+
+        result = publisher.Publisher(request).promote(22, 'alpha', draft_if_app_unpublished=True)
+        self.assertEqual(result['releaseStatus'], 'draft')
+        self.assertEqual(result['status'], 'alpha_draft_committed_and_verified')
+        self.assertEqual(result['availability'], 'draft_not_published')
+        self.assertEqual(result['versionCode'], 22)
+        self.assertEqual(sum(':commit' in path for _, path, _ in server.calls), 1)
+        self.assertFalse(any('uploadType' in path for _, path, _ in server.calls))
+        alpha_updates = [body for method, path, body in server.calls
+                         if method == 'PUT' and path.endswith('/tracks/alpha')]
+        self.assertEqual([body['releases'][0]['status'] for body in alpha_updates],
+                         ['completed', 'draft', 'draft'])
+
+    def test_alpha_draft_fallback_needs_explicit_flag_and_exact_app_state(self):
+        for enabled, issue in ((False, 'DRAFT_APP_STATE'), (True, 'UNCLASSIFIED'),
+                               (True, 'TESTER_CONFIGURATION')):
+            server = PlayServer(bundles=[22], tracks=[track('internal', 22)])
+            def request(method, path, body=None, content_type=None):
+                if method == 'POST' and ':validate' in path and server.pending['releases'][0]['status'] == 'completed':
+                    server.calls.append((method, path, body))
+                    raise publisher.PlayApiError(method, 400, 'INVALID_ARGUMENT', validation_issue=issue)
+                return server(method, path, body, content_type)
+            with self.subTest(enabled=enabled, issue=issue), self.assertRaisesRegex(publisher.ReleaseError, 'no successful promotion'):
+                publisher.Publisher(request).promote(22, 'alpha', draft_if_app_unpublished=enabled)
+            self.assertFalse(server.committed)
+
+    def test_alpha_draft_does_not_replace_existing_release(self):
+        server = PlayServer(bundles=[22], tracks=[track('internal', 22), track('alpha', 21)])
+        with self.assertRaisesRegex(publisher.ReleaseError, 'Existing closed-alpha releases'):
+            publisher.Publisher(server).prepare_alpha_draft(22)
+        self.assertFalse(any(method == 'PUT' or ':commit' in path for method, path, _ in server.calls))
+
+    def test_alpha_draft_already_present_is_idempotent(self):
+        server = PlayServer(bundles=[22], tracks=[track('internal', 22), track('alpha', 22, 'draft')])
+        result = publisher.Publisher(server).prepare_alpha_draft(22)
+        self.assertEqual(result['status'], 'alpha_draft_already_present')
+        self.assertFalse(server.committed)
+        self.assertFalse(any(method == 'PUT' for method, _, _ in server.calls))
+
     def test_alpha_promote_preserves_exact_internal_version_and_track(self):
         server = PlayServer(bundles=[22], tracks=[track('internal', 22)])
         result = publisher.Publisher(server).promote(22, 'alpha')

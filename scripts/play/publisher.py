@@ -342,7 +342,45 @@ class Publisher:
             return 'draft_probe_unavailable'
         return 'draft_probe_validated_without_commit'
 
-    def promote(self, code, track='alpha', changes_not_sent_for_review=False):
+    def prepare_alpha_draft(self, code):
+        """Stage only the verified internal binary for explicit Console publication."""
+        code = version_code(code)
+        with self.edit() as edit:
+            source = self.request('GET', edit + '/tracks/internal')
+            release = next((item for item in source.get('releases', [])
+                            if item.get('status') == 'completed'
+                            and str(code) in [str(value) for value in item.get('versionCodes', [])]), None)
+            if release is None or code not in self.used_versions(edit):
+                raise ReleaseError('Alpha draft requires the same completed internal registered version')
+            try:
+                existing = self.request('GET', edit + '/tracks/alpha')
+            except PlayApiError as error:
+                if error.http_status != 404:
+                    raise
+                existing = {'releases': []}
+            releases = existing.get('releases', [])
+            if releases:
+                if len(releases) == 1 and releases[0].get('status') == 'draft' and [
+                    str(value) for value in releases[0].get('versionCodes', [])] == [str(code)]:
+                    return {'package': PACKAGE, 'track': 'alpha', 'versionCode': code,
+                            'releaseStatus': 'draft', 'status': 'alpha_draft_already_present',
+                            'availability': 'draft_not_published'}
+                raise ReleaseError('Existing closed-alpha releases require Console inspection; no replacement attempted')
+            draft = {'name': release.get('name', f'1.3.1 ({code})'),
+                     'versionCodes': [str(code)], 'status': 'draft'}
+            if release.get('releaseNotes'):
+                draft['releaseNotes'] = release['releaseNotes']
+            self.request('PUT', edit + '/tracks/alpha',
+                         {'track': 'alpha', 'releases': [draft]})
+            commit_info = self.commit(edit, changes_not_sent_for_review=True, fail_if_in_review=True)
+        result = self.verify_track('alpha', code, 'draft')
+        result.update(status='alpha_draft_committed_and_verified',
+                      availability='draft_not_published')
+        if commit_info:
+            result.update(commit_info)
+        return result
+
+    def promote(self, code, track='alpha', changes_not_sent_for_review=False, draft_if_app_unpublished=False):
         if track != 'alpha':
             raise ReleaseError('Only the alpha closed-testing track is permitted for promotion')
         code = version_code(code)
@@ -380,7 +418,11 @@ class Publisher:
             reason = ','.join(error.diagnostic_reasons) or 'NO_STRUCTURED_REASON'
             probe = ''
             if stage == 'edit_validate' and error.http_status == 400 and release is not None:
-                probe = '; ' + self.probe_draft_alpha_validation(code, release)
+                probe_result = self.probe_draft_alpha_validation(code, release)
+                probe = '; ' + probe_result
+                if (draft_if_app_unpublished and error.validation_issue == 'DRAFT_APP_STATE'
+                        and probe_result == 'draft_probe_validated_without_commit'):
+                    return self.prepare_alpha_draft(code)
             raise ReleaseError(
                 f'Closed alpha promotion failed at {stage}: HTTP {error.http_status}, '
                 f'status {status}, reason {reason}, category {error.validation_issue}{probe}; no successful promotion confirmed'
@@ -406,6 +448,7 @@ def main():
     promote.add_argument('--version-code', required=True, type=version_code)
     promote.add_argument('--track', choices=['alpha'], default='alpha')
     promote.add_argument('--changes-not-sent-for-review', action='store_true')
+    promote.add_argument('--draft-if-app-unpublished', action='store_true')
     args = parser.parse_args()
     try:
         from preflight import require_initialized
@@ -431,7 +474,8 @@ def main():
             result = client.deploy(args.bundle, args.version_code, release_status=args.status,
                                    changes_not_sent_for_review=args.changes_not_sent_for_review)
         else:
-            result = client.promote(args.version_code, args.track, args.changes_not_sent_for_review)
+            result = client.promote(args.version_code, args.track, args.changes_not_sent_for_review,
+                                    draft_if_app_unpublished=args.draft_if_app_unpublished)
         if args.report:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
