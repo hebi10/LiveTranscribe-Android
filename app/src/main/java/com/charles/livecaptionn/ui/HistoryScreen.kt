@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -23,6 +22,10 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -50,7 +54,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -98,16 +101,13 @@ fun HistoryScreen(
     }
 
     val filteredEntries = remember(entries, searchQuery) {
-        if (searchQuery.isBlank()) entries
-        else entries.filter { entry ->
-            entry.originalText.contains(searchQuery, ignoreCase = true) ||
-                entry.translatedText.contains(searchQuery, ignoreCase = true)
-        }
+        filterHistoryEntries(entries, searchQuery)
     }
 
     if (deleteTarget != null) {
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
+            shape = RectangleShape,
             title = { Text(t["Delete entry"]) },
             text = {
                 Text(t.format("Delete this transcript entry?\n\n\"%s\"", deleteTarget?.originalText?.take(60)))
@@ -117,7 +117,8 @@ fun HistoryScreen(
                     val target = deleteTarget ?: return@TextButton
                     scope.launch { controller.delete(target.id) }
                     deleteTarget = null
-                }, enabled = !history.busy) {
+                }, enabled = !history.busy,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
                     Text(t["Delete"])
                 }
             },
@@ -132,13 +133,16 @@ fun HistoryScreen(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
+            shape = RectangleShape,
             title = { Text("전체 기록 삭제") },
             text = { Text("저장된 번역 기록을 모두 삭제하시겠습니까? 삭제한 기록은 복구할 수 없습니다.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmClear = false
                     scope.launch { controller.clear() }
-                }, enabled = !history.busy) { Text("전체 삭제") }
+                }, enabled = !history.busy,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("전체 삭제") }
             },
             dismissButton = {
                 TextButton(onClick = { confirmClear = false }) { Text("취소") }
@@ -168,8 +172,8 @@ fun HistoryScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
         }
@@ -180,7 +184,11 @@ fun HistoryScreen(
                 .padding(padding)
         ) {
             item(key = "history-saving") {
-                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RectangleShape,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+                ) {
                     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                         val savingState = when (saveHistory) {
                             true -> "켜짐"
@@ -211,8 +219,12 @@ fun HistoryScreen(
                             )
                         }
                         Text(
-                            "기본 꺼짐 · 최근 ${historyLimit}개를 기기에 저장하며, 초과하면 가장 오래된 기록부터 삭제합니다. " +
-                                "끄면 이후 저장을 중단하고 기존 기록은 유지합니다. 기존 기록은 개별 삭제하거나 전체 삭제할 수 있습니다.",
+                            "기기 내 최대 ${historyLimit}개 저장 · 기본 꺼짐",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "저장을 꺼도 기존 기록은 남습니다. 기록은 개별 또는 전체 삭제할 수 있으며 삭제 후 복구할 수 없습니다.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -248,15 +260,32 @@ fun HistoryScreen(
                             }
                         },
                         singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RectangleShape
                     )
                 }
             }
 
+            if (entries.isNotEmpty()) {
+                item(key = "history-result-count") {
+                    Text(
+                        historyResultLabel(entries.size, filteredEntries.size, searchQuery),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
             if (entries.isEmpty() && (history.error != null || history.busy)) {
                 if (history.busy) {
                     item(key = "history-loading") {
-                        Text("기록을 불러오는 중…", modifier = Modifier.padding(16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            Text("기록을 불러오는 중…", style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
             } else if (filteredEntries.isEmpty()) {
@@ -317,9 +346,10 @@ private fun TranscriptCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
+        shape = RectangleShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -328,13 +358,13 @@ private fun TranscriptCard(
                 Text(
                     text = timeStr,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "${historyLanguageLabel(entry.sourceLanguage)} → ${historyLanguageLabel(entry.targetLanguage)}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium
                     )
                     IconButton(
@@ -352,26 +382,29 @@ private fun TranscriptCard(
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
-
-            Text(
-                text = entry.originalText,
-                style = MaterialTheme.typography.bodySmall,
-                fontStyle = FontStyle.Italic,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = if (expanded) Int.MAX_VALUE else 4,
-                overflow = TextOverflow.Ellipsis,
-                onTextLayout = { if (!expanded) originalOverflow = it.hasVisualOverflow }
-            )
-            Spacer(Modifier.height(4.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(12.dp))
+            Text("번역", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 text = entry.translatedText,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = if (expanded) Int.MAX_VALUE else 4,
                 overflow = TextOverflow.Ellipsis,
                 onTextLayout = { if (!expanded) translatedOverflow = it.hasVisualOverflow }
+            )
+            Spacer(Modifier.height(12.dp))
+            Text("원문", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = entry.originalText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (expanded) Int.MAX_VALUE else 4,
+                overflow = TextOverflow.Ellipsis,
+                onTextLayout = { if (!expanded) originalOverflow = it.hasVisualOverflow }
             )
             if (expanded || originalOverflow || translatedOverflow) {
                 TextButton(
