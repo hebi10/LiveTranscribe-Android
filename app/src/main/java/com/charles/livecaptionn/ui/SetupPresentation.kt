@@ -28,10 +28,11 @@ internal fun MainSetupState.modelProgressSummary(): String {
             else "다운로드 용량 확인 중"
     }
     val progressPercent = ((downloadProgress ?: 0f) * 100).toInt().coerceIn(0, 100)
+    val shownBytes = bytes.coerceAtMost(totalBytes)
     return if (totalBytes >= 1_000_000) {
-        "${bytes / 1_000_000} / ${totalBytes / 1_000_000} MB · ${progressPercent}%"
+        "${shownBytes / 1_000_000} / ${totalBytes / 1_000_000} MB · ${progressPercent}%"
     } else {
-        "$bytes / $totalBytes B · ${progressPercent}%"
+        "$shownBytes / $totalBytes B · ${progressPercent}%"
     }
 }
 
