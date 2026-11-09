@@ -93,4 +93,30 @@ class CaptionRuntimeStatusTest {
         assertEquals("최근 처리 시간: 인식 1.3초 · 번역 2.0초", completedCaptionSession(
             null, null, true, recognitionElapsedMs = 1_250, translationElapsedMs = 2_000).information)
     }
+    @Test fun rollingLatencyTracksRecentSamplesWithoutPersistingText() {
+        val window = (1L..25L).fold(CaptionLatencyWindow()) { acc, n -> acc.record(n * 100L) }
+        assertEquals(20, window.count)
+        assertEquals(1_550L, window.averageMs)
+        assertEquals(2_500L, window.maximumMs)
+        assertEquals(0L, CaptionLatencyWindow().record(-50).maximumMs)
+    }
+
+    @Test fun runtimeLatencyIsScopedToSessionAndRetainedOnCompletion() {
+        var state = startedCaptionSession()
+        repeat(3) { index ->
+            state = state.recordRecognitionTiming(1_000L + index * 500L)
+            state = state.recordTranslationTiming(2_000L + index * 500L)
+        }
+        assertTrue(state.information!!.contains("인식 최근 3건 평균 1.5초 · 최대 2.0초"))
+        assertTrue(state.information!!.contains("번역 최근 3건 평균 2.5초 · 최대 3.0초"))
+        val complete = completedCaptionSession(null, null, true,
+            recognitionElapsedMs = state.recognitionElapsedMs,
+            translationElapsedMs = state.translationElapsedMs,
+            recognitionLatency = state.recognitionLatency,
+            translationLatency = state.translationLatency)
+        assertTrue(complete.information!!.contains("인식 최근 3건"))
+        assertEquals(0, startedCaptionSession(complete).recognitionLatency.count)
+        assertEquals(0, startedCaptionSession(complete).translationLatency.count)
+    }
+
 }
