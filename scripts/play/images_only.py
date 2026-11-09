@@ -36,9 +36,10 @@ def apply_images(client, images):
             client.commit(edit, changes_not_sent_for_review=True)
     except PlayApiError as error:
         status = error.api_status or "API_STATUS_UNAVAILABLE"
+        reasons = ",".join(error.diagnostic_reasons) or "NO_STRUCTURED_REASON"
         raise ReleaseError(
-            f"Play image stage '{stage}' denied: HTTP {error.http_status}, status {status}. "
-            "Inspect the app-specific Play permissions and pending review before retrying."
+            f"Play image stage '{stage}' denied: HTTP {error.http_status}, status {status}, reason {reasons}. "
+            "Inspect the app-specific Play permissions and draft app state before retrying."
         ) from None
     try:
         with client.edit() as readback:

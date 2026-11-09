@@ -30,10 +30,12 @@ class ReleaseError(RuntimeError):
 
 
 class PlayApiError(ReleaseError):
-    def __init__(self, method, status, api_status=None, safe_reason=None):
+    def __init__(self, method, status, api_status=None, safe_reason=None, diagnostic_reasons=()):
         self.http_status = status
         self.api_status = api_status if api_status in API_STATUSES else None
         self.safe_reason = safe_reason if safe_reason == REVIEW_HOLD_FORBIDDEN_REASON else None
+        self.diagnostic_reasons = tuple(reason for reason in diagnostic_reasons
+                                        if isinstance(reason, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{1,79}', reason))[:8]
         super().__init__(f'Play API {method} failed with HTTP {status}; inspect Console registration, permissions and validation')
 
 
@@ -75,7 +77,11 @@ class HttpTransport:
             raise ReleaseError('Unsupported Play API path')
         upload = content_type is not None
         url = API + ('/upload' if upload else '') + BASE + path
-        data = body if isinstance(body, bytes) else (json.dumps(body).encode() if body is not None else None)
+        # Google documents edits.validate and edits.commit as bodyless operations.
+        # The edit creation and upload methods retain their existing JSON/media bodies.
+        is_bodyless_edit_action = method == 'POST' and re.fullmatch(r'/edits/[A-Za-z0-9]+:(?:validate|commit)(?:\?.*)?', path) is not None
+        data = (b'' if is_bodyless_edit_action else body if isinstance(body, bytes)
+                else json.dumps(body).encode() if body is not None else None)
         headers = {'Authorization': 'Bearer ' + self.token}
         if data is not None:
             headers['Content-Type'] = content_type or 'application/json; charset=utf-8'
@@ -88,6 +94,7 @@ class HttpTransport:
             # Response bodies can contain supplied credentials or private listing data.
             api_status = None
             safe_reason = None
+            diagnostic_reasons = []
             try:
                 raw = error.read(65537)
                 if len(raw) <= 65536:
@@ -98,11 +105,16 @@ class HttpTransport:
                             api_status = candidate
                         if error.code == 400 and payload['error'].get('message') == REVIEW_HOLD_FORBIDDEN_MESSAGE:
                             safe_reason = REVIEW_HOLD_FORBIDDEN_REASON
+                        for detail in payload['error'].get('details', []):
+                            if isinstance(detail, dict) and detail.get('@type') == 'type.googleapis.com/google.rpc.ErrorInfo':
+                                reason = detail.get('reason')
+                                if isinstance(reason, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{1,79}', reason):
+                                    diagnostic_reasons.append(reason)
             except (OSError, ValueError):
                 pass
             finally:
                 error.close()
-            raise PlayApiError(method, error.code, api_status, safe_reason) from None
+            raise PlayApiError(method, error.code, api_status, safe_reason, diagnostic_reasons) from None
         except (urllib.error.URLError, TimeoutError, ValueError):
             raise ReleaseError('Play API request or response failed; no successful deployment can be claimed') from None
 
