@@ -113,8 +113,18 @@ jobs:
           PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
           PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
         run: |
-          python3 scripts/play/publisher.py --report output/play-alpha-promotion.json promote --version-code 22 --track alpha
-          echo "Closed alpha v22 API commit and fresh readback succeeded. Review and tester installability require Console confirmation." >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/play/publisher.py --report output/play-alpha-promotion.json promote --version-code 22 --track alpha --draft-if-app-unpublished
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          result = json.loads(Path('output/play-alpha-promotion.json').read_text(encoding='utf-8'))
+          if result.get('releaseStatus') == 'completed':
+              print('Closed alpha v22 API commit and fresh readback succeeded; tester access still requires Console confirmation.')
+          elif result.get('releaseStatus') == 'draft':
+              print('Closed alpha v22 is saved as a DRAFT only, not published or installable. Complete first-app publication and test review in Play Console.')
+          else:
+              raise SystemExit('Unexpected release status; publication cannot be claimed')
+          PY
       - name: Preserve non-secret promotion report
         if: always()
         uses: actions/upload-artifact@v4
