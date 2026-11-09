@@ -544,7 +544,8 @@ private fun StartSetupGuidance(
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         OutlinedButton(
                             onClick = onCancelModelPreparation,
-                            modifier = Modifier.heightIn(min = 48.dp)
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            shape = RectangleShape
                         ) { Text("다운로드 일시 중지") }
                     }
                     else -> Unit
@@ -570,7 +571,8 @@ private fun NextSetupAction(
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(
                 onClick = onRequestAudioPermission,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                shape = RectangleShape
             ) {
                 Text(if (setup.audioPermissionAction == AudioPermissionAction.OPEN_SETTINGS)
                     "앱 설정에서 마이크 허용" else "음성 캡처 권한 허용")
@@ -582,7 +584,8 @@ private fun NextSetupAction(
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(
                 onClick = onOpenOverlaySettings,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                shape = RectangleShape
             ) { Text("자막 표시 권한 허용") }
         }
         SetupStep.MODELS -> {
@@ -592,7 +595,8 @@ private fun NextSetupAction(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(
                     onClick = onPrepareModels,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = RectangleShape
                 ) { Text(setup.modelActionLabel() ?: "모델 다운로드 (약 2.1GB)") }
             }
         }
