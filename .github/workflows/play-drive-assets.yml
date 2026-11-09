@@ -70,7 +70,7 @@ jobs:
 
   listing:
     needs: source
-    if: needs.source.result == 'success'
+    if: needs.source.result == 'success' && (needs.source.outputs.publish == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     environment: google-play
     permissions:
