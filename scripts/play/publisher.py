@@ -298,11 +298,29 @@ class Publisher:
         result['uploadedBundleSHA256'] = bundle_hash
         return result
 
+    def probe_draft_alpha_validation(self, code, release):
+        """Diagnose a rejected completed alpha release without committing any changes."""
+        try:
+            with self.edit(ignore_delete_error=False) as edit:
+                draft = {'name': release.get('name', f'1.3.1 ({code})'),
+                         'versionCodes': [str(code)], 'status': 'draft'}
+                if release.get('releaseNotes'):
+                    draft['releaseNotes'] = release['releaseNotes']
+                self.request('PUT', edit + '/tracks/alpha',
+                             {'track': 'alpha', 'releases': [draft]})
+                self.request('POST', edit + ':validate', {})
+        except PlayApiError as error:
+            return f'draft_probe_rejected_http_{error.http_status}'
+        except (ReleaseError, KeyError, TypeError):
+            return 'draft_probe_unavailable'
+        return 'draft_probe_validated_without_commit'
+
     def promote(self, code, track='alpha', changes_not_sent_for_review=False):
         if track != 'alpha':
             raise ReleaseError('Only the alpha closed-testing track is permitted for promotion')
         code = version_code(code)
         stage = 'create_edit'
+        release = None
 
         def announce(name):
             nonlocal stage
@@ -333,9 +351,12 @@ class Publisher:
         except PlayApiError as error:
             status = error.api_status or 'API_STATUS_UNAVAILABLE'
             reason = ','.join(error.diagnostic_reasons) or 'NO_STRUCTURED_REASON'
+            probe = ''
+            if stage == 'edit_validate' and error.http_status == 400 and release is not None:
+                probe = '; ' + self.probe_draft_alpha_validation(code, release)
             raise ReleaseError(
                 f'Closed alpha promotion failed at {stage}: HTTP {error.http_status}, '
-                f'status {status}, reason {reason}; no successful promotion confirmed'
+                f'status {status}, reason {reason}{probe}; no successful promotion confirmed'
             ) from None
 
 
