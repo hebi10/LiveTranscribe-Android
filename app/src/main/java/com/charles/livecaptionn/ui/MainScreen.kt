@@ -61,6 +61,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.charles.livecaptionn.settings.AudioSource
+import com.charles.livecaptionn.settings.AppThemeMode
 import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionDisplayMode
 import com.charles.livecaptionn.settings.RecognitionLanguages
@@ -313,6 +314,33 @@ fun MainScreen(
                             valueRange = 0.2f..1f)
                         OutlinedButton(onClick = viewModel::resetOverlayPosition) { Text("팝업 위치·크기 초기화") }
                     }
+                }
+            }
+
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("화면 테마", style = MaterialTheme.typography.titleMedium)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for ((mode, label) in listOf(
+                            AppThemeMode.SYSTEM to "시스템",
+                            AppThemeMode.LIGHT to "라이트",
+                            AppThemeMode.DARK to "다크"
+                        )) {
+                            val selected = ui.settings.appThemeMode == mode
+                            if (selected) Button(
+                                onClick = { viewModel.updateAppThemeMode(mode) },
+                                modifier = Modifier.semantics { this.selected = true }
+                            ) { Text(label) }
+                            else OutlinedButton(
+                                onClick = { viewModel.updateAppThemeMode(mode) },
+                                modifier = Modifier.semantics { this.selected = false }
+                            ) { Text(label) }
+                        }
+                    }
+                    Text("시스템을 선택하면 기기의 밝기 설정에 맞춰 화면이 바뀝니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 

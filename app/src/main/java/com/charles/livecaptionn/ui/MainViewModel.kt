@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import com.charles.livecaptionn.di.AppContainer
 import com.charles.livecaptionn.service.manuallySelectedCaptionLanguage
 import com.charles.livecaptionn.settings.AudioSource
+import com.charles.livecaptionn.settings.AppThemeMode
 import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionDisplayMode
 import com.charles.livecaptionn.settings.RecognitionLanguages
@@ -129,6 +130,12 @@ class MainViewModel(
                     overlayWidthDp = defaults.overlayWidthDp,
                     overlayHeightDp = defaults.overlayHeightDp, overlayMinimized = false)
             }
+        }
+    }
+
+    fun updateAppThemeMode(mode: AppThemeMode) {
+        viewModelScope.launch {
+            container.settingsRepository.update { it.copy(appThemeMode = mode) }
         }
     }
 
