@@ -116,14 +116,14 @@ jobs:
         env:
           PLAY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: python3 scripts/play/publisher.py --report output/play-readiness.json inspect --require-binary
-      - name: Commit reviewed Korean listing and images
+      - name: Commit reviewed Korean images only
         if: needs.source.outputs.publish == 'true'
         env:
           PLAY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
           IMAGE_MANIFEST: ${{ steps.images.outputs.manifest }}
         run: |
-          python3 scripts/play/listing.py apply --manifest "$IMAGE_MANIFEST" --report output/play-listing-images.json
+          python3 scripts/play/images_only.py --manifest "$IMAGE_MANIFEST" --report output/play-listing-images.json
       - name: Preserve non-secret verification report
         if: always()
         uses: actions/upload-artifact@v4
