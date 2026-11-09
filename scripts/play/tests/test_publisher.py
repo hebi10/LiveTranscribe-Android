@@ -123,6 +123,19 @@ class PublisherTests(unittest.TestCase):
                 self.assertEqual(publisher.main(), 1)
                 transport.assert_not_called()
 
+    def test_alpha_commit_reports_validation_and_commit_stages(self):
+        server = PlayServer()
+        steps = []
+        publisher.Publisher(server).commit('/edits/1', stage_callback=steps.append)
+        self.assertEqual(steps, ['validate', 'commit'])
+
+    def test_alpha_promote_preserves_exact_internal_version_and_track(self):
+        server = PlayServer(bundles=[22], tracks=[track('internal', 22)])
+        result = publisher.Publisher(server).promote(22, 'alpha')
+        self.assertEqual(result['track'], 'alpha')
+        self.assertEqual(result['versionCode'], 22)
+        self.assertEqual(server.pending['releases'][0]['versionCodes'], ['22'])
+
     def test_uploaded_hash_missing_invalid_or_mismatched_blocks_track_and_commit(self):
         for returned in (None, '', 'x' * 64, 'a' * 64):
             server = PlayServer()
