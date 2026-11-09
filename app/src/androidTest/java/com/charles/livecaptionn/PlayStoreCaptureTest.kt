@@ -49,6 +49,7 @@ class PlayStoreCaptureTest {
         assertTrue(directory.isDirectory || directory.mkdirs())
 
         compose.onNodeWithText("실시간 영상 번역").assertIsDisplayed()
+        compose.onNodeWithText("시작 준비").assertIsDisplayed()
         compose.onNodeWithText("음성 캡처 권한 허용").assertIsDisplayed()
         capture(directory, "01-home-preparation.png")
 
