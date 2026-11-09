@@ -35,7 +35,7 @@ class CaptionFrameIconTests(unittest.TestCase):
             self.assertNotIn("icons.filled.", text)
             self.assertNotIn("Icons.Filled.", text)
             self.assertNotIn("Icons.Default.", text)
-            self.assertIn("icons.outlined.", text)
+            self.assertTrue("icons.outlined." in text or "icons.automirrored.outlined." in text)
 
     def test_notification_and_overlay_share_one_stroke_style(self):
         service = (ROOT / "app/src/main/java/com/charles/livecaptionn/service/CaptionForegroundService.kt").read_text(encoding="utf-8")
