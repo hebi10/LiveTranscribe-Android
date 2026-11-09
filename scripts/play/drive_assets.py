@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch the explicitly approved store-image ZIP from an app-owned, read-only Drive file."""
+"""Verify and extract the SHA-pinned approved store-image archive shipped with the repository."""
 import argparse
 import hashlib
 import io
@@ -71,15 +71,18 @@ def extract(archive, destination):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", default="output/approved-play-images")
+    parser.add_argument("--archive", default="assets/play-store/approved/LiveTranscribe_10_assets_20261109.zip")
     args = parser.parse_args()
     try:
-        archive = download(os.environ.get("PLAY_DRIVE_ACCESS_TOKEN", ""))
+        archive = Path(args.archive).read_bytes()
+        if len(archive) > MAX_ARCHIVE_BYTES or hashlib.sha256(archive).hexdigest() != EXPECTED_ARCHIVE_SHA256:
+            raise ValueError("Approved repository image archive size/digest mismatch")
         path = extract(archive, args.output_dir)
         # Defer format, source and per-image verification to the existing Play listing validator.
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from listing import load_inputs
         payload = load_inputs(Path("docs/play-store/listing-ko.json"), path)
-        print(f"Validated approved Drive archive: {len(payload['images']['phoneScreenshots'])} genuine-screen composites")
+        print(f"Validated approved repository archive: {len(payload['images']['phoneScreenshots'])} genuine-screen composites")
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as result:
             result.write(f"manifest={path}\n")
         return 0
