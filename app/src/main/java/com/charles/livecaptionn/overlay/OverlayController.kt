@@ -733,7 +733,8 @@ class OverlayController(
                 control.setPadding(dp(6), 0, dp(6), dp(4))
             }
         }
-        (listOfNotNull(statusText, statusDetail, statusInformation, suggestionLabel) + suggestionChoices)
+        statusText?.textSize = 13f
+        (listOfNotNull(statusDetail, statusInformation, suggestionLabel) + suggestionChoices)
             .forEach { it.textSize = 12f }
         statusDetail?.setPadding(0, dp(2), 0, dp(4))
         suggestionChoices.forEach {
