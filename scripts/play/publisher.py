@@ -233,7 +233,7 @@ class Publisher:
             result.update(commit_result)
         return result
 
-    def commit(self, edit, changes_not_sent_for_review=False, fail_if_in_review=False):
+    def commit(self, edit, changes_not_sent_for_review=False, fail_if_in_review=False, stage_callback=None):
         if fail_if_in_review:
             with self.initial_stage('validate'):
                 self.request('POST', edit + ':validate', {})
@@ -250,8 +250,12 @@ class Publisher:
                         raise
                     return {'reviewHoldParameterOmitted': True, 'reason': REVIEW_HOLD_FORBIDDEN_REASON}
             return
+        if stage_callback:
+            stage_callback('validate')
         self.request('POST', edit + ':validate', {})
         query = '?changesNotSentForReview=true' if changes_not_sent_for_review else ''
+        if stage_callback:
+            stage_callback('commit')
         self.request('POST', edit + ':commit' + query, {})
 
     def verify_track(self, track, code, status):
@@ -298,20 +302,41 @@ class Publisher:
         if track != 'alpha':
             raise ReleaseError('Only the alpha closed-testing track is permitted for promotion')
         code = version_code(code)
-        with self.edit() as edit:
-            source = self.request('GET', edit + '/tracks/internal')
-            release = next((release for release in source.get('releases', [])
-                            if release.get('status') == 'completed' and str(code) in [str(value) for value in release.get('versionCodes', [])]), None)
-            if release is None:
-                raise ReleaseError('The exact versionCode must exist in a completed internal release')
-            if code not in self.used_versions(edit):
-                raise ReleaseError('Requested uploaded versionCode was not found')
-            promoted = {'name': release.get('name', f'1.3.1 ({code})'), 'versionCodes': [str(code)], 'status': 'completed'}
-            if release.get('releaseNotes'):
-                promoted['releaseNotes'] = release['releaseNotes']
-            self.request('PUT', edit + '/tracks/alpha', {'track': 'alpha', 'releases': [promoted]})
-            self.commit(edit, changes_not_sent_for_review)
-        return self.verify_track(track, code, 'completed')
+        stage = 'create_edit'
+
+        def announce(name):
+            nonlocal stage
+            stage = name
+            print('Play alpha stage: ' + name, flush=True)
+
+        try:
+            with self.edit() as edit:
+                announce('read_completed_internal_release')
+                source = self.request('GET', edit + '/tracks/internal')
+                release = next((release for release in source.get('releases', [])
+                                if release.get('status') == 'completed' and str(code) in
+                                [str(value) for value in release.get('versionCodes', [])]), None)
+                if release is None:
+                    raise ReleaseError('The exact versionCode must exist in a completed internal release')
+                announce('check_registered_artifact')
+                if code not in self.used_versions(edit):
+                    raise ReleaseError('Requested uploaded versionCode was not found')
+                promoted = {'name': release.get('name', f'1.3.1 ({code})'),
+                            'versionCodes': [str(code)], 'status': 'completed'}
+                if release.get('releaseNotes'):
+                    promoted['releaseNotes'] = release['releaseNotes']
+                announce('put_closed_alpha')
+                self.request('PUT', edit + '/tracks/alpha', {'track': 'alpha', 'releases': [promoted]})
+                self.commit(edit, changes_not_sent_for_review, stage_callback=lambda name: announce('edit_' + name))
+            announce('independent_alpha_readback')
+            return self.verify_track(track, code, 'completed')
+        except PlayApiError as error:
+            status = error.api_status or 'API_STATUS_UNAVAILABLE'
+            reason = ','.join(error.diagnostic_reasons) or 'NO_STRUCTURED_REASON'
+            raise ReleaseError(
+                f'Closed alpha promotion failed at {stage}: HTTP {error.http_status}, '
+                f'status {status}, reason {reason}; no successful promotion confirmed'
+            ) from None
 
 
 def main():
