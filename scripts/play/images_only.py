@@ -28,7 +28,10 @@ def apply_images(client, images):
                     response = client.request("POST", endpoint + "?uploadType=media", item["data"], "image/png")
                     if not response.get("image", {}).get("id"):
                         raise ReleaseError("Play did not confirm uploaded " + kind + " image")
-            stage = "edit validate and commit"
+            stage = "edit validate"
+            print("Play image step: " + stage, flush=True)
+            client.request("POST", edit + ":validate", {})
+            stage = "edit commit"
             print("Play image step: " + stage, flush=True)
             client.commit(edit, changes_not_sent_for_review=True)
     except PlayApiError as error:
