@@ -2,6 +2,7 @@ package com.charles.livecaptionn
 
 import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -67,16 +68,16 @@ class OverlayVisualCaptureTest {
             capture(output, "08-popup-expanded.png")
             activity.scenario.onActivity { controller!!.update(idle.copy(controlsExpanded = true, minimized = true)) }
             capture(output, "09-popup-minimized.png")
-            assertFalse(File(output, "07-popup-compact.png").readBytes().contentEquals(
-                File(output, "08-popup-expanded.png").readBytes()))
-            assertFalse(File(output, "08-popup-expanded.png").readBytes().contentEquals(
-                File(output, "09-popup-minimized.png").readBytes()))
             readShell("mkdir -p /sdcard/Download/hebi-overlay-captures")
             readShell("cp -R /sdcard/Android/data/${context.packageName}/files/overlay-captures/. " +
                 "/sdcard/Download/hebi-overlay-captures/")
             val exported = readShell("ls -1 /sdcard/Download/hebi-overlay-captures")
                 .lineSequence().filter { it.isNotBlank() }.toSet()
             assertEquals(setOf("07-popup-compact.png", "08-popup-expanded.png", "09-popup-minimized.png"), exported)
+            assertFalse(File(output, "07-popup-compact.png").readBytes().contentEquals(
+                File(output, "08-popup-expanded.png").readBytes()))
+            assertFalse(File(output, "08-popup-expanded.png").readBytes().contentEquals(
+                File(output, "09-popup-minimized.png").readBytes()))
         } finally {
             activity.scenario.onActivity { controller?.hide() }
             scope.cancel()
@@ -91,6 +92,7 @@ class OverlayVisualCaptureTest {
     private fun capture(directory: File, name: String) {
         instrumentation.waitForIdleSync()
         instrumentation.uiAutomation.waitForIdle(1_000, 10_000)
+        SystemClock.sleep(450)
         val shot = requireNotNull(instrumentation.uiAutomation.takeScreenshot()) {
             "Android did not return a screenshot"
         }
