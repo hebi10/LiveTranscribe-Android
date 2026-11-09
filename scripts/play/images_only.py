@@ -7,25 +7,40 @@ from pathlib import Path
 import sys
 
 from listing import load_inputs
-from publisher import HttpTransport, PACKAGE, Publisher, ReleaseError
+from publisher import HttpTransport, PACKAGE, Publisher, ReleaseError, PlayApiError
 from preflight import require_initialized
 
 CATEGORIES = ("icon", "featureGraphic", "phoneScreenshots")
 
 
 def apply_images(client, images):
-    with client.edit() as edit:
-        for kind in CATEGORIES:
-            endpoint = edit + "/listings/ko-KR/" + kind
-            client.request("DELETE", endpoint)
-            for item in images[kind]:
-                response = client.request("POST", endpoint + "?uploadType=media", item["data"], "image/png")
-                if not response.get("image", {}).get("id"):
-                    raise ReleaseError("Play did not confirm uploaded " + kind + " image")
-        client.commit(edit, changes_not_sent_for_review=True)
+    stage = "edit creation"
+    try:
+        with client.edit() as edit:
+            for kind in CATEGORIES:
+                endpoint = edit + "/listings/ko-KR/" + kind
+                stage = kind + " delete existing images"
+                print("Play image step: " + stage, flush=True)
+                client.request("DELETE", endpoint)
+                for index, item in enumerate(images[kind], 1):
+                    stage = kind + " upload " + str(index) + "/" + str(len(images[kind]))
+                    print("Play image step: " + stage, flush=True)
+                    response = client.request("POST", endpoint + "?uploadType=media", item["data"], "image/png")
+                    if not response.get("image", {}).get("id"):
+                        raise ReleaseError("Play did not confirm uploaded " + kind + " image")
+            stage = "edit validate and commit"
+            print("Play image step: " + stage, flush=True)
+            client.commit(edit, changes_not_sent_for_review=True)
+    except PlayApiError as error:
+        status = error.api_status or "API_STATUS_UNAVAILABLE"
+        raise ReleaseError(
+            f"Play image stage '{stage}' denied: HTTP {error.http_status}, status {status}. "
+            "Inspect the app-specific Play permissions and pending review before retrying."
+        ) from None
     try:
         with client.edit() as readback:
             for kind in CATEGORIES:
+                stage = kind + " independent readback"
                 current = client.request("GET", readback + "/listings/ko-KR/" + kind).get("images", [])
                 expected = [item["sha256"] for item in images[kind]]
                 if [item.get("sha256", "").lower() for item in current] != expected:
