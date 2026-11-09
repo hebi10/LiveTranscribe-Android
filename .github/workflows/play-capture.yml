@@ -100,7 +100,7 @@ jobs:
           manifest = json.loads((directory / "capture-manifest.json").read_text(encoding="utf-8"))
           assert manifest["sourceRevision"] == os.environ["CAPTURE_REVISION"]
           assert manifest["applicationId"] == "com.hebi.livetranslate.debug"
-          assert len(manifest["screenshots"]) == 5
+          assert len(manifest["screenshots"]) == 6
           for name in manifest["screenshots"]:
               assert Path(name).name == name
               with (directory / name).open("rb") as image:
@@ -117,7 +117,7 @@ jobs:
                   header = image.read(24)
               assert header[:8] == b"\x89PNG\r\n\x1a\n", name
               assert struct.unpack(">II", header[16:24]) == (item["width"], item["height"]), name
-          print("Verified five 1080x1920 device PNGs for this source revision; idle UI only.")
+          print("Verified six 1080x1920 device PNGs for this source revision; idle and split preview UI only.")
           PY
       - name: Upload current UI captures and device reports
         if: always()

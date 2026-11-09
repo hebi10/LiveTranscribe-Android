@@ -1,6 +1,8 @@
 package com.charles.livecaptionn.ui
 
 import android.content.Context
+import android.graphics.Typeface
+import android.graphics.text.LineBreaker
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -17,7 +19,7 @@ internal class CaptionReadingView(context: Context, private val reader: CaptionR
 
     private val column = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(16), dp(20), dp(24))
+        setPadding(dp(16), dp(12), dp(16), dp(20))
     }
     private val rows = mutableListOf<Row>()
     private var content: Content? = null
@@ -73,14 +75,15 @@ internal class CaptionReadingView(context: Context, private val reader: CaptionR
     private fun newRow(id: Long): Row {
         fun text() = TextView(context).apply {
             includeFontPadding = false
-            setLineSpacing(dp(5).toFloat(), 1f)
+            setLineSpacing(dp(4).toFloat(), 1f)
+            breakStrategy = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         }
-        val translation = text()
-        val source = text().apply { setPadding(0, dp(8), 0, 0) }
+        val translation = text().apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
+        val source = text().apply { setPadding(0, dp(6), 0, 0) }
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(22))
+            setPadding(0, 0, 0, dp(18))
             addView(translation, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
             addView(source, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }

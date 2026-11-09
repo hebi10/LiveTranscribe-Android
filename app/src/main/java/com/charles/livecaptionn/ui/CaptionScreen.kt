@@ -41,6 +41,7 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
@@ -111,11 +112,14 @@ fun CaptionScreen(
         // Inset padding consumes only what the ancestor has not already handled.
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
             val compactHeight = maxHeight < 300.dp
+            val compact = isSplitCaptionCompact(maxWidth.value, maxHeight.value)
             Column(Modifier.fillMaxSize()) {
-                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 16.dp, end = 4.dp),
+                Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RectangleShape) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                    .padding(start = if (compact) 8.dp else 16.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).heightIn(min = 48.dp).clickable { showDetails = true }.padding(vertical = 8.dp)) {
-                        Text(when {
+                        if (!compact) Text(when {
                             suggestion != null -> "언어 전환 추천 · 자세히"
                             notice.isNotBlank() -> "알림 · 자세히 보기"
                             else -> "분할 자막"
@@ -138,19 +142,23 @@ fun CaptionScreen(
                         Icon(Icons.Outlined.MoreVert, contentDescription = "자막 설정 및 더 보기")
                     }
                 }
+                }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (messages.isEmpty()) {
                         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
                             verticalArrangement = Arrangement.Center) {
-                            Text(if (busy) "자막을 기다리고 있어요" else "영상 옆에, 자막만",
+                            Text(if (busy) {
+                                if (compact) "자막 대기 중" else "자막을 기다리고 있어요"
+                            } else "영상 옆에, 자막만",
                                 style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                             Text(if (busy) "음성이 인식되면 번역이 여기에 표시됩니다."
+                                else if (compact) "번역 시작 후 함께 볼 앱을 선택하세요."
                                 else "번역을 시작한 뒤 함께 볼 앱을 선택하세요. 화면 비율은 시스템 구분선으로 조절할 수 있어요.",
-                                modifier = Modifier.padding(top = 12.dp, bottom = 20.dp),
+                                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (!busy) Button(onClick = if (ui.canStart) onStart else onSettings,
-                                modifier = Modifier.heightIn(min = 48.dp)) {
+                                modifier = Modifier.heightIn(min = 48.dp), shape = RectangleShape) {
                                 Text(if (ui.canStart) "번역 시작" else "시작 준비")
                             }
                             if (compactHeight) TextButton(onClick = onChooseApp, modifier = Modifier.heightIn(min = 48.dp)) {
@@ -169,11 +177,17 @@ fun CaptionScreen(
                         )
                     }
                 }
-                if (!compactHeight && !following && messages.isNotEmpty()) TextButton(
-                    onClick = { readingView?.showLatest() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                ) { Text("최신 자막 ↓") }
+                if (!following && messages.isNotEmpty()) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RectangleShape) {
+                        TextButton(onClick = { readingView?.showLatest() },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) { Text("최신 자막으로 이동") }
+                    }
+                }
                 if (!compactHeight) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RectangleShape) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = onChooseApp, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                             Icon(Icons.Outlined.Apps, contentDescription = null, modifier = Modifier.size(20.dp))
@@ -182,6 +196,7 @@ fun CaptionScreen(
                         IconButton(onClick = onSplitHelp, modifier = Modifier.size(48.dp)) {
                             Icon(Icons.Outlined.HelpOutline, contentDescription = "분할 화면 안내")
                         }
+                    }
                     }
                 }
             }
