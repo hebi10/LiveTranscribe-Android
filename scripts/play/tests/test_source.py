@@ -18,6 +18,7 @@ class SourceTests(unittest.TestCase):
         run = {'name': 'Private Android APK', 'path': '.github/workflows/build.yml', 'event': 'push', 'conclusion': 'success', 'head_branch': 'main', 'head_sha': SHA, 'head_repository': {'full_name': REPO}}
         env = {'GITHUB_REPOSITORY': REPO, 'GITHUB_EVENT_NAME': 'workflow_run'}
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Initial upload [initialize-play] (#20)'), 'initialize')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Store imagery [sync-play-images] (#37)'), 'check')
         for subject in ('ordinary', 'ordinary\n[initialize-play]', '[initialize-play]-example', 'x[initialize-play]'):
             self.assertEqual(source.release_mode(env, {'workflow_run': run}, subject), 'deploy')
         for key, value in (('event', 'pull_request'), ('head_branch', 'feature'), ('conclusion', 'failure'), ('head_repository', {'full_name': 'attacker/fork'})):
