@@ -37,3 +37,6 @@ overlay_state.png
 
 __pycache__/
 *.pyc
+
+# Private local device performance measurements
+/measurements/
