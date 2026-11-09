@@ -1,0 +1,131 @@
+name: Android responsive UI QA
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/responsive-qa.yml
+      - app/src/androidTest/**/ResponsiveUiCaptureTest.kt
+
+permissions:
+  contents: read
+
+jobs:
+  responsive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Verify source privacy contract
+        run: python scripts/audit_privacy.py
+      - name: Cache pinned build-time support assets
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/src/main/assets/speech
+            app/src/main/assets/language-id
+            app/libs
+          key: ${{ runner.os }}-local-ai-support-${{ hashFiles('scripts/prepare_speech_support.py', 'scripts/prepare_language_id.py') }}
+      - name: Prepare verified support assets and native source
+        run: |
+          python scripts/prepare_speech_support.py
+          python scripts/prepare_language_id.py
+          python scripts/prepare_speech_support.py --verify-only
+          python scripts/prepare_language_id.py --verify-only
+          python scripts/prepare_native_translation.py
+      - name: Install pinned native build tools
+        run: |
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358' 'cmake;3.22.1'
+      - name: Build debug and responsive instrumentation APKs
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon -PplayCaptureAbi=x86_64 assembleDebug assembleDebugAndroidTest
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Prepare responsive capture script
+        run: |
+          cat > "$RUNNER_TEMP/responsive-qa.sh" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p responsive-captures
+          trap 'adb shell wm size reset || true; adb shell wm density reset || true; adb shell settings put system font_scale 1.0 || true' EXIT
+          run_variant() {
+            local variant="$1" size="$2" density="$3" font_scale="$4"
+            adb shell wm size "$size"
+            adb shell wm density "$density"
+            adb shell settings put system font_scale "$font_scale"
+            sleep 2
+            ./gradlew --no-daemon -PplayCaptureAbi=x86_64 "-Pandroid.testInstrumentationRunnerArguments.class=com.charles.livecaptionn.ResponsiveUiCaptureTest" "-Pandroid.testInstrumentationRunnerArguments.qaVariant=$variant" "-Pandroid.testInstrumentationRunnerArguments.qaRevision=$GITHUB_SHA" connectedDebugAndroidTest
+          }
+          run_variant compact-font160 840x1480 420 1.6
+          run_variant landscape 1920x1080 420 1.0
+          run_variant tablet 1600x2560 320 1.0
+          adb pull /sdcard/Download/hebi-responsive-qa-captures/. responsive-captures/
+          SH
+      - name: Capture actual emulator layouts at three configurations
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash "$RUNNER_TEMP/responsive-qa.sh"
+      - name: Verify responsive screenshot provenance and dimensions
+        env:
+          CAPTURE_REVISION: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import struct
+          from pathlib import Path
+
+          folder = Path("responsive-captures")
+          variants = {
+              "compact-font160": (840, 1480, 1.6),
+              "landscape": (1920, 1080, 1.0),
+              "tablet": (1600, 2560, 1.0),
+          }
+          for variant, (width, height, font_scale) in variants.items():
+              manifest = json.loads((folder / f"qa-manifest-{variant}.json").read_text(encoding="utf-8"))
+              assert manifest["sourceRevision"] == os.environ["CAPTURE_REVISION"]
+              assert manifest["applicationId"] == "com.hebi.livetranslate.debug"
+              assert manifest["variant"] == variant
+              assert manifest["scope"] == "Actual idle Android UI responsive QA; models, audio capture and inference not exercised."
+              assert abs(manifest["fontScale"] - font_scale) < 0.08
+              assert (manifest["width"], manifest["height"]) == (width, height)
+              expected = [f"qa-20-{variant}-home.png", f"qa-21-{variant}-settings.png"]
+              assert manifest["screenshots"] == expected
+              for name in expected:
+                  with (folder / name).open("rb") as shot:
+                      header = shot.read(24)
+                  assert header[:8] == b"\x89PNG\r\n\x1a\n", name
+                  assert struct.unpack(">II", header[16:24]) == (width, height), name
+          print("Verified six real responsive QA screenshots from three Android 35 configurations.")
+          PY
+      - name: Upload responsive QA captures and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-ui-qa-${{ github.sha }}
+          path: |
+            responsive-captures/
+            app/build/reports/androidTests/connected/
+            app/build/outputs/androidTest-results/connected/
+          if-no-files-found: warn
