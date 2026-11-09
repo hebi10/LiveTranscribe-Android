@@ -136,6 +136,56 @@ class PublisherTests(unittest.TestCase):
         publisher.Publisher(server).commit('/edits/1', stage_callback=steps.append)
         self.assertEqual(steps, ['validate', 'commit'])
 
+    def test_alpha_400_validate_diagnoses_draft_without_ever_committing(self):
+        server = PlayServer(bundles=[22], tracks=[track('internal', 22)])
+
+        def request(method, path, body=None, content_type=None):
+            if method == 'POST' and ':validate' in path and server.pending['releases'][0]['status'] == 'completed':
+                server.calls.append((method, path, body))
+                raise publisher.PlayApiError(method, 400, 'INVALID_ARGUMENT')
+            return server(method, path, body, content_type)
+
+        with self.assertRaisesRegex(publisher.ReleaseError, 'draft_probe_validated_without_commit'):
+            publisher.Publisher(request).promote(22, 'alpha')
+        alpha_updates = [body for method, path, body in server.calls
+                         if method == 'PUT' and path.endswith('/tracks/alpha')]
+        self.assertEqual([update['releases'][0]['status'] for update in alpha_updates],
+                         ['completed', 'draft'])
+        self.assertEqual(sum(':validate' in path for _, path, _ in server.calls), 2)
+        self.assertEqual(sum(':commit' in path for _, path, _ in server.calls), 0)
+        self.assertFalse(server.committed)
+
+    def test_alpha_400_validate_reports_rejected_draft_probe_and_stops(self):
+        server = PlayServer(bundles=[22], tracks=[track('internal', 22)])
+
+        def request(method, path, body=None, content_type=None):
+            if method == 'POST' and ':validate' in path:
+                server.calls.append((method, path, body))
+                raise publisher.PlayApiError(method, 400, 'INVALID_ARGUMENT')
+            return server(method, path, body, content_type)
+
+        with self.assertRaisesRegex(publisher.ReleaseError, 'draft_probe_rejected_http_400'):
+            publisher.Publisher(request).promote(22, 'alpha')
+        self.assertEqual(sum(':validate' in path for _, path, _ in server.calls), 2)
+        self.assertEqual(sum(':commit' in path for _, path, _ in server.calls), 0)
+        self.assertFalse(server.committed)
+
+    def test_alpha_403_does_not_attempt_draft_probe(self):
+        server = PlayServer(bundles=[22], tracks=[track('internal', 22)])
+
+        def request(method, path, body=None, content_type=None):
+            if method == 'POST' and ':validate' in path:
+                server.calls.append((method, path, body))
+                raise publisher.PlayApiError(method, 403, 'PERMISSION_DENIED')
+            return server(method, path, body, content_type)
+
+        with self.assertRaisesRegex(publisher.ReleaseError, 'HTTP 403'):
+            publisher.Publisher(request).promote(22, 'alpha')
+        self.assertEqual(sum(':validate' in path for _, path, _ in server.calls), 1)
+        self.assertFalse(any(body and body.get('releases', [{}])[0].get('status') == 'draft'
+                             for method, _, body in server.calls if method == 'PUT'))
+        self.assertFalse(server.committed)
+
     def test_alpha_promote_preserves_exact_internal_version_and_track(self):
         server = PlayServer(bundles=[22], tracks=[track('internal', 22)])
         result = publisher.Publisher(server).promote(22, 'alpha')
