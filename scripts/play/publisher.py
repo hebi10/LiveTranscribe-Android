@@ -79,7 +79,7 @@ class HttpTransport:
         url = API + ('/upload' if upload else '') + BASE + path
         # Google documents edits.validate and edits.commit as bodyless operations.
         # The edit creation and upload methods retain their existing JSON/media bodies.
-        is_bodyless_edit_action = method == 'POST' and re.fullmatch(r'/edits/[A-Za-z0-9]+:(?:validate|commit)(?:\\?.*)?', path) is not None
+        is_bodyless_edit_action = method == 'POST' and re.fullmatch(r'/edits/[A-Za-z0-9]+:(?:validate|commit)(?:\?.*)?', path) is not None
         data = (b'' if is_bodyless_edit_action else body if isinstance(body, bytes)
                 else json.dumps(body).encode() if body is not None else None)
         headers = {'Authorization': 'Bearer ' + self.token}
