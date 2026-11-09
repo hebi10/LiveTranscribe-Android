@@ -80,11 +80,22 @@ jobs:
             overlay_status=1
             overlay_pull_status=1
           fi
+          if [ "$overlay_status" -eq 0 ] && [ "$overlay_pull_status" -eq 0 ]; then
+            ./gradlew --no-daemon -PplayCaptureAbi=x86_64 -Pandroid.testInstrumentationRunnerArguments.class=com.charles.livecaptionn.HistoryUiCaptureTest connectedDebugAndroidTest
+            history_status=$?
+            adb pull /sdcard/Download/hebi-history-qa-captures/. play-captures/
+            history_pull_status=$?
+          else
+            history_status=1
+            history_pull_status=1
+          fi
           set -e
           test "$capture_status" -eq 0
           test "$pull_status" -eq 0
           test "$overlay_status" -eq 0
           test "$overlay_pull_status" -eq 0
+          test "$history_status" -eq 0
+          test "$history_pull_status" -eq 0
           test -f play-captures/capture-manifest.json
           SH
       - name: Capture genuine current app screens
@@ -123,6 +134,16 @@ jobs:
                   header = overlay_image.read(24)
               assert header[:8] == b"\x89PNG\r\n\x1a\n", name
               assert struct.unpack(">II", header[16:24]) == (1080, 1920), name
+          qa_manifest = json.loads((directory / "qa-history-manifest.json").read_text(encoding="utf-8"))
+          assert qa_manifest["scope"] == "Synthetic local history UI QA only; never use as Play Store screenshots."
+          assert qa_manifest["applicationId"] == "com.hebi.livetranslate.debug"
+          for name in ("qa-10-history-list-light.png", "qa-11-history-no-results.png",
+                       "qa-12-history-delete-confirm.png", "qa-13-history-list-dark.png"):
+              assert name in qa_manifest["screenshots"]
+              with (directory / name).open("rb") as history_image:
+                  header = history_image.read(24)
+              assert header[:8] == b"\x89PNG\r\n\x1a\n", name
+              assert struct.unpack(">II", header[16:24]) == (1080, 1920), name
           assert {item["file"]: (item["width"], item["height"]) for item in manifest["graphics"]} == {
               "icon.png": (512, 512), "featureGraphic.png": (1024, 500)
           }
@@ -133,7 +154,7 @@ jobs:
                   header = image.read(24)
               assert header[:8] == b"\x89PNG\r\n\x1a\n", name
               assert struct.unpack(">II", header[16:24]) == (item["width"], item["height"]), name
-          print("Verified six regular and three popup overlay 1080x1920 device PNGs; no audio inference.")
+          print("Verified six idle, three popup, four synthetic-history QA device PNGs; no audio inference.")
           PY
       - name: Upload current UI captures and device reports
         if: always()
