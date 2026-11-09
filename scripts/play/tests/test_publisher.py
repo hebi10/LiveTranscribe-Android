@@ -123,6 +123,13 @@ class PublisherTests(unittest.TestCase):
                 self.assertEqual(publisher.main(), 1)
                 transport.assert_not_called()
 
+    def test_play_validation_error_categories_never_expose_message(self):
+        self.assertEqual(publisher.safe_play_validation_issue('Missing country availability for closed testing'), 'COUNTRY_AVAILABILITY')
+        self.assertEqual(publisher.safe_play_validation_issue('Tester email list not configured'), 'TESTER_CONFIGURATION')
+        self.assertEqual(publisher.safe_play_validation_issue('Data safety declaration incomplete'), 'DECLARATION_INCOMPLETE')
+        self.assertEqual(publisher.safe_play_validation_issue('private-username@example.com / unknown account'), 'UNCLASSIFIED')
+        self.assertEqual(publisher.PlayApiError('POST', 400, validation_issue='private').validation_issue, 'UNCLASSIFIED')
+
     def test_alpha_commit_reports_validation_and_commit_stages(self):
         server = PlayServer()
         steps = []
