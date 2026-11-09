@@ -26,7 +26,7 @@ class CaptionFrameIconTests(unittest.TestCase):
             ("assets/branding/caption-frame-store-icon-512.png", (512, 512)),
         ):
             payload = (ROOT / rel).read_bytes()
-            self.assertEqual(payload[:8], b"\\x89PNG\\r\\n\\x1a\\n")
+            self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
             self.assertEqual(struct.unpack(">II", payload[16:24]), dimensions)
 
     def test_shared_compose_icons_use_outlined_set(self):
