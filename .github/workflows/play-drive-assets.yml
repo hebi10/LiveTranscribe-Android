@@ -1,0 +1,135 @@
+name: Play approved Drive image set
+
+on:
+  workflow_run:
+    workflows: ["Private Android APK"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check validates the approved images; apply replaces ko-KR listing images"
+        type: choice
+        options: [check, apply]
+        required: true
+        default: check
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: play-com-hebi-livetranslate
+  cancel-in-progress: false
+
+jobs:
+  source:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == 'hebi10/LiveTranscribe-Android')
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.verify.outputs.sha }}
+      publish: ${{ steps.verify.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require exact main source and successful Android CI
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/play/source.py
+      - name: Only automatically publish explicitly marked approved image update
+        id: verify
+        env:
+          SOURCE_SHA: ${{ steps.ci.outputs.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          REQUEST_MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            subject="$(git show -s --format=%s "$SOURCE_SHA")"
+            if [[ "$subject" != *"[sync-play-images]"* ]]; then
+              echo "No approved image-sync marker; no Play request."
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$REQUEST_MODE" == "apply" ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  listing:
+    needs: source
+    if: needs.source.result == 'success' && (needs.source.outputs.publish == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment: google-play
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - name: Check app-specific Google Play authentication
+        id: credentials
+        env:
+          PLAY_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          PLAY_SERVICE_ACCOUNT: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$PLAY_WORKLOAD_IDENTITY_PROVIDER" && -n "$PLAY_SERVICE_ACCOUNT" ]] ||
+            { echo 'App-specific Workload Identity Federation is not configured.' >&2; exit 1; }
+      - name: Authenticate for read-only Drive asset and Play editing
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher,https://www.googleapis.com/auth/drive.readonly
+          create_credentials_file: false
+      - name: Fetch and verify fixed digest store image ZIP
+        id: images
+        env:
+          PLAY_DRIVE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: python3 scripts/play/drive_assets.py
+      - name: Reject stale source after downloading images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
+      - name: Check Play registered-binary readiness
+        if: needs.source.outputs.publish == 'true'
+        id: readiness
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: python3 scripts/play/publisher.py --report output/play-readiness.json inspect --require-binary
+      - name: Commit reviewed Korean images only
+        if: needs.source.outputs.publish == 'true'
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
+          IMAGE_MANIFEST: ${{ steps.images.outputs.manifest }}
+        run: |
+          python3 scripts/play/images_only.py --manifest "$IMAGE_MANIFEST" --report output/play-listing-images.json
+      - name: Preserve non-secret verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-transcribe-play-images-${{ github.run_id }}
+          path: |
+            output/play-readiness.json
+            output/play-listing-images.json
+          if-no-files-found: ignore
