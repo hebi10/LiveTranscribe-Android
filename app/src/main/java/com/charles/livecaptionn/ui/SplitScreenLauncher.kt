@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -71,7 +71,7 @@ fun SplitAppPicker(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(app.label, Modifier.weight(1f))
-                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
+                                Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null)
                             }
                         }
                     }

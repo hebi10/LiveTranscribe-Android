@@ -16,11 +16,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -153,7 +153,7 @@ fun HistoryScreen(
                 title = { Text(t["Transcript History"]) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = t["Back"])
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = t["Back"])
                     }
                 },
                 actions = {
@@ -161,7 +161,7 @@ fun HistoryScreen(
                         TextButton(onClick = {
                             confirmClear = true
                         }, enabled = !history.busy) {
-                            Icon(Icons.Filled.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Outlined.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(t["Clear"])
                         }
@@ -239,11 +239,11 @@ fun HistoryScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                         placeholder = { Text(t["Search transcripts…"]) },
-                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) {
                                 IconButton(onClick = { searchQuery = "" }) {
-                                    Icon(Icons.Filled.Close, contentDescription = t["Clear search"], modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Outlined.Close, contentDescription = t["Clear search"], modifier = Modifier.size(20.dp))
                                 }
                             }
                         },
@@ -343,7 +343,7 @@ private fun TranscriptCard(
                         modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
-                            Icons.Filled.Delete,
+                            Icons.Outlined.Delete,
                             contentDescription = t["Delete"],
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.error
