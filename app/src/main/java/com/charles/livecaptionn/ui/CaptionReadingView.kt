@@ -2,7 +2,7 @@ package com.charles.livecaptionn.ui
 
 import android.content.Context
 import android.graphics.Typeface
-import android.text.Layout
+import android.graphics.text.LineBreaker
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -76,7 +76,7 @@ internal class CaptionReadingView(context: Context, private val reader: CaptionR
         fun text() = TextView(context).apply {
             includeFontPadding = false
             setLineSpacing(dp(4).toFloat(), 1f)
-            breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY
+            breakStrategy = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         }
         val translation = text().apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
