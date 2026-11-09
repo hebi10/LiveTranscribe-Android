@@ -33,7 +33,7 @@ class ResponsiveUiCaptureTest {
     )
 
     @Test fun captureHomeAndExpandedSettings() {
-        val variant = requireNotNull(instrumentation.arguments.getString("qaVariant"))
+        val variant = requireNotNull(InstrumentationRegistry.getArguments().getString("qaVariant"))
         val expected = requireNotNull(variants[variant]) { "Unsupported QA variant: $variant" }
         val context = instrumentation.targetContext
         assertEquals("com.hebi.livetranslate.debug", context.packageName)
@@ -55,7 +55,7 @@ class ResponsiveUiCaptureTest {
         val files = listOf(home, settings)
         val manifest = JSONObject().apply {
             put("variant", variant)
-            put("sourceRevision", instrumentation.arguments.getString("qaRevision", "local"))
+            put("sourceRevision", InstrumentationRegistry.getArguments().getString("qaRevision", "local"))
             put("applicationId", context.packageName)
             put("fontScale", actualScale.toDouble())
             put("width", expected.width)
