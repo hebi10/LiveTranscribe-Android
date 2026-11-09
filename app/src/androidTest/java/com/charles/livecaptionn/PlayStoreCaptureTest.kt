@@ -82,6 +82,11 @@ class PlayStoreCaptureTest {
         }
         compose.onNodeWithText("아직 저장된 기록이 없습니다.").assertIsDisplayed()
         capture(directory, "05-history-empty.png")
+
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithText("자막 화면 미리 보기").performScrollTo().performClick()
+        compose.onNodeWithText("영상 옆에, 자막만").assertIsDisplayed()
+        capture(directory, "06-split-caption-preview.png")
         exportBrandGraphics(context, directory)
 
         val manifest = JSONObject().apply {
@@ -99,7 +104,7 @@ class PlayStoreCaptureTest {
                 put(JSONObject().put("file", "featureGraphic.png").put("width", 1024).put("height", 500)
                     .put("source", "Existing launcher icon, Android system font, factual Korean app description"))
             })
-            put("scope", "Actual MainActivity idle UI. Models not downloaded; no audio capture or inference exercised; no fabricated transcripts.")
+            put("scope", "Actual MainActivity idle UI including split-caption preview. Models not downloaded; no audio capture or inference exercised; no fabricated transcripts.")
         }
         File(directory, "capture-manifest.json").writeText(manifest.toString(2), Charsets.UTF_8)
         preserveCapturesBeforeTestAppRemoval()
