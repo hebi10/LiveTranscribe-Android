@@ -189,7 +189,15 @@ fun MainScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
-                    Text("$languageLabel → 한국어 · $inputLabel", fontWeight = FontWeight.Medium)
+                    FlowRow(
+                        modifier = Modifier.semantics(mergeDescendants = true) {},
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(languageLabel, fontWeight = FontWeight.Medium)
+                        Text("→ 한국어", fontWeight = FontWeight.Medium)
+                        Text("· $inputLabel", fontWeight = FontWeight.Medium)
+                    }
                     Text(statusLabel, style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     ui.runtime.lastError?.takeIf { it.isNotBlank() }?.let {
