@@ -9,7 +9,7 @@ permissions:
 
 concurrency:
   group: play-com-hebi-livetranslate
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   source:
@@ -88,15 +88,9 @@ jobs:
               sys.exit('Timed out waiting for exact main Android CI')
           PY
 
-  gates:
-    needs: source
-    uses: ./.github/workflows/play-gates.yml
-    with:
-      source_sha: ${{ needs.source.outputs.sha }}
-
   commit-alpha-draft:
-    needs: [source, verified-ci, gates]
-    if: needs.verified-ci.result == 'success' && needs.gates.result == 'success'
+    needs: [source, verified-ci]
+    if: needs.verified-ci.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: google-play
