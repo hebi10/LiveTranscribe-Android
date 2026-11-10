@@ -7,10 +7,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: play-com-hebi-livetranslate
-  cancel-in-progress: true
-
 jobs:
   source:
     if: >-
@@ -92,6 +88,9 @@ jobs:
     needs: [source, verified-ci]
     if: needs.verified-ci.result == 'success'
     runs-on: ubuntu-latest
+    concurrency:
+      group: play-com-hebi-livetranslate
+      cancel-in-progress: true
     timeout-minutes: 15
     environment: google-play
     permissions:
