@@ -19,6 +19,8 @@ class SourceTests(unittest.TestCase):
         env = {'GITHUB_REPOSITORY': REPO, 'GITHUB_EVENT_NAME': 'workflow_run'}
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Initial upload [initialize-play] (#20)'), 'initialize')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Promote [promote-play-alpha-22] (#50)'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Play: alpha v22 draft commit [commit-play-alpha-draft-v22]'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Play: alpha v22 draft commit [commit-play-alpha-draft-v22]: accidental suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Store imagery [sync-play-images] (#37)'), 'check')
         for subject in ('ordinary', 'ordinary\n[initialize-play]', '[initialize-play]-example', 'x[initialize-play]'):
             self.assertEqual(source.release_mode(env, {'workflow_run': run}, subject), 'deploy')
