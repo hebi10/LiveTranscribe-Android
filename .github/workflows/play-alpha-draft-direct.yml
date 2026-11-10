@@ -1,0 +1,176 @@
+name: Play alpha v22 approved direct commit
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-com-hebi-livetranslate
+  cancel-in-progress: false
+
+jobs:
+  source:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      contains(github.event.head_commit.message, '[commit-play-alpha-draft-v22]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.verify.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact approved main subject
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'hebi10/LiveTranscribe-Android'
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$(git show -s --format=%s "$GITHUB_SHA")" = 'Play: alpha v22 draft commit [commit-play-alpha-draft-v22]'
+          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+  verified-ci:
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Require exact successful main Android CI before Play mutation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import time
+
+          repo = 'hebi10/LiveTranscribe-Android'
+          sha = os.environ['SOURCE_SHA']
+          if not re.fullmatch(r'[a-f0-9]{40}', sha):
+              sys.exit('Untrusted source SHA')
+
+          def gh(path):
+              request = subprocess.run(['gh', 'api', path], capture_output=True, text=True, check=False)
+              if request.returncode:
+                  sys.exit('Could not query GitHub CI metadata')
+              return json.loads(request.stdout)
+
+          for attempt in range(75):
+              runs = gh(f'repos/{repo}/actions/workflows/build.yml/runs?head_sha={sha}&branch=main&per_page=30').get('workflow_runs', [])
+              matched = [r for r in runs if r.get('head_sha') == sha and r.get('head_branch') == 'main' and r.get('event') == 'push']
+              completed = [r for r in matched if r.get('status') == 'completed']
+              if completed:
+                  latest = max(completed, key=lambda r: r['id'])
+                  if latest.get('conclusion') != 'success':
+                      sys.exit('Exact main Android CI failed or was cancelled')
+                  jobs = gh(f'repos/{repo}/actions/runs/{latest["id"]}/jobs?per_page=100').get('jobs', [])
+                  if not any(j.get('name') == 'build' and j.get('conclusion') == 'success' for j in jobs):
+                      sys.exit('Required exact main build job did not succeed')
+                  print('Exact-source main Android CI verified, run ' + str(latest['id']))
+                  break
+              time.sleep(12)
+          else:
+              sys.exit('Timed out waiting for exact main Android CI')
+          PY
+
+  gates:
+    needs: source
+    uses: ./.github/workflows/play-gates.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+
+  commit-alpha-draft:
+    needs: [source, verified-ci, gates]
+    if: needs.verified-ci.result == 'success' && needs.gates.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: google-play
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - name: Verify configured Play identity
+        id: credentials
+        env:
+          PLAY_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          PLAY_SERVICE_ACCOUNT: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: python3 scripts/play/preflight.py auth
+      - name: Authenticate with app-scoped Workload Identity Federation
+        id: wif
+        if: steps.credentials.outputs.auth_mode == 'wif'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Authenticate with configured legacy service-account JSON
+        id: json
+        if: steps.credentials.outputs.auth_mode == 'json'
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Confirm existing Play binary without uploading AAB
+        id: readiness
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+        run: python3 scripts/play/publisher.py --report output/play-alpha-readiness.json inspect --require-binary
+      - name: Reject superseded source before Play edit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
+      - name: Commit existing version 22 to closed-alpha draft when app is unpublished
+        env:
+          PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+        run: |
+          python3 scripts/play/publisher.py --report output/play-alpha-draft.json promote --version-code 22 --track alpha --draft-if-app-unpublished
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          result = json.loads(Path('output/play-alpha-draft.json').read_text(encoding='utf-8'))
+          if result.get('versionCode') != 22 or result.get('track') != 'alpha' or result.get('status') not in ('alpha_draft_committed_and_verified', 'alpha_draft_already_present', 'api_committed_and_verified'):
+              raise SystemExit('Play readback is not the verified alpha release')
+          if result.get('releaseStatus') == 'draft':
+              print('Play API committed and independently verified alpha versionCode 22 in DRAFT status only. Not yet available to testers. Complete Console first publication.')
+          elif result.get('releaseStatus') == 'completed':
+              print('Play API committed and independently verified completed alpha versionCode 22. Console review and installability remain unverified.')
+          else:
+              raise SystemExit('Unexpected release status: no confirmed alpha release')
+          PY
+      - name: Preserve non-secret alpha draft report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-transcribe-alpha-draft-${{ github.run_id }}
+          path: |
+            output/play-alpha-readiness.json
+            output/play-alpha-draft.json
+          if-no-files-found: ignore
+          retention-days: 30
