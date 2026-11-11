@@ -103,6 +103,7 @@ jobs:
             adb shell settings put system font_scale "$font"
             adb shell cmd uimode night "$night"
             if [[ "$QA_API" == "29" && "$night" == "yes" ]]; then
+              adb shell settings put secure ui_night_mode 2
               adb reboot
               adb wait-for-device
               ready=0
@@ -117,7 +118,9 @@ jobs:
               adb shell wm size "$size"
               adb shell wm density "$density"
               adb shell settings put system font_scale "$font"
-              adb shell cmd uimode night "$night"
+              adb shell settings put secure ui_night_mode 2
+              echo "Android 10 persisted night mode: $(adb shell settings get secure ui_night_mode)"
+              echo "Android 10 UI mode: $(adb shell cmd uimode night)"
             fi
             adb shell pm clear com.hebi.livetranslate.debug >/dev/null || true
             sleep 2
