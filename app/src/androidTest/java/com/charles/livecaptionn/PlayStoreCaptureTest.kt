@@ -83,7 +83,7 @@ class PlayStoreCaptureTest {
 
         compose.onNodeWithText("자막 및 앱 설정 펼치기").performScrollTo().performClick()
         compose.onNodeWithText("개인정보처리방침 (외부 브라우저)").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("번역 기록 저장 (기본 꺼짐)").assertIsOff()
+        compose.onNodeWithText("번역 기록 저장").assertIsOff()
         capture(directory, "04-privacy-settings.png")
 
         compose.onNodeWithContentDescription("번역 기록").performClick()

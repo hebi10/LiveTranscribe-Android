@@ -351,7 +351,7 @@ fun MainScreen(
 
             if (showAdvancedSettings) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("읽기 방식", style = MaterialTheme.typography.titleMedium)
+                    Text("자막 표시", style = MaterialTheme.typography.titleMedium)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         for ((mode, label) in listOf(
@@ -427,11 +427,12 @@ fun MainScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("기록 및 개인정보", style = MaterialTheme.typography.titleMedium)
-                    SettingToggle("번역 기록 저장 (기본 꺼짐)", ui.settings.saveHistory,
+                    SettingToggle("번역 기록 저장", ui.settings.saveHistory,
                         viewModel::updateSaveHistory)
-                    Text("음성 인식과 번역은 기기 안에서 처리합니다. " +
-                        "기록 저장은 기본 꺼짐이며 Android 백업을 사용하지 않습니다. " +
-                        "광고·분석·오류 수집 SDK는 포함되지 않습니다.",
+                    Text("기록 저장은 기본적으로 꺼져 있습니다. 저장을 꺼도 이전 기록은 유지되며, 기록 화면에서 개별·전체 삭제할 수 있습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("음성 인식과 번역은 기기 안에서 처리합니다. Android 백업 및 광고·분석·오류 수집 SDK는 사용하지 않습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = {
