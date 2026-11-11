@@ -100,9 +100,11 @@ jobs:
           token_format: access_token
           access_token_scopes: https://www.googleapis.com/auth/androidpublisher
           create_credentials_file: false
-      - name: Verify committed SHA-pinned store image ZIP
+      - name: Verify original branding and refresh eight reviewed screenshots
         id: images
-        run: python3 scripts/play/drive_assets.py
+        run: |
+          python3 scripts/play/drive_assets.py
+          python3 scripts/play/refresh_20261111.py --manifest output/approved-play-images/assets/play-store/ko-KR/manifest.json
       - name: Reject stale source after verifying images
         env:
           GH_TOKEN: ${{ github.token }}
