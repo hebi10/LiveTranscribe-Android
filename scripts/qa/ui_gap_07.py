@@ -47,7 +47,7 @@ def verify(folder, api, revision, variants):
             "variant": name, "sourceRevision": revision,
             "applicationId": "com.hebi.livetranslate.debug", "apiLevel": api,
             "width": width, "height": height, "densityDpi": density,
-            "nightMode": theme, "screenshots": expected_names,
+            "nightMode": theme, "appThemeMode": theme.upper(), "screenshots": expected_names,
             "simulatedFoldSizeOnly": name.startswith("fold-"),
             "physicalFoldVerified": False, "offlineInferenceVerified": False,
             "scope": SCOPE,
