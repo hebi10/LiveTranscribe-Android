@@ -96,7 +96,7 @@ jobs:
             adb shell cmd uimode night auto || true
           }
           trap cleanup EXIT
-          while read -r name size density font night; do
+          while read -r name size density font night <&3; do
             echo "UI-GAP-07 API=$QA_API variant=$name size=$size density=$density font=$font night=$night"
             adb shell wm size "$size"
             adb shell wm density "$density"
@@ -109,7 +109,7 @@ jobs:
               "-Pandroid.testInstrumentationRunnerArguments.qaApi=$QA_API" \
               "-Pandroid.testInstrumentationRunnerArguments.qaVariant=$name" \
               "-Pandroid.testInstrumentationRunnerArguments.qaRevision=$GITHUB_SHA" connectedDebugAndroidTest </dev/null
-          done < <(python3 scripts/qa/ui_gap_07.py scenarios --names "$QA_VARIANTS")
+          done 3< <(python3 scripts/qa/ui_gap_07.py scenarios --names "$QA_VARIANTS")
           adb pull /sdcard/Download/hebi-ui-gap-07-captures/. qa-captures/
           SH
       - name: Run actual Android API ${{ matrix.api }} emulator captures
