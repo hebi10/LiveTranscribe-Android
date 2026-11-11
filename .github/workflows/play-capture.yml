@@ -2,6 +2,14 @@ name: Play current UI captures
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/play-capture.yml
+      - app/src/androidTest/**
+      - app/src/main/java/com/charles/livecaptionn/ui/**
+      - app/src/main/java/com/charles/livecaptionn/overlay/**
+      - app/src/main/java/com/charles/livecaptionn/MainActivity.kt
   pull_request:
     branches: [main]
     paths:
@@ -157,7 +165,43 @@ jobs:
                   header = image.read(24)
               assert header[:8] == b"\x89PNG\r\n\x1a\n", name
               assert struct.unpack(">II", header[16:24]) == (item["width"], item["height"]), name
-          print("Verified six idle, three popup, four synthetic-history QA device PNGs; no audio inference.")
+          import hashlib
+          groups = [
+              ("idle", manifest["screenshots"]),
+              ("overlay-ui-no-inference", ["07-popup-compact.png", "08-popup-expanded.png", "09-popup-minimized.png"]),
+              ("synthetic-history-qa", qa_manifest["screenshots"]),
+          ]
+          evidence = []
+          for category, filenames in groups:
+              for name in filenames:
+                  payload = (directory / name).read_bytes()
+                  evidence.append({
+                      "name": name,
+                      "kind": category,
+                      "bytes": len(payload),
+                      "sha256": hashlib.sha256(payload).hexdigest(),
+                  })
+          assert len(evidence) == 13
+          assert len({item["sha256"] for item in evidence}) == len(evidence), "Duplicate captured PNG"
+          (directory / "ui-gap-00-evidence.json").write_text(
+              json.dumps({
+                  "sourceRevision": os.environ["CAPTURE_REVISION"],
+                  "applicationId": manifest["applicationId"],
+                  "apiLevel": manifest["apiLevel"],
+                  "device": manifest["device"],
+                  "screenshotCount": len(evidence),
+                  "inferenceVerified": False,
+                  "screenshots": evidence,
+                  "notCaptured": [
+                      "model download success or failure",
+                      "real microphone or video audio recognition",
+                      "real translated captions",
+                      "permission denial and recovery",
+                      "real user-history persistence",
+                      "physical-device overlay and split-screen performance",
+                  ],
+              }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print("Verified 13 device PNGs, SHA-256 evidence and missing-state inventory; no audio inference.")
           PY
       - name: Upload current UI captures and device reports
         if: always()

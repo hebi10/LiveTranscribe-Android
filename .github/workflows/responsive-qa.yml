@@ -2,6 +2,13 @@ name: Android responsive UI QA
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/responsive-qa.yml
+      - app/src/androidTest/**/ResponsiveUiCaptureTest.kt
+      - app/src/main/java/com/charles/livecaptionn/ui/MainScreen.kt
+      - app/src/main/java/com/charles/livecaptionn/ui/theme/**
   pull_request:
     branches: [main]
     paths:
@@ -119,7 +126,33 @@ jobs:
                       header = shot.read(24)
                   assert header[:8] == b"\x89PNG\r\n\x1a\n", name
                   assert struct.unpack(">II", header[16:24]) == (width, height), name
-          print("Verified six real responsive QA screenshots from three Android 35 configurations.")
+          import hashlib
+          evidence = []
+          for variant, (width, height, font_scale) in variants.items():
+              for name in (f"qa-20-{variant}-home.png", f"qa-21-{variant}-settings.png"):
+                  payload = (folder / name).read_bytes()
+                  evidence.append({
+                      "name": name,
+                      "variant": variant,
+                      "width": width,
+                      "height": height,
+                      "fontScale": font_scale,
+                      "bytes": len(payload),
+                      "sha256": hashlib.sha256(payload).hexdigest(),
+                  })
+          assert len(evidence) == 6
+          assert len({item["sha256"] for item in evidence}) == len(evidence), "Duplicate responsive PNG"
+          (folder / "ui-gap-00-responsive-evidence.json").write_text(
+              json.dumps({
+                  "sourceRevision": os.environ["CAPTURE_REVISION"],
+                  "applicationId": "com.hebi.livetranslate.debug",
+                  "apiLevel": 35,
+                  "screenshotCount": len(evidence),
+                  "inferenceVerified": False,
+                  "screenshots": evidence,
+                  "notCaptured": ["real speech translation", "physical-device rendering", "permission prompts"],
+              }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print("Verified six responsive PNGs, source provenance, SHA-256 and missing states.")
           PY
       - name: Upload responsive QA captures and reports
         if: always()
