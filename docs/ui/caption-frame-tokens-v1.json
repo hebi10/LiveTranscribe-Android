@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "name": "CAPTION FRAME",
+  "status": "UI-GAP-01 frozen design baseline; screen refinements are separate tasks",
+  "basedOnMain": "e79f870bf24d398f3acc845cc21520c476f7d9dd",
+  "palette": {
+    "light": {
+      "background": "#FFFFFF",
+      "surface": "#FFFFFF",
+      "surfaceContainer": "#F5F5F5",
+      "onBackground": "#171717",
+      "onSurface": "#171717",
+      "onSurfaceVariant": "#666666",
+      "outlineVariant": "#DEDEDE",
+      "primary": "#191919",
+      "onPrimary": "#FFFFFF",
+      "error": "#B42318"
+    },
+    "dark": {
+      "background": "#101010",
+      "surface": "#101010",
+      "surfaceContainer": "#202020",
+      "onBackground": "#F5F5F5",
+      "onSurface": "#F5F5F5",
+      "onSurfaceVariant": "#B5B5B5",
+      "outlineVariant": "#404040",
+      "primary": "#F1F1F1",
+      "onPrimary": "#171717",
+      "error": "#FF8D82"
+    }
+  },
+  "typographySp": {
+    "titleLarge": 22,
+    "headlineSmall": 24,
+    "titleMedium": 16,
+    "bodyLarge": 16,
+    "bodyMedium": 14,
+    "bodySmall": 12,
+    "labelLarge": 14
+  },
+  "spacingDp": {
+    "grid": 4,
+    "screenHorizontal": 16,
+    "section": 16,
+    "content": 12,
+    "controlGap": 8,
+    "minTouch": 48,
+    "overlayTouch": 48,
+    "overlayMinimizedHeight": 56,
+    "overlayLabeledControlMinWidth": 64
+  },
+  "iconPolicy": {
+    "style": "flat, monochrome, material-outlined for in-app controls",
+    "launcher": "ic_caption_frame_mark",
+    "adaptiveMonochrome": true
+  },
+  "shapePolicy": {
+    "default": "RectangleShape",
+    "exception": "system-owned prompts and accessibility-required touch affordances"
+  },
+  "overlayPolicy": {
+    "defaultRgb": "#101010",
+    "highContrastRgb": "#000000",
+    "useAppLightThemeForOverlay": false
+  },
+  "scope": {
+    "codeChangesInThisStage": "no runtime screen styling changes",
+    "exclude": [
+      "OCR/combined translation modes",
+      "model inference",
+      "release signing",
+      "Play listing and tracks",
+      "payments or cloud APIs"
+    ]
+  }
+}
