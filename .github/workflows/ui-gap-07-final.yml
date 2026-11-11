@@ -108,7 +108,7 @@ jobs:
               "-Pandroid.testInstrumentationRunnerArguments.class=com.charles.livecaptionn.UiGap07FinalCaptureTest" \
               "-Pandroid.testInstrumentationRunnerArguments.qaApi=$QA_API" \
               "-Pandroid.testInstrumentationRunnerArguments.qaVariant=$name" \
-              "-Pandroid.testInstrumentationRunnerArguments.qaRevision=$GITHUB_SHA" connectedDebugAndroidTest
+              "-Pandroid.testInstrumentationRunnerArguments.qaRevision=$GITHUB_SHA" connectedDebugAndroidTest </dev/null
           done < <(python3 scripts/qa/ui_gap_07.py scenarios --names "$QA_VARIANTS")
           adb pull /sdcard/Download/hebi-ui-gap-07-captures/. qa-captures/
           SH
