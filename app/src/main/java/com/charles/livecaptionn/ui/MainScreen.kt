@@ -533,7 +533,7 @@ private fun StartSetupGuidance(
                 }
                 if (setup.modelStage == ModelSetupStage.CHECKING) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text("다운로드된 파일의 무결성을 확인하고 있습니다.",
+                    Text(requireNotNull(setup.modelStageGuidance()),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else if (setup.modelStage != ModelSetupStage.READY &&
@@ -550,15 +550,11 @@ private fun StartSetupGuidance(
                         setup, onRequestAudioPermission, onOpenOverlaySettings, onPrepareModels)
                 }
                 when (setup.modelStage) {
-                    ModelSetupStage.READY -> Text(
-                        "자동 감지·일본어·영어가 같은 모델을 사용합니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    ModelSetupStage.DOWNLOADING -> {
-                        Text("다운로드 중에는 앱을 열어 두세요. 중단해도 이어받을 수 있습니다.",
+                    ModelSetupStage.READY, ModelSetupStage.DOWNLOADING -> {
+                        Text(requireNotNull(setup.modelStageGuidance()),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        OutlinedButton(
+                        if (setup.modelStage == ModelSetupStage.DOWNLOADING) OutlinedButton(
                             onClick = onCancelModelPreparation,
                             modifier = Modifier.heightIn(min = 48.dp),
                             shape = RectangleShape
@@ -590,9 +586,7 @@ private fun NextSetupAction(
 ) {
     when (setup.nextStep) {
         SetupStep.AUDIO_PERMISSION -> {
-            Text(if (setup.audioPermissionAction == AudioPermissionAction.OPEN_SETTINGS)
-                "Android 앱 설정의 마이크 권한에서 다시 허용해 주세요."
-                else "동영상 음성 인식에도 Android의 마이크 권한이 필요합니다.",
+            Text(setup.audioPermissionGuidance(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(
@@ -605,7 +599,7 @@ private fun NextSetupAction(
             }
         }
         SetupStep.OVERLAY_PERMISSION -> {
-            Text("팝업 자막을 사용하려면 '다른 앱 위에 표시' 권한을 허용해 주세요.",
+            Text(setup.overlayPermissionGuidance(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(
@@ -616,7 +610,7 @@ private fun NextSetupAction(
         }
         SetupStep.MODELS -> {
             if (setup.canPrepareModels) {
-                Text("최초 1회 약 2.1GB를 다운로드합니다. 모바일 데이터 요금이 발생할 수 있습니다.",
+                Text(setup.modelPreparationGuidance(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(
