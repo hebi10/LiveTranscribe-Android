@@ -51,7 +51,14 @@ class PlayStoreCaptureTest {
         compose.onNodeWithText("실시간 영상 번역").assertIsDisplayed()
         compose.onNodeWithText("시작 준비").assertIsDisplayed()
         compose.onNodeWithText("음성 캡처 권한 허용").assertIsDisplayed()
+        compose.onNodeWithText("2. 다른 앱 위에 팝업 표시").assertDoesNotExist()
         capture(directory, "01-home-preparation.png")
+
+        compose.onNodeWithText("전체 준비 항목 보기").performScrollTo().performClick()
+        compose.onNodeWithText("2. 다른 앱 위에 팝업 표시").assertExists()
+        compose.onNodeWithText("3. 음성·번역 모델").assertExists()
+        compose.onNodeWithText("전체 준비 항목 접기").performScrollTo().performClick()
+        compose.onNodeWithText("2. 다른 앱 위에 팝업 표시").assertDoesNotExist()
 
         instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.RECORD_AUDIO)
         compose.activityRule.scenario.recreate()

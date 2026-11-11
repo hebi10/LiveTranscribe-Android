@@ -141,13 +141,9 @@ fun MainScreen(
                 ) {
                     Column(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (action.kind == HomeActionKind.BLOCKED) {
-                            Text("위 준비 항목을 완료하면 번역을 시작할 수 있습니다.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else if (action.kind == HomeActionKind.START &&
+                        if (action.kind == HomeActionKind.START &&
                             ui.settings.audioSource == AudioSource.SYSTEM) {
                             Text("동영상 음성은 시작할 때마다 화면 공유 확인이 필요합니다.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -185,13 +181,15 @@ fun MainScreen(
                 shape = RectangleShape
             ) {
                 Column(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    Modifier.fillMaxWidth().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
-                    Text("$languageLabel → 한국어 · $inputLabel", fontWeight = FontWeight.Medium)
-                    Text(statusLabel, style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (!setup.isVisible) {
+                        Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
+                        Text("$languageLabel → 한국어 · $inputLabel", fontWeight = FontWeight.Medium)
+                        Text(statusLabel, style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     ui.runtime.lastError?.takeIf { it.isNotBlank() }?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)
                     }
@@ -213,11 +211,14 @@ fun MainScreen(
                             onPrepareModels = viewModel::prepareSelectedTranslationModel,
                             onCancelModelPreparation = onCancelModelPreparation
                         )
+                        Text("$languageLabel → 한국어 · $inputLabel",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("화면 배치", style = MaterialTheme.typography.titleMedium)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -236,13 +237,13 @@ fun MainScreen(
                             shape = RectangleShape,
                             onClick = { viewModel.updateCaptionPlacement(placement) },
                             enabled = !sessionBusy,
-                            modifier = Modifier.semantics { this.selected = true }
+                            modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
                         ) { content() }
                         else OutlinedButton(
                             shape = RectangleShape,
                             onClick = { viewModel.updateCaptionPlacement(placement) },
                             enabled = !sessionBusy,
-                            modifier = Modifier.semantics { this.selected = false }
+                            modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
                         ) { content() }
                     }
                 }
@@ -264,7 +265,7 @@ fun MainScreen(
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("음성 입력", style = MaterialTheme.typography.titleMedium)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -273,25 +274,25 @@ fun MainScreen(
                         shape = RectangleShape,
                         onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
                         enabled = !sessionBusy,
-                        modifier = Modifier.semantics { selected = true }
+                        modifier = Modifier.heightIn(min = 48.dp).semantics { selected = true }
                     ) { Text("동영상 음성") }
                     else OutlinedButton(
                         shape = RectangleShape,
                         onClick = { viewModel.selectAudioSource(AudioSource.SYSTEM) },
                         enabled = !sessionBusy,
-                        modifier = Modifier.semantics { selected = false }
+                        modifier = Modifier.heightIn(min = 48.dp).semantics { selected = false }
                     ) { Text("동영상 음성") }
                     if (!system) FilledTonalButton(
                         shape = RectangleShape,
                         onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
                         enabled = !sessionBusy,
-                        modifier = Modifier.semantics { selected = true }
+                        modifier = Modifier.heightIn(min = 48.dp).semantics { selected = true }
                     ) { Text("마이크") }
                     else OutlinedButton(
                         shape = RectangleShape,
                         onClick = { viewModel.selectAudioSource(AudioSource.MIC) },
                         enabled = !sessionBusy,
-                        modifier = Modifier.semantics { selected = false }
+                        modifier = Modifier.heightIn(min = 48.dp).semantics { selected = false }
                     ) { Text("마이크") }
                 }
                 Text(if (ui.settings.audioSource == AudioSource.SYSTEM)
@@ -302,7 +303,7 @@ fun MainScreen(
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("음성 언어", style = MaterialTheme.typography.titleMedium)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -315,13 +316,13 @@ fun MainScreen(
                             shape = RectangleShape,
                             onClick = { viewModel.selectSourceLanguage(code) },
                             enabled = !sessionBusy,
-                            modifier = Modifier.semantics { this.selected = true }
+                            modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
                         ) { Text(label) }
                         else OutlinedButton(
                             shape = RectangleShape,
                             onClick = { viewModel.selectSourceLanguage(code) },
                             enabled = !sessionBusy,
-                            modifier = Modifier.semantics { this.selected = false }
+                            modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
                         ) { Text(label) }
                     }
                 }
@@ -361,12 +362,12 @@ fun MainScreen(
                             if (selected) FilledTonalButton(
                                 shape = RectangleShape,
                                 onClick = { viewModel.updateCaptionDisplayMode(mode) },
-                                modifier = Modifier.semantics { this.selected = true }
+                                modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
                             ) { Text(label) }
                             else OutlinedButton(
                                 shape = RectangleShape,
                                 onClick = { viewModel.updateCaptionDisplayMode(mode) },
-                                modifier = Modifier.semantics { this.selected = false }
+                                modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
                             ) { Text(label) }
                         }
                     }
@@ -396,7 +397,7 @@ fun MainScreen(
                 }
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("화면 테마", style = MaterialTheme.typography.titleMedium)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -409,12 +410,12 @@ fun MainScreen(
                             if (selected) FilledTonalButton(
                                 shape = RectangleShape,
                                 onClick = { viewModel.updateAppThemeMode(mode) },
-                                modifier = Modifier.semantics { this.selected = true }
+                                modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
                             ) { Text(label) }
                             else OutlinedButton(
                                 shape = RectangleShape,
                                 onClick = { viewModel.updateAppThemeMode(mode) },
-                                modifier = Modifier.semantics { this.selected = false }
+                                modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
                             ) { Text(label) }
                         }
                     }
@@ -424,7 +425,7 @@ fun MainScreen(
                 }
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("기록 및 개인정보", style = MaterialTheme.typography.titleMedium)
                     SettingToggle("번역 기록 저장 (기본 꺼짐)", ui.settings.saveHistory,
                         viewModel::updateSaveHistory)
@@ -456,8 +457,9 @@ private fun StartSetupGuidance(
     onPrepareModels: () -> Unit,
     onCancelModelPreparation: () -> Unit
 ) {
-    var showCompletedDetails by rememberSaveable(setup.isComplete) { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    var showAllDetails by rememberSaveable(setup.isComplete) { mutableStateOf(false) }
+    val visibleSteps = setup.visibleChecklistSteps(showAllDetails)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
             Text("시작 준비", style = MaterialTheme.typography.titleMedium)
@@ -474,23 +476,23 @@ private fun StartSetupGuidance(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(
-                onClick = { showCompletedDetails = !showCompletedDetails },
+                onClick = { showAllDetails = !showAllDetails },
                 modifier = Modifier.heightIn(min = 48.dp)
             ) {
-                Text(if (showCompletedDetails) "준비 항목 접기" else "준비 항목 확인")
-                Icon(if (showCompletedDetails) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                Text(if (showAllDetails) "준비 항목 접기" else "준비 항목 확인")
+                Icon(if (showAllDetails) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
                     contentDescription = null)
             }
         } else {
-            Text("${setup.remainingSteps}개 항목이 남았습니다. 다음 준비 항목을 완료해 주세요.",
+            Text("${setup.remainingSteps}개 항목 남음",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        if (!setup.isComplete || showCompletedDetails) {
+        if (visibleSteps.isNotEmpty()) {
             val audioReady = setup.audioPermissionAction == AudioPermissionAction.GRANTED
             val audioNext = setup.nextStep == SetupStep.AUDIO_PERMISSION
-            SetupChecklistItem(
+            if (SetupStep.AUDIO_PERMISSION in visibleSteps) SetupChecklistItem(
                 title = "1. 음성 캡처 권한",
                 status = when {
                     audioReady -> "허용 완료"
@@ -503,7 +505,7 @@ private fun StartSetupGuidance(
                 if (audioNext) NextSetupAction(
                     setup, onRequestAudioPermission, onOpenOverlaySettings, onPrepareModels)
             }
-            if (setup.overlayPermissionRequired) {
+            if (SetupStep.OVERLAY_PERMISSION in visibleSteps) {
                 val overlayNext = setup.nextStep == SetupStep.OVERLAY_PERMISSION
                 SetupChecklistItem(
                     title = "2. 다른 앱 위에 팝업 표시",
@@ -516,7 +518,7 @@ private fun StartSetupGuidance(
                 }
             }
             val modelNext = setup.nextStep == SetupStep.MODELS
-            SetupChecklistItem(
+            if (SetupStep.MODELS in visibleSteps) SetupChecklistItem(
                 title = "${setup.totalSteps}. 음성·번역 모델",
                 status = setup.modelStatusLabel(),
                 completed = setup.modelStage == ModelSetupStage.READY,
@@ -564,6 +566,16 @@ private fun StartSetupGuidance(
                     }
                     else -> Unit
                 }
+            }
+        }
+        if (!setup.isComplete) {
+            TextButton(
+                onClick = { showAllDetails = !showAllDetails },
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text(if (showAllDetails) "전체 준비 항목 접기" else "전체 준비 항목 보기")
+                Icon(if (showAllDetails) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = null)
             }
         }
     }
@@ -635,7 +647,7 @@ private fun SetupChecklistItem(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.Top
         ) {
             Icon(if (completed) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
