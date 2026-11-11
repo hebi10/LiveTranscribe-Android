@@ -51,6 +51,8 @@ class PlayStoreCaptureTest {
         compose.onNodeWithText("실시간 영상 번역").assertIsDisplayed()
         compose.onNodeWithText("시작 준비").assertIsDisplayed()
         compose.onNodeWithText("음성 캡처 권한 허용").assertIsDisplayed()
+        compose.onNodeWithText("동영상 음성·마이크 번역에는 Android 마이크 권한이 필요합니다.")
+            .assertIsDisplayed()
         compose.onNodeWithText("2. 다른 앱 위에 팝업 표시").assertDoesNotExist()
         capture(directory, "01-home-preparation.png")
 
@@ -68,6 +70,8 @@ class PlayStoreCaptureTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("모델 다운로드 (약 2.1GB)").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("최초 1회 약 2.1GB를 다운로드합니다. 모바일 데이터 요금이 발생할 수 있습니다.")
+            .assertExists()
         capture(directory, "02-model-preparation.png")
 
         compose.onNodeWithText("모든 모드는 같은 모델을 사용하므로 추가 다운로드가 없습니다.")
