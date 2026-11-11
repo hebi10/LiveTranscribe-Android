@@ -483,17 +483,9 @@ private fun StartSetupGuidance(
                     contentDescription = null)
             }
         } else {
-            Text("${setup.remainingSteps}개 항목 남음 · 현재 필요한 작업부터 진행",
+            Text("${setup.remainingSteps}개 항목 남음",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(
-                onClick = { showAllDetails = !showAllDetails },
-                modifier = Modifier.heightIn(min = 48.dp)
-            ) {
-                Text(if (showAllDetails) "전체 준비 항목 접기" else "전체 준비 항목 보기")
-                Icon(if (showAllDetails) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                    contentDescription = null)
-            }
         }
 
         if (visibleSteps.isNotEmpty()) {
@@ -573,6 +565,16 @@ private fun StartSetupGuidance(
                     }
                     else -> Unit
                 }
+            }
+        }
+        if (!setup.isComplete) {
+            TextButton(
+                onClick = { showAllDetails = !showAllDetails },
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text(if (showAllDetails) "전체 준비 항목 접기" else "전체 준비 항목 보기")
+                Icon(if (showAllDetails) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = null)
             }
         }
     }
