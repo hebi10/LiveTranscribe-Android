@@ -61,7 +61,7 @@ jobs:
           import pathlib
           import re
           import subprocess
-          report = pathlib.Path('internal-report/output/play-release.json')
+          report = pathlib.Path('internal-report/play-release.json')
           if not report.is_file():
               raise SystemExit('Expected exact internal API commit report not found')
           data = json.loads(report.read_text(encoding='utf-8'))
