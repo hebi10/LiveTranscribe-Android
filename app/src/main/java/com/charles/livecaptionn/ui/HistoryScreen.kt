@@ -110,7 +110,14 @@ fun HistoryScreen(
             shape = RectangleShape,
             title = { Text(t["Delete entry"]) },
             text = {
-                Text(t.format("Delete this transcript entry?\n\n\"%s\"", deleteTarget?.originalText?.take(60)))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("선택한 번역 기록을 삭제합니다. 삭제 후에는 복구할 수 없습니다.")
+                    Text(
+                        deleteTarget?.translatedText?.take(80).orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -135,7 +142,7 @@ fun HistoryScreen(
             onDismissRequest = { confirmClear = false },
             shape = RectangleShape,
             title = { Text("전체 기록 삭제") },
-            text = { Text("저장된 번역 기록을 모두 삭제하시겠습니까? 삭제한 기록은 복구할 수 없습니다.") },
+            text = { Text("저장된 번역 기록 ${entries.size}개를 모두 삭제합니다. 삭제 후에는 복구할 수 없습니다. 기록 저장 설정은 변경되지 않습니다.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmClear = false
@@ -219,12 +226,12 @@ fun HistoryScreen(
                             )
                         }
                         Text(
-                            "기기 내 최대 ${historyLimit}개 저장 · 기본 꺼짐",
+                            "기기 내 저장 · 최대 ${historyLimit}개 · 기본 꺼짐",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            "저장을 꺼도 기존 기록은 남습니다. 기록은 개별 또는 전체 삭제할 수 있으며 삭제 후 복구할 수 없습니다.",
+                            "저장을 꺼도 기존 기록은 유지됩니다. 삭제는 아래 기록에서 별도로 관리합니다.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -352,33 +359,32 @@ private fun TranscriptCard(
         Column(Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = timeStr,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         text = "${historyLanguageLabel(entry.sourceLanguage)} → ${historyLanguageLabel(entry.targetLanguage)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Medium
                     )
-                    IconButton(
-                        onClick = onDelete,
-                        enabled = deleteEnabled,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            Icons.Outlined.Delete,
-                            contentDescription = t["Delete"],
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
+                    Text(
+                        text = timeStr,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(
+                    onClick = onDelete,
+                    enabled = deleteEnabled,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        Icons.Outlined.Delete,
+                        contentDescription = t["Delete"],
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
                 }
             }
 
