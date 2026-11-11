@@ -24,6 +24,8 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Store imagery [sync-play-images] (#37)'), 'check')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'QA: recapture current UI [ui-gap-00-capture] (#53)'), 'check')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Docs: CAPTION FRAME v1 [ui-gap-01-design] (#54)'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'UI: compact home [ui-gap-02-home] (#55)'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [ui-gap-02-home]-suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [ui-gap-01-design]-suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [ui-gap-00-capture]-suffix'), 'deploy')
         for subject in ('ordinary', 'ordinary\n[initialize-play]', '[initialize-play]-example', 'x[initialize-play]'):
