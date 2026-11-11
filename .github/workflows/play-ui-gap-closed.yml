@@ -117,7 +117,7 @@ jobs:
       - name: Promote exact verified internal version to closed alpha
         if: steps.approved.outputs.approved == 'true' && steps.readiness.outcome == 'success'
         env:
-          PLAY_CONSOLE_INITIALIZED: 'true'
+          PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
           PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
           VERSION_CODE: ${{ steps.approved.outputs.version_code }}
         run: |
