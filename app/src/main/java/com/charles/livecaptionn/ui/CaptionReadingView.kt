@@ -28,6 +28,7 @@ internal class CaptionReadingView(context: Context, private val reader: CaptionR
     private var bounds = emptyList<OverlayRowBounds>()
     private var pendingRestore = reader.position != null
     private var layingOut = false
+    private var horizontalInset = dp(16)
     var onFollowingChanged: (Boolean) -> Unit = {}
 
     init {
@@ -95,6 +96,14 @@ internal class CaptionReadingView(context: Context, private val reader: CaptionR
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val availableWidthDp = (View.MeasureSpec.getSize(widthMeasureSpec) / resources.displayMetrics.density)
+        val nextInset = dp(if (availableWidthDp < 360f) 8 else 16)
+        if (nextInset != horizontalInset) {
+            preserve()
+            horizontalInset = nextInset
+            column.setPadding(horizontalInset, dp(12), horizontalInset, dp(20))
+            pendingRestore = true
+        }
         if (previousWidthSpec != widthMeasureSpec || previousHeightSpec != heightMeasureSpec) {
             preserve()
             pendingRestore = true
