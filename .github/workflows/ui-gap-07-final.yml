@@ -1,0 +1,141 @@
+name: UI-GAP-07 final responsive matrix
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ui-gap-07-final.yml
+      - app/src/androidTest/**/UiGap07FinalCaptureTest.kt
+      - scripts/qa/ui_gap_07.py
+      - app/src/main/java/com/charles/livecaptionn/ui/**
+      - app/src/main/java/com/charles/livecaptionn/MainActivity.kt
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ui-gap-07-final.yml
+      - app/src/androidTest/**/UiGap07FinalCaptureTest.kt
+      - scripts/qa/ui_gap_07.py
+      - app/src/main/java/com/charles/livecaptionn/ui/**
+      - app/src/main/java/com/charles/livecaptionn/MainActivity.kt
+
+permissions:
+  contents: read
+
+jobs:
+  responsive-final:
+    name: Android API ${{ matrix.api }} cross-screen capture
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 29
+            variants: phone-light compact-dark160
+          - api: 35
+            variants: phone-light phone-dark compact-light160 compact-dark160 landscape-light landscape-dark tablet-light tablet-dark fold-cover-light fold-expanded-dark
+          - api: 36
+            variants: phone-dark compact-light160
+    env:
+      QA_API: ${{ matrix.api }}
+      QA_VARIANTS: ${{ matrix.variants }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Verify QA scenario definitions and privacy boundaries
+        run: |
+          python3 scripts/qa/ui_gap_07.py selftest
+          python3 scripts/audit_privacy.py
+      - name: Cache pinned build-time support assets
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/src/main/assets/speech
+            app/src/main/assets/language-id
+            app/libs
+          key: ${{ runner.os }}-local-ai-support-${{ hashFiles('scripts/prepare_speech_support.py', 'scripts/prepare_language_id.py') }}
+      - name: Prepare verified support assets and native translation source
+        run: |
+          python3 scripts/prepare_speech_support.py
+          python3 scripts/prepare_language_id.py
+          python3 scripts/prepare_speech_support.py --verify-only
+          python3 scripts/prepare_language_id.py --verify-only
+          python3 scripts/prepare_native_translation.py
+      - name: Install pinned native build tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358' 'cmake;3.22.1'
+      - name: Build screenshot-only debug and instrumented APKs
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon -PplayCaptureAbi=x86_64 assembleDebug assembleDebugAndroidTest
+      - name: Enable emulator KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Prepare emulator test runner
+        run: |
+          cat > "$RUNNER_TEMP/ui-gap-07-final.sh" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p qa-captures
+          cleanup() {
+            adb shell wm size reset || true
+            adb shell wm density reset || true
+            adb shell settings put system font_scale 1.0 || true
+            adb shell cmd uimode night auto || true
+          }
+          trap cleanup EXIT
+          while read -r name size density font night; do
+            echo "UI-GAP-07 API=$QA_API variant=$name size=$size density=$density font=$font night=$night"
+            adb shell wm size "$size"
+            adb shell wm density "$density"
+            adb shell settings put system font_scale "$font"
+            adb shell cmd uimode night "$night"
+            adb shell pm clear com.hebi.livetranslate.debug >/dev/null || true
+            sleep 2
+            ./gradlew --no-daemon -PplayCaptureAbi=x86_64 \
+              "-Pandroid.testInstrumentationRunnerArguments.class=com.charles.livecaptionn.UiGap07FinalCaptureTest" \
+              "-Pandroid.testInstrumentationRunnerArguments.qaApi=$QA_API" \
+              "-Pandroid.testInstrumentationRunnerArguments.qaVariant=$name" \
+              "-Pandroid.testInstrumentationRunnerArguments.qaRevision=$GITHUB_SHA" connectedDebugAndroidTest
+          done < <(python3 scripts/qa/ui_gap_07.py scenarios --names "$QA_VARIANTS")
+          adb pull /sdcard/Download/hebi-ui-gap-07-captures/. qa-captures/
+          SH
+      - name: Run actual Android API ${{ matrix.api }} emulator captures
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash "$RUNNER_TEMP/ui-gap-07-final.sh"
+      - name: Verify real PNG dimensions, source SHA, theme and nonduplicate captures
+        env:
+          CAPTURE_REVISION: ${{ github.sha }}
+        run: |
+          python3 scripts/qa/ui_gap_07.py verify \
+            --api "$QA_API" --revision "$CAPTURE_REVISION" \
+            --names "$QA_VARIANTS" --folder qa-captures
+      - name: Preserve reproducible QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-gap-07-api-${{ matrix.api }}-${{ github.sha }}
+          path: |
+            qa-captures/
+            app/build/reports/androidTests/connected/
+            app/build/outputs/androidTest-results/connected/
+          if-no-files-found: warn
