@@ -103,6 +103,10 @@ class UiGap07FinalCaptureTest {
         compose.activityRule.scenario.onActivity {
             it.onBackPressedDispatcher.onBackPressed()
         }
+        compose.onNodeWithText("분할 화면").performScrollTo().performClick()
+        compose.waitUntil(timeoutMillis = 15_000) {
+            compose.onAllNodesWithText("자막 화면 미리 보기").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText("자막 화면 미리 보기").performScrollTo().performClick()
         compose.onNodeWithText("영상 옆에, 자막만").assertIsDisplayed()
         take("caption-preview")
