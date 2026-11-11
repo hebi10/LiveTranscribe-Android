@@ -102,6 +102,23 @@ jobs:
             adb shell wm density "$density"
             adb shell settings put system font_scale "$font"
             adb shell cmd uimode night "$night"
+            if [[ "$QA_API" == "29" && "$night" == "yes" ]]; then
+              adb reboot
+              adb wait-for-device
+              ready=0
+              for _ in $(seq 1 60); do
+                if [[ "$(adb shell getprop sys.boot_completed | tr -d '\r')" == "1" ]]; then
+                  ready=1
+                  break
+                fi
+                sleep 2
+              done
+              [[ "$ready" == "1" ]] || { echo "Android API 29 did not finish theme-change reboot" >&2; exit 1; }
+              adb shell wm size "$size"
+              adb shell wm density "$density"
+              adb shell settings put system font_scale "$font"
+              adb shell cmd uimode night "$night"
+            fi
             adb shell pm clear com.hebi.livetranslate.debug >/dev/null || true
             sleep 2
             ./gradlew --no-daemon -PplayCaptureAbi=x86_64 \
