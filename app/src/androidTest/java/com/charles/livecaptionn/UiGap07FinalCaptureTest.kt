@@ -12,7 +12,6 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -82,9 +81,7 @@ class UiGap07FinalCaptureTest {
         val appThemeLabel = if (expected.dark) "다크" else "라이트"
         compose.onNodeWithText(appThemeLabel).performScrollTo().performClick()
         compose.waitUntil(timeoutMillis = 15_000) {
-            compose.onAllNodesWithText(appThemeLabel).fetchSemanticsNodes().any {
-                it.config.getOrNull(SemanticsProperties.Selected) == true
-            }
+            runCatching { compose.onNodeWithText(appThemeLabel).assertIsSelected() }.isSuccess
         }
         compose.onNodeWithText(appThemeLabel).assertIsSelected()
         compose.onNodeWithText("자막 및 앱 설정 접기").performScrollTo().performClick()
