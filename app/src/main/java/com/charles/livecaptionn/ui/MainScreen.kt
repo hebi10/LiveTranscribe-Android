@@ -143,11 +143,7 @@ fun MainScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (action.kind == HomeActionKind.BLOCKED) {
-                            Text("위 준비 항목을 완료하면 번역을 시작할 수 있습니다.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else if (action.kind == HomeActionKind.START &&
+                        if (action.kind == HomeActionKind.START &&
                             ui.settings.audioSource == AudioSource.SYSTEM) {
                             Text("동영상 음성은 시작할 때마다 화면 공유 확인이 필요합니다.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -188,10 +184,12 @@ fun MainScreen(
                     Modifier.fillMaxWidth().padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
-                    Text("$languageLabel → 한국어 · $inputLabel", fontWeight = FontWeight.Medium)
-                    Text(statusLabel, style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (!setup.isVisible) {
+                        Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
+                        Text("$languageLabel → 한국어 · $inputLabel", fontWeight = FontWeight.Medium)
+                        Text(statusLabel, style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     ui.runtime.lastError?.takeIf { it.isNotBlank() }?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)
                     }
@@ -213,6 +211,9 @@ fun MainScreen(
                             onPrepareModels = viewModel::prepareSelectedTranslationModel,
                             onCancelModelPreparation = onCancelModelPreparation
                         )
+                        Text("$languageLabel → 한국어 · $inputLabel",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
