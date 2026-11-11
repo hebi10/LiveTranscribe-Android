@@ -25,6 +25,8 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'QA: recapture current UI [ui-gap-00-capture] (#53)'), 'check')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Docs: CAPTION FRAME v1 [ui-gap-01-design] (#54)'), 'check')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'UI: compact home [ui-gap-02-home] (#55)'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'UI: model + permission copy [ui-gap-03-setup] (#56)'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [ui-gap-03-setup]-suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [ui-gap-02-home]-suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [ui-gap-01-design]-suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [ui-gap-00-capture]-suffix'), 'deploy')
