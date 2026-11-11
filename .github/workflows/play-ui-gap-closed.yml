@@ -1,0 +1,143 @@
+name: Play UI-GAP approved closed promotion
+
+on:
+  workflow_run:
+    workflows: ["Play internal release"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-com-hebi-livetranslate
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_run' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: google-play
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Require exact one-time approval and verified internal API report
+        id: approved
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          INTERNAL_RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          subject="$(git show -s --format=%s "$SOURCE_SHA")"
+          if [[ "$subject" != 'Release: UI-GAP verified closed test [release-ui-gap-closed-20261111]' ]]; then
+            echo 'No one-time approved closed promotion on this main commit'
+            echo 'approved=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
+          mkdir -p internal-report
+          gh run download "$INTERNAL_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "live-translate-play-report-$INTERNAL_RUN_ID" --dir internal-report
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          report = pathlib.Path('internal-report/output/play-release.json')
+          if not report.is_file():
+              raise SystemExit('Expected exact internal API commit report not found')
+          data = json.loads(report.read_text(encoding='utf-8'))
+          code = data.get('versionCode')
+          if data.get('package') != 'com.hebi.livetranslate' or data.get('track') != 'internal':
+              raise SystemExit('Unexpected application or release track')
+          if data.get('releaseStatus') != 'completed' or data.get('status') != 'api_committed_and_verified':
+              raise SystemExit('Internal Play release was not completed and independently verified')
+          if type(code) is not int or code <= 24 or not re.fullmatch(r'[0-9a-f]{64}', data.get('uploadedBundleSHA256', '')):
+              raise SystemExit('Unverified internal AAB or stale version code')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+              out.write('approved=true\n')
+              out.write(f'version_code={code}\n')
+          print(f'Approved exact completed internal versionCode {code}')
+          PY
+      - name: Validate Google Play credentials
+        if: steps.approved.outputs.approved == 'true'
+        id: credentials
+        env:
+          PLAY_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          PLAY_SERVICE_ACCOUNT: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: python3 scripts/play/preflight.py auth
+      - name: Authenticate with app-scoped Workload Identity Federation
+        id: wif
+        if: steps.approved.outputs.approved == 'true' && steps.credentials.outputs.auth_mode == 'wif'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Authenticate with configured legacy service-account JSON
+        id: json
+        if: steps.approved.outputs.approved == 'true' && steps.credentials.outputs.auth_mode == 'json'
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Recheck registered Play binary and current main
+        id: readiness
+        if: steps.approved.outputs.approved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+        run: |
+          python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
+          python3 scripts/play/publisher.py --report output/play-readiness.json inspect --require-binary
+      - name: Promote exact verified internal version to closed alpha
+        if: steps.approved.outputs.approved == 'true' && steps.readiness.outcome == 'success'
+        env:
+          PLAY_CONSOLE_INITIALIZED: 'true'
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+          VERSION_CODE: ${{ steps.approved.outputs.version_code }}
+        run: |
+          python3 scripts/play/publisher.py --report output/play-closed-promotion.json promote \
+            --version-code "$VERSION_CODE" --track alpha --draft-if-app-unpublished
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('output/play-closed-promotion.json').read_text(encoding='utf-8'))
+          if data.get('track') != 'alpha' or data.get('releaseStatus') not in ('completed', 'draft'):
+              raise SystemExit('Closed alpha status not confirmed')
+          print('Closed alpha API readback:', data['releaseStatus'])
+          if data['releaseStatus'] == 'draft':
+              print('DRAFT ONLY: not published or installable until Console steps are complete')
+          PY
+      - name: Preserve non-secret closed-test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-transcribe-ui-gap-closed-${{ github.run_id }}
+          path: output/play-*.json
+          if-no-files-found: ignore
+          retention-days: 30
