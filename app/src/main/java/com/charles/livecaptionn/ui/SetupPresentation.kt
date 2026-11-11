@@ -6,7 +6,7 @@ internal fun MainSetupState.modelStatusLabel(): String = when (modelStage) {
     ModelSetupStage.READY -> "준비 완료"
     ModelSetupStage.CHECKING -> "다운로드한 파일 확인 중"
     ModelSetupStage.DOWNLOADING -> "다운로드 진행 중"
-    ModelSetupStage.ERROR -> "다운로드 오류 · 재시도 필요"
+    ModelSetupStage.ERROR -> "모델 준비 오류 · 복구 필요"
     ModelSetupStage.NOT_DOWNLOADED, null ->
         if (canResumeModelPreparation) "이어받기 가능" else "다운로드 필요 · 약 2.1GB"
 }
@@ -40,3 +40,36 @@ internal fun MainSetupState.activeModelFileLabel(): String? =
     if (modelStage == ModelSetupStage.DOWNLOADING)
         currentFile?.takeIf { it.isNotBlank() }?.substringAfterLast('/')?.take(72)
     else null
+
+/** Permission copy reflects the existing Activity actions; no permission checks are changed. */
+internal fun MainSetupState.audioPermissionGuidance(): String = when (audioPermissionAction) {
+    AudioPermissionAction.REQUEST ->
+        "동영상 음성·마이크 번역에는 Android 마이크 권한이 필요합니다."
+    AudioPermissionAction.OPEN_SETTINGS ->
+        "마이크 권한을 다시 허용하려면 Android 앱 설정으로 이동한 뒤 이 화면으로 돌아오세요."
+    AudioPermissionAction.GRANTED -> "마이크 권한 허용 완료"
+}
+
+internal fun MainSetupState.overlayPermissionGuidance(): String =
+    "팝업 자막에서만 '다른 앱 위에 표시' 권한이 필요합니다. 설정에서 허용하고 앱으로 돌아오세요."
+
+/** The message never presents a download as installed until integrity verification succeeds. */
+internal fun MainSetupState.modelStageGuidance(): String? = when (modelStage) {
+    ModelSetupStage.CHECKING ->
+        "다운로드한 파일을 검증하고 있습니다. 완료되기 전에는 번역을 시작할 수 없습니다."
+    ModelSetupStage.DOWNLOADING ->
+        "다운로드 중에는 앱을 열어 두세요. 중단하면 나중에 이어받을 수 있습니다."
+    ModelSetupStage.READY ->
+        "자동 감지·일본어·영어는 검증된 같은 모델을 사용합니다."
+    ModelSetupStage.NOT_DOWNLOADED, ModelSetupStage.ERROR, null -> null
+}
+
+internal fun MainSetupState.modelPreparationGuidance(): String = when {
+    modelStage == ModelSetupStage.ERROR && canResumeModelPreparation ->
+        "남아 있는 다운로드에서 이어받을 수 있습니다. 연결·저장 공간을 확인해 주세요."
+    modelStage == ModelSetupStage.ERROR ->
+        "연결·저장 공간을 확인한 뒤 다시 시도해 주세요."
+    canResumeModelPreparation ->
+        "이전 다운로드에서 이어받습니다. 네트워크 연결을 확인해 주세요."
+    else -> "최초 1회 약 2.1GB를 다운로드합니다. 모바일 데이터 요금이 발생할 수 있습니다."
+}
