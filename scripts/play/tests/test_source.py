@@ -22,6 +22,8 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Play: alpha v22 draft commit [commit-play-alpha-draft-v22]'), 'check')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Play: alpha v22 draft commit [commit-play-alpha-draft-v22]: accidental suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Store imagery [sync-play-images] (#37)'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'QA: recapture current UI [ui-gap-00-capture] (#53)'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [ui-gap-00-capture]-suffix'), 'deploy')
         for subject in ('ordinary', 'ordinary\n[initialize-play]', '[initialize-play]-example', 'x[initialize-play]'):
             self.assertEqual(source.release_mode(env, {'workflow_run': run}, subject), 'deploy')
         for key, value in (('event', 'pull_request'), ('head_branch', 'feature'), ('conclusion', 'failure'), ('head_repository', {'full_name': 'attacker/fork'})):
