@@ -58,6 +58,8 @@ jobs:
           python -m unittest discover -s scripts/play/tests -v
       - name: Validate reviewed Korean store text and real image inputs
         run: python scripts/play/listing.py check
+      - name: Verify refreshed eight-screen Play assets against pinned screenshot hashes
+        run: python scripts/play/refresh_20261111.py --check
       - name: Cache pinned speech support and language-ID assets
         uses: actions/cache@v4
         with:
