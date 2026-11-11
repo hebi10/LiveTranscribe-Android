@@ -264,8 +264,8 @@ class OverlayController(
         }
         statusInformation = TextView(context).apply {
             textSize = 12f
-            minLines = 3
-            maxLines = 3
+            minLines = 1
+            maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             visibility = View.GONE
         }
@@ -868,8 +868,8 @@ class OverlayController(
         }
         suggestionLabel = TextView(context).apply {
             textSize = 12f
-            minLines = 3
-            maxLines = 3
+            minLines = 1
+            maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             layoutParams = LinearLayout.LayoutParams(-1, -2)
         }
