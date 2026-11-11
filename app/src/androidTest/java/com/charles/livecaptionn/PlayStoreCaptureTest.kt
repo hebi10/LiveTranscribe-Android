@@ -11,6 +11,8 @@ import android.graphics.drawable.AdaptiveIconDrawable
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -51,6 +53,12 @@ class PlayStoreCaptureTest {
         compose.onNodeWithText("실시간 영상 번역").assertIsDisplayed()
         compose.onNodeWithText("시작 준비").assertIsDisplayed()
         compose.onNodeWithText("음성 캡처 권한 허용").assertIsDisplayed()
+        compose.onNodeWithText("2. 다른 앱 위에 팝업 표시").assertDoesNotExist()
+        compose.onNodeWithText("전체 준비 항목 보기").performClick()
+        compose.onNodeWithText("2. 다른 앱 위에 팝업 표시").assertExists()
+        compose.onNodeWithText("3. 음성·번역 모델").assertExists()
+        compose.onNodeWithText("전체 준비 항목 접기").performClick()
+        compose.onNodeWithText("2. 다른 앱 위에 팝업 표시").assertDoesNotExist()
         capture(directory, "01-home-preparation.png")
 
         instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.RECORD_AUDIO)
