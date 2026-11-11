@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -59,7 +60,7 @@ class UiGap07FinalCaptureTest {
         assertTrue("Font scale mismatch: " + expected.fontScale + " != " + actualConfiguration.fontScale,
             abs(expected.fontScale - actualConfiguration.fontScale) < 0.08f)
         assertEquals("Display density mismatch", expected.density, actualConfiguration.densityDpi)
-        val actualDark = actualConfiguration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+        val actualDark = (actualConfiguration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
         assertEquals("Emulator system theme mismatch", expected.dark, actualDark)
 
@@ -73,11 +74,20 @@ class UiGap07FinalCaptureTest {
         }
 
         compose.onNodeWithText("실시간 영상 번역").assertIsDisplayed()
+
+        // App theme defaults to DARK; toggling Android night mode alone is not a UI theme test.
+        compose.onNodeWithText("자막 및 앱 설정 펼치기").performScrollTo().performClick()
+        val appThemeLabel = if (expected.dark) "다크" else "라이트"
+        compose.onNodeWithText(appThemeLabel).performScrollTo().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(appThemeLabel).assertIsSelected()
+        compose.onNodeWithText("자막 및 앱 설정 접기").performScrollTo().performClick()
         take("home")
 
         compose.onNodeWithText("자막 및 앱 설정 펼치기").performScrollTo().performClick()
         compose.onNodeWithText("개인정보처리방침 (외부 브라우저)")
             .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(appThemeLabel).performScrollTo().assertIsSelected()
         take("settings")
 
         compose.onNodeWithContentDescription("번역 기록").performClick()
@@ -102,6 +112,7 @@ class UiGap07FinalCaptureTest {
             put("densityDpi", actualConfiguration.densityDpi)
             put("fontScale", actualConfiguration.fontScale.toDouble())
             put("nightMode", if (actualDark) "dark" else "light")
+            put("appThemeMode", if (expected.dark) "DARK" else "LIGHT")
             put("screenshots", JSONArray(captures))
             put("simulatedFoldSizeOnly", name.startsWith("fold-"))
             put("physicalFoldVerified", false)
