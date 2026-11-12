@@ -16,7 +16,7 @@ concurrency:
 jobs:
   promote:
     # Legacy Play mutation route disabled until a final consolidated release is approved.
-    if: ${{ false }}
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: google-play
