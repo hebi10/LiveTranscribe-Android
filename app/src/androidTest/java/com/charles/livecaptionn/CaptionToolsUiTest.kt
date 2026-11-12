@@ -5,9 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodes
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNode
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -72,7 +70,8 @@ class CaptionToolsUiTest {
 
         compose.onNodeWithText("삭제").performScrollTo().performClick()
         compose.onNodeWithText("항목 삭제").assertIsDisplayed()
-        compose.onAllNodesWithText("삭제").onLast().performClick()
+        val deleteButtons = compose.onAllNodesWithText("삭제")
+        deleteButtons[deleteButtons.fetchSemanticsNodes().lastIndex].performClick()
         compose.waitUntil(timeoutMillis = 15_000) {
             compose.onAllNodesWithText("등록한 용어가 없습니다.").fetchSemanticsNodes().isNotEmpty()
         }
