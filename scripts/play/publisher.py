@@ -191,9 +191,27 @@ class Publisher:
             used = self.used_versions(edit, inventory)
         if require_binary and not (inventory[0] or inventory[1]):
             raise ReleaseError('No registered AAB or APK was found; complete the explicit initial upload before normal API changes')
+        test_tracks = {
+            name: {'listed': False, 'releases': []} for name in ('internal', 'alpha')
+        }
+        for track in inventory[2]:
+            name = track.get('track')
+            if name not in test_tracks:
+                continue
+            if test_tracks[name]['listed']:
+                raise ReleaseError('Duplicate Play test track in API inventory')
+            test_tracks[name]['listed'] = True
+            for release in track.get('releases', []):
+                codes = sorted(version_code(value) for value in release.get('versionCodes', []))
+                if release.get('status') not in ('draft', 'completed', 'inProgress', 'halted'):
+                    raise ReleaseError('Unknown Play test release status: inspect Console without mutation')
+                test_tracks[name]['releases'].append({
+                    'status': release['status'], 'versionCodes': codes
+                })
         return {'package': PACKAGE,
                 'status': 'api_access_verified' if inventory[0] or inventory[1] else 'requires_initial_upload',
                 'highestVersionCode': max(used) if used else None,
+                'testTrackState': test_tracks,
                 'deployment': 'not_attempted'}
 
     @contextlib.contextmanager
