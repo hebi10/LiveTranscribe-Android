@@ -2,6 +2,8 @@ package com.charles.livecaptionn.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,7 +56,7 @@ import com.charles.livecaptionn.settings.RecognitionLanguages
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CaptionToolsScreen(
     glossaryRepository: GlossaryRepository,
@@ -181,7 +183,8 @@ fun CaptionToolsScreen(
                         Text(if (entry.caseSensitive) "대소문자 구별" else "대소문자 구별 안 함",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { editingGlossary = entry; glossaryEditorOpen = true },
                                 enabled = editEnabled) { Text("수정") }
                             TextButton(onClick = { glossaryToDelete = entry },
@@ -224,8 +227,8 @@ fun CaptionToolsScreen(
                         if (!supported) Text("이 프리셋은 현재 지원하는 언어 설정과 일치하지 않습니다.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             FilledTonalButton(onClick = {
                                 execute("프리셋을 적용했습니다.") { onApplyProfile(profile) }
                             }, enabled = editEnabled && supported,
@@ -394,17 +397,14 @@ private fun ProfileEditorDialog(
                     RecognitionLanguages.AUTO to "자동 감지", "en" to "영어", "ja" to "일본어"
                 )) {
                     val selected = language == code
-                    val option: @Composable () -> Unit = {
-                        Text(label, modifier = Modifier.padding(horizontal = 8.dp))
-                    }
                     if (selected) FilledTonalButton(
                         onClick = { language = code }, shape = RectangleShape,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    ) { option() }
+                    ) { Text(label) }
                     else OutlinedButton(
                         onClick = { language = code }, shape = RectangleShape,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    ) { option() }
+                    ) { Text(label) }
                 }
                 Text("글자 크기: " + textSize.toInt() + "sp")
                 Slider(value = textSize, onValueChange = { textSize = it },
