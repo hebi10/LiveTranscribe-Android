@@ -1,0 +1,125 @@
+{
+  "project": "LiveTranscribe-Android",
+  "task": "STORE-01",
+  "createdDate": "2026-11-12",
+  "language": "ko-KR",
+  "packageName": "com.hebi.livetranslate",
+  "sourceRevision": "3e2df3b20e13f2e6d06eeffd70e412f21349d4bb",
+  "sourceRun": {
+    "mainUI": "https://github.com/hebi10/LiveTranscribe-Android/actions/runs/43159075029",
+    "mainApi35": "https://github.com/hebi10/LiveTranscribe-Android/actions/runs/43159074880"
+  },
+  "screenshots": [
+    {
+      "sequence": 1,
+      "file": "01-input-and-language.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "48b86fb5f55038d6b0e2cc7bd5af67f51de3ba3cb202e5f28c6baef0d067f764",
+      "bytes": 174270,
+      "sourceArchive": "main-ui",
+      "sourceScreenshot": "play-captures/03-language-settings.png",
+      "sourceScreenshotSha256": "4f7c2a3dcf593c0ff371a7b787aa37562ec774c6e5a8de4a2614c6aa06dc5c2d",
+      "sourceRevision": "3e2df3b20e13f2e6d06eeffd70e412f21349d4bb",
+      "claimType": "app UI capture with editorial caption, no actual speech inference"
+    },
+    {
+      "sequence": 2,
+      "file": "02-offline-model-setup.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "93e84db25bf561cfee1dfb0778f700b407ad9e7c2901990ef60d69c83efdea47",
+      "bytes": 228346,
+      "sourceArchive": "main-ui",
+      "sourceScreenshot": "play-captures/02-model-preparation.png",
+      "sourceScreenshotSha256": "c51d31ad1639dcd65044eb235e48c341523f5ec374da77cbb14773b3eebc2878",
+      "sourceRevision": "3e2df3b20e13f2e6d06eeffd70e412f21349d4bb",
+      "claimType": "app UI capture with editorial caption, no actual speech inference"
+    },
+    {
+      "sequence": 3,
+      "file": "03-glossary-and-presets.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "c698f6d405ad1698faa5b90f7807e9b95f6d7ad7adea4e35b3a3bf3973ed1930",
+      "bytes": 178995,
+      "sourceArchive": "main-api35",
+      "sourceScreenshot": "qa-captures/qa-07-phone-dark-caption-tools.png",
+      "sourceScreenshotSha256": "b2422e687f0ba58cd205d9b51683d6224180256c53d0a1c5a4c652bcc3c5a6e4",
+      "sourceRevision": "3e2df3b20e13f2e6d06eeffd70e412f21349d4bb",
+      "claimType": "app UI capture with editorial caption, no actual speech inference"
+    },
+    {
+      "sequence": 4,
+      "file": "04-split-caption-view.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "8fc722befd3c0ad45782a3e34dd7a59c4185143e9d77ef46543a5bd95be126ee",
+      "bytes": 111513,
+      "sourceArchive": "main-ui",
+      "sourceScreenshot": "play-captures/06-split-caption-preview.png",
+      "sourceScreenshotSha256": "08837d058f895cfbd4e979954910a14b3ce7ff409c0654ab6bb67e60e1021c02",
+      "sourceRevision": "3e2df3b20e13f2e6d06eeffd70e412f21349d4bb",
+      "claimType": "app UI capture with editorial caption, no actual speech inference"
+    },
+    {
+      "sequence": 5,
+      "file": "05-floating-caption.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "c1d72c077e1a4af8a55bb836e410c74e27a7076b717dbced7e82048244862f15",
+      "bytes": 207834,
+      "sourceArchive": "main-ui",
+      "sourceScreenshot": "play-captures/07-popup-compact.png",
+      "sourceScreenshotSha256": "fb1b36b4c9b24cee1a0961fa1438cac8ab41cbe04dd43e0486c6ec057e6152d6",
+      "sourceRevision": "3e2df3b20e13f2e6d06eeffd70e412f21349d4bb",
+      "claimType": "app UI capture with editorial caption, no actual speech inference"
+    },
+    {
+      "sequence": 6,
+      "file": "06-floating-controls.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "519cef9b53c719dae77eb19f7de019102b895e1d3d4e1e5053718eeeab3da5df",
+      "bytes": 225267,
+      "sourceArchive": "main-ui",
+      "sourceScreenshot": "play-captures/08-popup-expanded.png",
+      "sourceScreenshotSha256": "d082b2e46210e191b17c7c04e7f5b9f254b80df46a5dec069d8aa562d455d7a9",
+      "sourceRevision": "3e2df3b20e13f2e6d06eeffd70e412f21349d4bb",
+      "claimType": "app UI capture with editorial caption, no actual speech inference"
+    },
+    {
+      "sequence": 7,
+      "file": "07-optional-history.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "ffb7d8ba84047bba93e6e04b2493d6e63e441b3ad2fbbeb3a17e4439b0fd2d80",
+      "bytes": 125343,
+      "sourceArchive": "main-ui",
+      "sourceScreenshot": "play-captures/05-history-empty.png",
+      "sourceScreenshotSha256": "60e41f4b2f5c5a1fb4140c384f2ed9954a8714b5976bf3e574a82223d6be5981",
+      "sourceRevision": "3e2df3b20e13f2e6d06eeffd70e412f21349d4bb",
+      "claimType": "app UI capture with editorial caption, no actual speech inference"
+    },
+    {
+      "sequence": 8,
+      "file": "08-caption-appearance.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "1a27cd04d3d3d6044e9cf241caf515fa3648894f9e6527bc76ac0aa7c53fb03b",
+      "bytes": 199059,
+      "sourceArchive": "main-ui",
+      "sourceScreenshot": "play-captures/04-privacy-settings.png",
+      "sourceScreenshotSha256": "a85a21b92f3b779f765e0ed215b7e8e5c13ee3144a195e307ba56aa931a58849",
+      "sourceRevision": "3e2df3b20e13f2e6d06eeffd70e412f21349d4bb",
+      "claimType": "app UI capture with editorial caption, no actual speech inference"
+    }
+  ],
+  "sourceScope": "Real Android 15 x86_64 emulator screenshots with editorial headings outside the unaltered captured screen. No generated replacement UI or synthetic translation text.",
+  "notVerified": [
+    "real on-device STT and Korean translation inference",
+    "physical-device overlay stability",
+    "Google Play Console image registration/review"
+  ],
+  "storeReview": "Copy does not promise speech recognition success or benchmark results. Existing icon and feature graphic remain unchanged."
+}

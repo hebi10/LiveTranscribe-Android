@@ -8,27 +8,36 @@
       "featureGraphic.png"
     ],
     "phoneScreenshots": [
-      "01-home-preparation.png",
-      "02-model-preparation.png",
-      "03-language-settings.png",
-      "05-history-empty.png"
+      "01-input-and-language.png",
+      "02-offline-model-setup.png",
+      "03-glossary-and-presets.png",
+      "04-split-caption-view.png",
+      "05-floating-caption.png",
+      "06-floating-controls.png",
+      "07-optional-history.png",
+      "08-caption-appearance.png"
     ]
   },
   "provenance": {
-    "captureRun": "https://github.com/hebi10/LiveTranscribe-Android/actions/runs/42487257962",
-    "artifactId": 13619869006,
-    "capturedSourceRevision": "b6b3b47f5a970f0e5cbba8e5bd60d3622d2a788c",
-    "headRevision": "830bd4d710172d0399308142417b0a60757712d7",
-    "device": "API 35 x86_64 emulator; debug package",
-    "scope": "Real idle app UI and existing launcher resources. No model download, audio capture or inference exercised.",
-    "excluded": "04-privacy-settings.png repeated the previous rendered frame and was excluded after visual inspection.",
+    "screenshots": "Real Android 15 emulator UI at exact main revision, with editorial headings outside the unmodified UI; no actual model inference",
+    "sourceRevision": "3e2df3b20e13f2e6d06eeffd70e412f21349d4bb",
+    "captureRun": "https://github.com/hebi10/LiveTranscribe-Android/actions/runs/43159075029",
+    "extraCaptureRun": "https://github.com/hebi10/LiveTranscribe-Android/actions/runs/43159074880",
+    "approvedReviewDate": "2026-11-12",
+    "improvements": "Replaced duplicate #3 with real glossary/preset screen; independent eight screenshot topics, unified monochrome typography",
+    "existingIconAndFeature": "Unchanged from current main; only phone screenshots updated",
+    "excluded": "Synthetic history test transcripts, generated translation claims, real STT inference evidence",
     "sha256": {
       "icon.png": "aba2c20d5869faff48141db178fdea0df33ae985ab94b57d615cf63d7d02e44f",
       "featureGraphic.png": "73ee4b28102ae48cd6eea424e3600b050afc119ba613f4f0afe59cbb88651063",
-      "01-home-preparation.png": "15997c99516be7edbb5596903d742192158bfa0a2fefd5391d340a7971ed1c6f",
-      "02-model-preparation.png": "6f8d71ed8b1fa61fcdf59c58fd120c9464dbffd7e53ea9f313787b1340ce6124",
-      "03-language-settings.png": "ac22342ba2840a63feaa784820b1b0c75092e79450aa55ccdd45473795bcbae8",
-      "05-history-empty.png": "35c5a85872ec954b0370880c860b7716b7a84d67566b5a3ec43750bce84335a2"
+      "01-input-and-language.png": "48b86fb5f55038d6b0e2cc7bd5af67f51de3ba3cb202e5f28c6baef0d067f764",
+      "02-offline-model-setup.png": "93e84db25bf561cfee1dfb0778f700b407ad9e7c2901990ef60d69c83efdea47",
+      "03-glossary-and-presets.png": "c698f6d405ad1698faa5b90f7807e9b95f6d7ad7adea4e35b3a3bf3973ed1930",
+      "04-split-caption-view.png": "8fc722befd3c0ad45782a3e34dd7a59c4185143e9d77ef46543a5bd95be126ee",
+      "05-floating-caption.png": "c1d72c077e1a4af8a55bb836e410c74e27a7076b717dbced7e82048244862f15",
+      "06-floating-controls.png": "519cef9b53c719dae77eb19f7de019102b895e1d3d4e1e5053718eeeab3da5df",
+      "07-optional-history.png": "ffb7d8ba84047bba93e6e04b2493d6e63e441b3ad2fbbeb3a17e4439b0fd2d80",
+      "08-caption-appearance.png": "1a27cd04d3d3d6044e9cf241caf515fa3648894f9e6527bc76ac0aa7c53fb03b"
     }
   }
 }
