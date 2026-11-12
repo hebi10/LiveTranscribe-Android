@@ -398,6 +398,47 @@ class Publisher:
             result.update(commit_info)
         return result
 
+    def reconcile_alpha_draft(self, code, expected_existing_code):
+        """Replace only one exact old draft with the verified completed internal version."""
+        code = version_code(code)
+        old = version_code(expected_existing_code)
+        if old >= code:
+            raise ReleaseError('Expected Alpha draft version must be older than the target version')
+        with self.edit() as edit:
+            source = self.request('GET', edit + '/tracks/internal')
+            release = next((item for item in source.get('releases', [])
+                            if item.get('status') == 'completed'
+                            and [str(value) for value in item.get('versionCodes', [])] == [str(code)]), None)
+            if release is None:
+                raise ReleaseError('Draft update requires the exact completed internal release')
+            bundles, apks, _ = self.inventory(edit)
+            if not any(str(item.get('versionCode')) == str(code) for item in bundles + apks):
+                raise ReleaseError('Target version is not registered as a Play AAB or APK')
+            alpha = self.request('GET', edit + '/tracks/alpha')
+            releases = alpha.get('releases', [])
+            if len(releases) != 1:
+                raise ReleaseError('Alpha draft conflict: expected exactly one existing release')
+            current = releases[0]
+            current_codes = [str(value) for value in current.get('versionCodes', [])]
+            if current.get('status') == 'draft' and current_codes == [str(code)]:
+                return {'package': PACKAGE, 'track': 'alpha', 'versionCode': code,
+                        'releaseStatus': 'draft', 'status': 'alpha_draft_already_present',
+                        'availability': 'draft_not_published'}
+            if current.get('status') != 'draft' or current_codes != [str(old)]:
+                raise ReleaseError('Alpha draft conflict: existing release does not match the approved old draft')
+            draft = {'name': release.get('name', f'1.3.1 ({code})'),
+                     'versionCodes': [str(code)], 'status': 'draft'}
+            if release.get('releaseNotes'):
+                draft['releaseNotes'] = release['releaseNotes']
+            self.request('PUT', edit + '/tracks/alpha', {'track': 'alpha', 'releases': [draft]})
+            commit_info = self.commit(edit, changes_not_sent_for_review=True, fail_if_in_review=True)
+        result = self.verify_track('alpha', code, 'draft')
+        result.update(status='alpha_draft_reconciled_and_verified',
+                      availability='draft_not_published', replacedDraftVersionCode=old)
+        if commit_info:
+            result.update(commit_info)
+        return result
+
     def promote(self, code, track='alpha', changes_not_sent_for_review=False, draft_if_app_unpublished=False):
         if track != 'alpha':
             raise ReleaseError('Only the alpha closed-testing track is permitted for promotion')
@@ -467,6 +508,9 @@ def main():
     promote.add_argument('--track', choices=['alpha'], default='alpha')
     promote.add_argument('--changes-not-sent-for-review', action='store_true')
     promote.add_argument('--draft-if-app-unpublished', action='store_true')
+    reconcile = sub.add_parser('reconcile-alpha-draft')
+    reconcile.add_argument('--version-code', required=True, type=version_code)
+    reconcile.add_argument('--existing-code', required=True, type=version_code)
     args = parser.parse_args()
     try:
         from preflight import require_initialized
@@ -491,6 +535,8 @@ def main():
         elif args.command == 'deploy':
             result = client.deploy(args.bundle, args.version_code, release_status=args.status,
                                    changes_not_sent_for_review=args.changes_not_sent_for_review)
+        elif args.command == 'reconcile-alpha-draft':
+            result = client.reconcile_alpha_draft(args.version_code, args.existing_code)
         else:
             result = client.promote(args.version_code, args.track, args.changes_not_sent_for_review,
                                     draft_if_app_unpublished=args.draft_if_app_unpublished)

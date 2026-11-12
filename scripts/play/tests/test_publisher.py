@@ -255,6 +255,68 @@ class PublisherTests(unittest.TestCase):
         self.assertFalse(server.committed)
         self.assertFalse(any(method == 'PUT' for method, _, _ in server.calls))
 
+    def test_alpha_draft_reconciliation_only_replaces_approved_old_draft(self):
+        server = PlayServer(bundles=[22, 27], tracks=[
+            track('internal', 27), track('alpha', 22, 'draft')])
+        result = publisher.Publisher(server).reconcile_alpha_draft(27, 22)
+        self.assertEqual(result['status'], 'alpha_draft_reconciled_and_verified')
+        self.assertEqual(result['releaseStatus'], 'draft')
+        self.assertEqual(result['replacedDraftVersionCode'], 22)
+        self.assertEqual(result['availability'], 'draft_not_published')
+        self.assertEqual(server.pending, {'track': 'alpha', 'releases': [
+            {'name': '1.3.1 (27)', 'versionCodes': ['27'], 'status': 'draft'}]})
+        self.assertTrue(server.committed)
+        self.assertFalse(any('uploadType' in path for _, path, _ in server.calls))
+
+    def test_alpha_draft_reconciliation_is_idempotent_for_same_draft(self):
+        server = PlayServer(bundles=[27], tracks=[
+            track('internal', 27), track('alpha', 27, 'draft')])
+        result = publisher.Publisher(server).reconcile_alpha_draft(27, 22)
+        self.assertEqual(result['status'], 'alpha_draft_already_present')
+        self.assertFalse(server.committed)
+        self.assertFalse(any(method == 'PUT' for method, _, _ in server.calls))
+
+    def test_alpha_draft_reconciliation_rejects_conflicting_states_without_mutating(self):
+        scenarios = [
+            ([], 'exactly one existing'),
+            ([{'status': 'completed', 'versionCodes': ['22']}], 'does not match'),
+            ([{'status': 'draft', 'versionCodes': ['23']}], 'does not match'),
+            ([{'status': 'draft', 'versionCodes': ['22', '23']}], 'does not match'),
+            ([{'status': 'draft', 'versionCodes': ['22']},
+              {'status': 'draft', 'versionCodes': ['21']}], 'exactly one existing')
+        ]
+        for releases, message in scenarios:
+            with self.subTest(releases=releases):
+                alpha = {'track': 'alpha', 'releases': releases}
+                server = PlayServer(bundles=[22, 27], tracks=[track('internal', 27), alpha])
+                with self.assertRaisesRegex(publisher.ReleaseError, message):
+                    publisher.Publisher(server).reconcile_alpha_draft(27, 22)
+                self.assertFalse(server.committed)
+                self.assertFalse(any(method == 'PUT' for method, _, _ in server.calls))
+
+    def test_alpha_draft_reconciliation_requires_internal_and_registered_binary(self):
+        for internal, bundles in ((22, [22, 27]), (27, [22])):
+            with self.subTest(internal=internal, bundles=bundles):
+                server = PlayServer(bundles=bundles, tracks=[
+                    track('internal', internal), track('alpha', 22, 'draft')])
+                with self.assertRaises(publisher.ReleaseError):
+                    publisher.Publisher(server).reconcile_alpha_draft(27, 22)
+                self.assertFalse(server.committed)
+                self.assertFalse(any(method == 'PUT' for method, _, _ in server.calls))
+
+    def test_alpha_draft_reconciliation_validation_error_cannot_commit(self):
+        server = PlayServer(bundles=[22, 27], tracks=[
+            track('internal', 27), track('alpha', 22, 'draft')])
+        def fail_validation(method, path, body=None, content_type=None):
+            if method == 'POST' and ':validate' in path:
+                server.calls.append((method, path, body))
+                raise publisher.PlayApiError(method, 400, 'INVALID_ARGUMENT')
+            return server(method, path, body, content_type)
+        with self.assertRaises(publisher.PlayApiError):
+            publisher.Publisher(fail_validation).reconcile_alpha_draft(27, 22)
+        self.assertFalse(server.committed)
+        self.assertFalse(any(':commit' in path for _, path, _ in server.calls))
+
     def test_alpha_promote_preserves_exact_internal_version_and_track(self):
         server = PlayServer(bundles=[22], tracks=[track('internal', 22)])
         result = publisher.Publisher(server).promote(22, 'alpha')
