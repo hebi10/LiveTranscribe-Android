@@ -15,11 +15,8 @@ concurrency:
 
 jobs:
   source:
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+    # Legacy Play mutation route disabled until a final consolidated release is approved.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
