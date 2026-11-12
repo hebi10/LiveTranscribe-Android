@@ -44,6 +44,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.luminance
+import com.charles.livecaptionn.settings.CorrectionHighlightPalette
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.toArgb
@@ -109,6 +111,8 @@ fun CaptionScreen(
     }
     val foreground = MaterialTheme.colorScheme.onSurface.toArgb()
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    val correctionColor = CorrectionHighlightPalette.colorInt(ui.settings.correctionHighlightColor,
+        lightBackground = MaterialTheme.colorScheme.background.luminance() > 0.5f)
 
     Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         // Keep the background edge-to-edge; only content avoids bars/cutouts.
@@ -187,7 +191,7 @@ fun CaptionScreen(
                             modifier = Modifier.fillMaxSize(),
                             update = { view ->
                                 view.onFollowingChanged = { following = it }
-                                view.render(messages, ui.settings.showOriginal, ui.settings.textSizeSp, foreground, secondary)
+                                view.render(messages, ui.settings.showOriginal, ui.settings.textSizeSp, foreground, secondary, correctionColor)
                             }
                         )
                     }
