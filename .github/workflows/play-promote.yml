@@ -17,6 +17,11 @@ on:
         description: 'Keep committed changes pending explicit Console review submission'
         type: boolean
         default: false
+      final_release_approved:
+        description: 'Final batch only: all planned features and integration/device QA approved'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,6 +44,17 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
+      - name: Require explicit final release approval for Play changes
+        if: inputs.mode == 'promote'
+        env:
+          FINAL_RELEASE_APPROVED: ${{ inputs.final_release_approved }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$FINAL_RELEASE_APPROVED" != "true" ]]; then
+            echo 'Play store changes are frozen until final integration and explicit release approval.' >&2
+            exit 1
+          fi
       - name: Require main source and completed required CI
         id: source
         env:

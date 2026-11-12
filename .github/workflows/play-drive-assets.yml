@@ -1,10 +1,6 @@
 name: Play approved store images
 
 on:
-  workflow_run:
-    workflows: ["Private Android APK"]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
@@ -13,6 +9,12 @@ on:
         options: [check, apply]
         required: true
         default: check
+      final_release_approved:
+        description: 'Final batch only: approved image/listing update'
+        required: true
+        type: boolean
+        default: false
+
 
 permissions:
   contents: read
@@ -24,11 +26,7 @@ concurrency:
 
 jobs:
   source:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == 'hebi10/LiveTranscribe-Android')
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.verify.outputs.sha }}
@@ -36,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
+          ref: main
           fetch-depth: 0
           persist-credentials: false
       - name: Require exact main source and successful Android CI
@@ -50,19 +48,20 @@ jobs:
           SOURCE_SHA: ${{ steps.ci.outputs.sha }}
           EVENT_NAME: ${{ github.event_name }}
           REQUEST_MODE: ${{ inputs.mode }}
+          FINAL_RELEASE_APPROVED: ${{ inputs.final_release_approved }}
         shell: bash
         run: |
           set -euo pipefail
           echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
-          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
-            subject="$(git show -s --format=%s "$SOURCE_SHA")"
-            if [[ "$subject" != *"[sync-play-images]"* ]]; then
-              echo "No approved image-sync marker; no Play request."
-              echo "publish=false" >> "$GITHUB_OUTPUT"
-              exit 0
+          if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
+            echo 'STORE IMAGES FROZEN: automatic Play image updates are disabled.' >&2
+            exit 1
+          fi
+          if [[ "$REQUEST_MODE" == "apply" ]]; then
+            if [[ "$FINAL_RELEASE_APPROVED" != "true" ]]; then
+              echo 'Play approved image updates are frozen until the final release.' >&2
+              exit 1
             fi
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$REQUEST_MODE" == "apply" ]]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
