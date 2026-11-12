@@ -22,7 +22,9 @@ fun overlayCaptionMessages(
         id = line.id,
         originalText = line.originalText.trim(),
         translatedText = translated,
-        isFinal = committed
+        isFinal = committed,
+        correctionRanges = line.correctionRanges,
+        correctionHighlightUntilMs = line.correctionHighlightUntilMs
     )
 }.takeLast(MAX_OVERLAY_MESSAGES)
 
