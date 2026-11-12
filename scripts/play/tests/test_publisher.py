@@ -73,6 +73,27 @@ class PublisherTests(unittest.TestCase):
             ('DELETE', '/edits/1', None)])
         self.assertFalse(server.committed)
 
+    def test_inspect_reports_only_test_track_version_and_status_without_mutation(self):
+        server = PlayServer(
+            bundles=[27], tracks=[track('internal', 27), track('alpha', 22, 'draft'),
+                                  track('production', 11)])
+        result = publisher.Publisher(server).inspect(require_binary=True)
+        self.assertEqual(result['testTrackState'], {
+            'internal': {'listed': True, 'releases': [
+                {'status': 'completed', 'versionCodes': [27]}]},
+            'alpha': {'listed': True, 'releases': [
+                {'status': 'draft', 'versionCodes': [22]}]},
+        })
+        self.assertFalse(server.committed)
+        self.assertFalse(any(method == 'PUT' or ':commit' in path
+                             for method, path, _ in server.calls))
+
+    def test_inspect_does_not_infer_missing_alpha_as_published(self):
+        server = PlayServer(bundles=[27], tracks=[track('internal', 27)])
+        result = publisher.Publisher(server).inspect(require_binary=True)
+        self.assertEqual(result['testTrackState']['alpha'], {'listed': False, 'releases': []})
+        self.assertFalse(server.committed)
+
     def test_inspect_empty_app_requires_initial_upload(self):
         result = publisher.Publisher(PlayServer()).inspect()
         self.assertEqual(result['status'], 'requires_initial_upload')

@@ -51,6 +51,8 @@ def release_mode(env, event, commit_subject):
             raise SourceError('Unsupported Play release mode')
         return mode
     subject = commit_subject.splitlines()[0] if commit_subject else ''
+    if subject == 'Release: Alpha track inspect [release-01-b-check]':
+        return 'check'
     if '[sync-play-images]' in subject or re.search(r'(?<!\S)\[(?:promote-play-alpha-22|commit-play-alpha-draft-v22|ui-gap-00-capture|ui-gap-01-design|ui-gap-02-home|ui-gap-03-setup)\](?!\S)', subject):
         return 'check'
     return 'initialize' if re.search(r'(?<!\S)\[initialize-play\](?!\S)', subject) else 'deploy'
