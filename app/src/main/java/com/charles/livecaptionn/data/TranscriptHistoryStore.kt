@@ -52,6 +52,31 @@ class TranscriptHistoryStore private constructor(
         }
     }
 
+    /** Replace only a still-existing, unchanged entry; never recreate a deleted record. */
+    suspend fun updateTranslatedTextById(id: String, originalTranslation: String, revised: String): Boolean =
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                initializeStorage()
+                val arr = readArray()
+                var changed = false
+                for (i in 0 until arr.length()) {
+                    val item = arr.getJSONObject(i)
+                    if (item.optString("id", legacyId(item)) == id &&
+                        item.optString("translatedText") == originalTranslation &&
+                        revised.isNotBlank()) {
+                        item.put("translatedText", revised)
+                        changed = true
+                        break
+                    }
+                }
+                if (changed) {
+                    atomicWrite(arr.toString())
+                    publishRevision()
+                }
+                changed
+            }
+        }
+
     suspend fun getAll(): List<TranscriptEntry> = mutex.withLock {
         withContext(Dispatchers.IO) {
             initializeStorage()
