@@ -1,9 +1,11 @@
-import csv
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
 
-import qa_real_01 as qa
+SPEC = importlib.util.spec_from_file_location("qa_real_01", Path(__file__).with_name("qa_real_01.py"))
+qa = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(qa)
 
 
 class RealDeviceEvidenceAuditTests(unittest.TestCase):
