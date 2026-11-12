@@ -23,6 +23,8 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Play: alpha v22 draft commit [commit-play-alpha-draft-v22]: accidental suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Store imagery [sync-play-images] (#37)'), 'check')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'STORE-01: actual screenshots [store-01-screenshots] (#70)'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'FEATURE-02: integrate verified polish [feature-02-qa-only] (#70)'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [feature-02-qa-only]-suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [store-01-screenshots]-suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'QA: recapture current UI [ui-gap-00-capture] (#53)'), 'check')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Docs: CAPTION FRAME v1 [ui-gap-01-design] (#54)'), 'check')
