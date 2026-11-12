@@ -36,6 +36,7 @@ data class OverlayUiState(
     val opacity: Float = 0.65f,
     val showOriginal: Boolean = true,
     val correctionColor: String = CorrectionHighlightPalette.DEFAULT_COLOR,
+    val correctionHighlightEnabled: Boolean = true,
     val minimized: Boolean = false,
     val suggestedLanguageCode: String? = null,
     /** Optional local font and theme identifiers; no subscriptions. */
