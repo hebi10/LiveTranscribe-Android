@@ -1,0 +1,157 @@
+name: Play RELEASE-01-B guarded Alpha draft
+
+on:
+  workflow_run:
+    workflows: ["Private Android APK"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-com-hebi-livetranslate
+  cancel-in-progress: false
+
+jobs:
+  source:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      approved: ${{ steps.approval.outputs.approved }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact-source main Android CI
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/play/source.py
+      - name: Require approved one-time draft reconciliation commit
+        id: approval
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          subject="$(git show -s --format=%s "$SOURCE_SHA")"
+          if [[ "$subject" != 'Release: reconcile existing Alpha draft [release-01-b-closed]' ]]; then
+            echo 'No approved RELEASE-01-B Alpha reconciliation on this commit.'
+            echo 'approved=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
+          echo 'approved=true' >> "$GITHUB_OUTPUT"
+
+  gates:
+    needs: source
+    if: needs.source.outputs.approved == 'true'
+    uses: ./.github/workflows/play-gates.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+
+  reconcile:
+    needs: [source, gates]
+    if: needs.source.outputs.approved == 'true' && needs.gates.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: google-play
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify configured Play identity
+        id: credentials
+        env:
+          PLAY_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          PLAY_SERVICE_ACCOUNT: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: python3 scripts/play/preflight.py auth
+      - name: Authenticate with Workload Identity Federation
+        id: wif
+        if: steps.credentials.outputs.auth_mode == 'wif'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Authenticate with legacy service-account JSON
+        id: json
+        if: steps.credentials.outputs.auth_mode == 'json'
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Verify current internal and Alpha track state without mutation
+        id: readiness
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+        run: |
+          python3 scripts/play/publisher.py --report output/play-release-01b-before.json inspect --require-binary
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('output/play-release-01b-before.json').read_text(encoding='utf-8'))
+          tracks = report.get('testTrackState', {})
+          internal = tracks.get('internal', {}).get('releases', [])
+          alpha = tracks.get('alpha', {}).get('releases', [])
+          if not any(r.get('status') == 'completed' and r.get('versionCodes') == [27] for r in internal):
+              raise SystemExit('Internal v27 completed release not verified; no Alpha mutation')
+          if len(alpha) != 1 or alpha[0].get('status') != 'draft' or alpha[0].get('versionCodes') not in ([22], [27]):
+              raise SystemExit('Existing Alpha is not the one approved draft version; no mutation')
+          print('Verified single Alpha draft; exact internal v27 ready')
+          PY
+      - name: Reject superseded main source before Play edit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
+      - name: Reconcile only old Alpha v22 draft to existing internal v27 draft
+        env:
+          PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+        run: |
+          python3 scripts/play/publisher.py --report output/play-release-01b-alpha.json reconcile-alpha-draft --version-code 27 --existing-code 22
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          result = json.loads(Path('output/play-release-01b-alpha.json').read_text(encoding='utf-8'))
+          if result.get('track') != 'alpha' or result.get('versionCode') != 27 or result.get('releaseStatus') != 'draft':
+              raise SystemExit('Alpha v27 draft readback missing; no release success')
+          if result.get('status') not in ('alpha_draft_reconciled_and_verified', 'alpha_draft_already_present'):
+              raise SystemExit('Unexpected draft result')
+          print('Existing verified internal v27 is saved as Alpha DRAFT only. Google Play Console first publication/review and tester installability still require confirmation.')
+          PY
+      - name: Preserve non-secret release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-translate-release-01b-${{ github.run_id }}
+          path: output/play-release-01b-*.json
+          if-no-files-found: ignore
+          retention-days: 30
