@@ -8,7 +8,7 @@
 - `.github/workflows/play-internal.yml`: Android `Private Android APK` 완료 이벤트에서 자동 실행되는 Play 내부 테스트 출시 경로 제거. 수동 `workflow_dispatch`에서만 시작합니다.
 - 수동 `mode=deploy` 또는 `mode=initialize`는 새 `final_release_approved=true` 확인을 요구합니다. 기본값은 `false`이며 미승인 시 서명·업로드 전에 실패합니다.
 - `.github/workflows/play-drive-assets.yml`: 자동 이미지 교체 `workflow_run` 트리거 제거, 수동 `check/apply`만 유지하고 `apply`에는 최종 승인 입력을 요구합니다.
-- 이전 회차의 Alpha 승인·초안·정산·UI-GAP-closed 네 워크플로는 시작 잡을 `if: false`로 고정해 자동 Play 편집/승격을 실행할 수 없습니다.
+- 이전 회차의 Alpha 승인·초안·정산·UI-GAP-closed 네 워크플로는 시작 잡에 `github.event_name == 'workflow_dispatch'`를 요구하지만 실제 해당 워크플로는 자동 `push`/`workflow_run` 트리거만 등록되어 있습니다. 따라서 자동 실행에서 어떠한 Play 편집·승격도 진행할 수 없습니다.
 - 기존 `play-promote.yml`, `play-listing.yml`, `play-store-01.yml`은 수동 실행 전용이며, `promote`/`apply` 실행에도 `final_release_approved=true`를 요구합니다. `play-drive-assets.yml`의 `apply`도 같은 승인이 필요합니다. 개발 중에는 **적용·승격 모드 실행 금지**.
 - `.github/workflows/build.yml`의 일반 Android 빌드·계측·캡처는 계속 수행하며 Play 트랙·버전 코드는 변경하지 않습니다.
 
