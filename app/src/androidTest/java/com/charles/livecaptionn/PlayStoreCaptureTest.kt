@@ -70,28 +70,28 @@ class PlayStoreCaptureTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("모델 다운로드 (약 2.1GB)").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("최초 1회 약 2.1GB를 다운로드합니다. 모바일 데이터 요금이 발생할 수 있습니다.")
+        compose.onNodeWithText("처음 사용할 때 약 2.1GB를 다운로드합니다. Wi-Fi와 충분한 저장 공간을 확인해 주세요. 모바일 데이터 사용 시 요금이 발생할 수 있습니다.")
             .assertExists()
         capture(directory, "02-model-preparation.png")
 
-        compose.onNodeWithText("모든 모드는 같은 모델을 사용하므로 추가 다운로드가 없습니다.")
+        compose.onNodeWithText("번역 결과: 한국어")
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("자동 감지").assertIsDisplayed()
         compose.onNodeWithText("일본어").assertIsDisplayed()
         compose.onNodeWithText("영어").assertIsDisplayed()
         capture(directory, "03-language-settings.png")
 
-        compose.onNodeWithText("자막 및 앱 설정 펼치기").performScrollTo().performClick()
+        compose.onNodeWithText("세부 설정 열기").performScrollTo().performClick()
         compose.onNodeWithText("개인정보처리방침 (외부 브라우저)").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("번역 기록 저장").assertIsOff()
         capture(directory, "04-privacy-settings.png")
 
         compose.onNodeWithContentDescription("번역 기록").performClick()
         compose.waitUntil(timeoutMillis = 10_000) {
-            compose.onAllNodesWithText("아직 저장된 기록이 없습니다.")
+            compose.onAllNodesWithText("아직 저장된 번역 기록이 없습니다.", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onNodeWithText("아직 저장된 기록이 없습니다.").assertIsDisplayed()
+        compose.onNodeWithText("아직 저장된 번역 기록이 없습니다.", substring = true).assertIsDisplayed()
         capture(directory, "05-history-empty.png")
 
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
