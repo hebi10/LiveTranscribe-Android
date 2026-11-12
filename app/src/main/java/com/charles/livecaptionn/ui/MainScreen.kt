@@ -80,6 +80,7 @@ fun MainScreen(
     onStop: () -> Unit,
     onHistory: () -> Unit,
     onOpenCaptions: () -> Unit,
+    onOpenCaptionTools: () -> Unit,
     onCancelModelPreparation: () -> Unit,
     startPending: Boolean = false,
     audioPermissionSettingsRequired: Boolean = false,
@@ -345,6 +346,18 @@ fun MainScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onOpenCaptionTools,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = RectangleShape
+                ) { Text("사용자 용어집 · 자막 프리셋") }
+                Text("번역 용어를 바꾸거나 자막 글자 크기·언어 설정을 저장할 수 있습니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
