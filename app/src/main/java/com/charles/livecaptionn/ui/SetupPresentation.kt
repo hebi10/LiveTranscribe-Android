@@ -5,7 +5,9 @@ import com.charles.livecaptionn.translation.ModelSetupStage
 internal fun MainSetupState.modelStatusLabel(): String = when (modelStage) {
     ModelSetupStage.READY -> "준비 완료"
     ModelSetupStage.CHECKING -> "다운로드한 파일 확인 중"
-    ModelSetupStage.DOWNLOADING -> "다운로드 진행 중"
+    ModelSetupStage.DOWNLOADING ->
+        if ((downloadProgress ?: 0f) >= 1f) "전송 완료 · 모델 파일 확인 중"
+        else "모델 다운로드 중"
     ModelSetupStage.ERROR -> "모델 준비 오류 · 복구 필요"
     ModelSetupStage.NOT_DOWNLOADED, null ->
         if (canResumeModelPreparation) "이어받기 가능" else "다운로드 필요 · 약 2.1GB"
@@ -58,7 +60,9 @@ internal fun MainSetupState.modelStageGuidance(): String? = when (modelStage) {
     ModelSetupStage.CHECKING ->
         "다운로드한 파일을 검증하고 있습니다. 완료되기 전에는 번역을 시작할 수 없습니다."
     ModelSetupStage.DOWNLOADING ->
-        "다운로드 중에는 앱을 열어 두세요. 중단하면 나중에 이어받을 수 있습니다."
+        if ((downloadProgress ?: 0f) >= 1f)
+            "다운로드된 파일을 확인하고 있습니다. 파일 검증이 끝나야 번역을 시작할 수 있습니다."
+        else "다운로드 중에는 앱을 열어 두세요. 중단해도 남은 파일부터 이어받을 수 있습니다."
     ModelSetupStage.READY ->
         "자동 감지·일본어·영어는 검증된 같은 모델을 사용합니다."
     ModelSetupStage.NOT_DOWNLOADED, ModelSetupStage.ERROR, null -> null
@@ -71,5 +75,5 @@ internal fun MainSetupState.modelPreparationGuidance(): String = when {
         "연결·저장 공간을 확인한 뒤 다시 시도해 주세요."
     canResumeModelPreparation ->
         "이전 다운로드에서 이어받습니다. 네트워크 연결을 확인해 주세요."
-    else -> "최초 1회 약 2.1GB를 다운로드합니다. 모바일 데이터 요금이 발생할 수 있습니다."
+    else -> "처음 사용할 때 약 2.1GB를 다운로드합니다. Wi-Fi와 충분한 저장 공간을 확인해 주세요. 모바일 데이터 사용 시 요금이 발생할 수 있습니다."
 }

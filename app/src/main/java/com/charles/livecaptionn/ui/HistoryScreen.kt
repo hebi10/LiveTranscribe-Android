@@ -174,7 +174,7 @@ fun HistoryScreen(
                         }, enabled = !history.busy) {
                             Icon(Icons.Outlined.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(t["Clear"])
+                            Text("전체 삭제")
                         }
                     }
                 },
@@ -226,12 +226,12 @@ fun HistoryScreen(
                             )
                         }
                         Text(
-                            "기기 내 저장 · 최대 ${historyLimit}개 · 기본 꺼짐",
+                            "기기에만 저장 · 최대 ${historyLimit}개 · 기본값은 꺼짐",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            "저장을 꺼도 기존 기록은 유지됩니다. 삭제는 아래 기록에서 별도로 관리합니다.",
+                            "저장 기능을 꺼도 이전 기록은 남습니다. 기록을 지우려면 항목별 삭제 또는 전체 삭제를 선택하세요.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -240,13 +240,16 @@ fun HistoryScreen(
             }
             history.error?.let { message ->
                 item(key = "history-error") {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text(message, color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                        TextButton(onClick = { scope.launch { controller.retry() } }, enabled = !history.busy) {
-                            Text("다시 시도")
-                        }
-                    }
+                    AppStatusMessage(
+                        message = if (entries.isNotEmpty())
+                            "$message 마지막으로 확인한 기록 목록은 유지했습니다."
+                        else message,
+                        isError = true,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        actionLabel = "다시 시도",
+                        onAction = { scope.launch { controller.retry() } },
+                        actionEnabled = !history.busy
+                    )
                 }
             }
             if (entries.isNotEmpty() || searchQuery.isNotBlank()) {
@@ -257,7 +260,8 @@ fun HistoryScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
-                        placeholder = { Text(t["Search transcripts…"]) },
+                        label = { Text("원문·번역문 검색") },
+                        placeholder = { Text("검색어 입력") },
                         leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) {
@@ -297,26 +301,22 @@ fun HistoryScreen(
                 }
             } else if (filteredEntries.isEmpty()) {
                 item(key = "history-empty") {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            if (entries.isNotEmpty() && searchQuery.isNotBlank()) t["No matching transcripts"]
-                            else t["No transcripts yet"],
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    val noMatches = entries.isNotEmpty() && searchQuery.isNotBlank()
+                    if (noMatches) {
+                        AppStatusMessage(
+                            message = "검색 결과가 없습니다. 다른 검색어를 입력하거나 검색을 초기화해 주세요.",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                            actionLabel = "검색 초기화",
+                            onAction = { searchQuery = "" }
                         )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            if (entries.isNotEmpty() && searchQuery.isNotBlank()) t["Try a different search term."]
-                            else when (saveHistory) {
-                                true -> "이후 확정된 번역이 여기에 저장됩니다."
-                                false -> "위의 기록 저장을 켜면 이후 번역이 여기에 저장됩니다."
-                                null -> "기록 저장 설정을 확인하고 있습니다."
+                    } else {
+                        AppStatusMessage(
+                            message = when (saveHistory) {
+                                true -> "아직 저장된 번역 기록이 없습니다. 이후 확정된 번역이 저장됩니다."
+                                false -> "아직 저장된 번역 기록이 없습니다. 위의 기록 저장을 켜면 이후 번역이 저장됩니다."
+                                null -> "번역 기록 저장 설정을 확인하는 중입니다."
                             },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
                         )
                     }
                 }

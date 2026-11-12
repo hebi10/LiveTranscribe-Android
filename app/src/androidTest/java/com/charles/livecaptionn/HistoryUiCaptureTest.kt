@@ -79,7 +79,7 @@ class HistoryUiCaptureTest {
         capture(output, "qa-10-history-list-light.png")
 
         compose.onNode(hasSetTextAction()).performTextInput("없는검색결과")
-        compose.onNodeWithText("검색 결과가 없습니다.").assertIsDisplayed()
+        compose.onNodeWithText("검색 결과가 없습니다.", substring = true).assertIsDisplayed()
         capture(output, "qa-11-history-no-results.png")
 
         compose.onNodeWithContentDescription("검색어 지우기").performClick()

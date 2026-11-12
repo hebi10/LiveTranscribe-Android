@@ -65,6 +65,7 @@ class OverlayController(
     private var statusText: TextView? = null
     private var statusDetail: TextView? = null
     private var statusInformation: TextView? = null
+    private var gestureHint: TextView? = null
     private var controls: LinearLayout? = null
     private var originalContainer: LinearLayout? = null
     private var originalText: TextView? = null
@@ -166,7 +167,7 @@ class OverlayController(
             setSingleLine(true)
             ellipsize = TextUtils.TruncateAt.END
             layoutParams = LinearLayout.LayoutParams(0, dp(OverlayChromeMetrics.TOUCH_DP), 1f)
-            tooltipText = uiStrings()["Move caption window"]
+            tooltipText = "이 영역을 끌어 자막 창 이동"
             isFocusable = true
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
             setOnTouchListener(DragTouchListener())
@@ -217,8 +218,8 @@ class OverlayController(
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(-1, dp(OverlayChromeMetrics.TOUCH_DP))
             visibility = View.GONE
-            addView(makeCompactControl(minimizedCloseButton!!, "닫기"))
             addView(makeCompactControl(minimizedRestoreButton!!, "펼치기"))
+            addView(makeCompactControl(minimizedCloseButton!!, "종료"))
         }
 
         controls = LinearLayout(context).apply {
@@ -244,7 +245,8 @@ class OverlayController(
         }
         minButton = makeButton(R.drawable.ic_overlay_minimize, "Minimize overlay", onToggleMinimize)
         closeButton = makeButton(R.drawable.ic_overlay_close, "번역 종료", onClose)
-        listOf(modeButton to "최근 자막", sourceButton to "원문 보기", minButton to "최소화", closeButton to "번역 종료")
+        listOf(minButton to "최소화", closeButton to "번역 종료",
+            modeButton to "최근 자막", sourceButton to "원문 꺼짐")
             .forEach { (button, label) ->
                 button?.let { controlStrip.addView(makeLabeledControl(it, label)) }
             }
@@ -253,6 +255,14 @@ class OverlayController(
             addView(controlStrip)
             layoutParams = LinearLayout.LayoutParams(-1, -2)
         })
+        gestureHint = TextView(context).apply {
+            text = "상단 상태를 끌어 이동 · 오른쪽 아래에서 크기 조절"
+            textSize = 11f
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, dp(2), 0, dp(4))
+        }
+        controls?.addView(gestureHint)
         statusDetail = TextView(context).apply {
             textSize = 12f
             // Present only for an actionable hint/error, with bounded height while visible.
@@ -407,6 +417,10 @@ class OverlayController(
             visibility = if (information.isNotBlank()) View.VISIBLE else View.GONE
             contentDescription = information
         }
+        gestureHint?.apply {
+            setTextColor(withAlpha(theme.textRgb, 210))
+            setTypefaceIfChanged(this, font.typeface)
+        }
         for (button in listOf(pauseButton, closeButton, minimizedCloseButton)) {
             button?.isEnabled = chrome.stopEnabled
             button?.alpha = if (chrome.stopEnabled) 1f else 0.4f
@@ -433,7 +447,7 @@ class OverlayController(
         sourceButton?.isSelected = ui.showOriginal
         setButton(sourceButton, R.drawable.ic_overlay_source, if (ui.showOriginal) "Hide original text" else "Show original text")
         setControlLabel(modeButton, if (ui.displayMode == CaptionDisplayMode.CHAT) "자막 목록" else "최근 자막")
-        setControlLabel(sourceButton, if (ui.showOriginal) "원문 숨김" else "원문 보기")
+        setControlLabel(sourceButton, if (ui.showOriginal) "원문 켜짐" else "원문 꺼짐")
         for (button in buttons) applyButtonStyle(button, theme.textRgb, button.isSelected || button === resizeHandle)
         for ((button, label) in controlLabels) {
             label.setTextColor(theme.textRgb)
@@ -675,6 +689,7 @@ class OverlayController(
         statusText = null
         statusDetail = null
         statusInformation = null
+        gestureHint = null
         controls = null
         originalContainer = null
         originalText = null
@@ -736,6 +751,8 @@ class OverlayController(
         statusText?.textSize = 13f
         (listOfNotNull(statusDetail, statusInformation, suggestionLabel) + suggestionChoices)
             .forEach { it.textSize = 12f }
+        gestureHint?.textSize = 11f
+        gestureHint?.setPadding(0, dp(2), 0, dp(4))
         statusDetail?.setPadding(0, dp(2), 0, dp(4))
         suggestionChoices.forEach {
             it.minHeight = dp(OverlayChromeMetrics.TOUCH_DP)

@@ -48,7 +48,7 @@ class ResponsiveUiCaptureTest {
         val settings = "qa-21-${variant}-settings.png"
         capture(output, home, expected)
 
-        compose.onNodeWithText("자막 및 앱 설정 펼치기").performScrollTo().performClick()
+        compose.onNodeWithText("세부 설정 열기").performScrollTo().performClick()
         compose.onNodeWithText("개인정보처리방침 (외부 브라우저)").performScrollTo().assertIsDisplayed()
         capture(output, settings, expected)
 

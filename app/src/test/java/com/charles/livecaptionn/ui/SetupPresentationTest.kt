@@ -15,7 +15,7 @@ class SetupPresentationTest {
         assertEquals("다운로드한 파일 확인 중", checking.modelStatusLabel())
         assertNull(checking.modelActionLabel())
         val downloading = first.copy(modelStage = ModelSetupStage.DOWNLOADING)
-        assertEquals("다운로드 진행 중", downloading.modelStatusLabel())
+        assertEquals("모델 다운로드 중", downloading.modelStatusLabel())
         assertNull(downloading.modelActionLabel())
     }
 
@@ -39,7 +39,7 @@ class SetupPresentationTest {
         val downloading = MainSetupState(modelStage = ModelSetupStage.DOWNLOADING,
             downloadedBytes = 100, totalBytes = 100)
         assertEquals("100 / 100 B · 100%", downloading.modelProgressSummary())
-        assertEquals("다운로드 진행 중", downloading.modelStatusLabel())
+        assertEquals("전송 완료 · 모델 파일 확인 중", downloading.modelStatusLabel())
         val ready = downloading.copy(modelStage = ModelSetupStage.READY)
         assertEquals("준비 완료", ready.modelStatusLabel())
         assertNull(ready.modelActionLabel())
@@ -89,8 +89,8 @@ class SetupPresentationTest {
         assertNull(base.modelActionLabel())
         val downloading = base.copy(modelStage = ModelSetupStage.DOWNLOADING,
             downloadedBytes = 100, totalBytes = 100)
-        assertTrue(downloading.modelStageGuidance()!!.contains("이어받"))
-        assertEquals("다운로드 진행 중", downloading.modelStatusLabel())
+        assertTrue(downloading.modelStageGuidance()!!.contains("검증"))
+        assertEquals("전송 완료 · 모델 파일 확인 중", downloading.modelStatusLabel())
         assertNull(downloading.modelActionLabel())
         assertTrue(downloading.copy(modelStage = ModelSetupStage.READY)
             .modelStageGuidance()!!.contains("검증된"))

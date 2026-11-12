@@ -44,6 +44,7 @@ import com.charles.livecaptionn.ui.audioPermissionAction
 import com.charles.livecaptionn.ui.CaptionStartGate
 import com.charles.livecaptionn.ui.HistoryScreen
 import com.charles.livecaptionn.ui.CaptionScreen
+import com.charles.livecaptionn.ui.CaptionToolsScreen
 import com.charles.livecaptionn.ui.SplitAppChoice
 import com.charles.livecaptionn.ui.SplitAppPicker
 import com.charles.livecaptionn.ui.SplitScreenHelp
@@ -63,6 +64,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     private var showHistory by mutableStateOf(false)
     private var showCaptions by mutableStateOf(false)
+    private var showCaptionTools by mutableStateOf(false)
     private var showAppPicker by mutableStateOf(false)
     private var loadingApps by mutableStateOf(false)
     private var appChoices by mutableStateOf<List<SplitAppChoice>>(emptyList())
@@ -113,6 +115,7 @@ class MainActivity : ComponentActivity() {
         refreshAudioPermissionAction()
         showHistory = savedInstanceState?.getBoolean("show_history") ?: false
         showCaptions = savedInstanceState?.getBoolean("show_captions") ?: false
+        showCaptionTools = savedInstanceState?.getBoolean("show_caption_tools") ?: false
         companionLaunchPending = savedInstanceState?.getBoolean("companion_launch_pending") ?: false
         startGate = CaptionStartGate(savedInstanceState?.getString("start_stage"))
         consumeOpenMainIntent(intent)
@@ -145,10 +148,26 @@ class MainActivity : ComponentActivity() {
                 CaptionFrameTheme(darkTheme = useDarkTheme) {
                     Surface(color = MaterialTheme.colorScheme.background) {
                         Column(Modifier.fillMaxSize().navigationBarsPadding()) {
-                            BackHandler(enabled = showHistory || showCaptions) {
-                                if (showHistory) showHistory = false else showCaptions = false
+                            BackHandler(enabled = showHistory || showCaptions || showCaptionTools) {
+                                when {
+                                    showCaptionTools -> showCaptionTools = false
+                                    showHistory -> showHistory = false
+                                    else -> showCaptions = false
+                                }
                             }
-                            if (showCaptions && !showHistory) {
+                            if (showCaptionTools) {
+                                CaptionToolsScreen(
+                                    glossaryRepository = app.container.glossary,
+                                    profileRepository = app.container.captionProfiles,
+                                    currentSettings = ui.settings,
+                                    canChangeSettings = !startPending && !ui.runtime.running && !ui.runtime.stopping,
+                                    onApplyProfile = { profile ->
+                                        if (startGate.busy) false else vm.applyCaptionProfile(profile)
+                                    },
+                                    onBack = { showCaptionTools = false },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            } else if (showCaptions && !showHistory) {
                                 captionStateHolder.SaveableStateProvider("captions") {
                                 CaptionScreen(
                                     ui = ui,
@@ -185,6 +204,11 @@ class MainActivity : ComponentActivity() {
                                     onStop = { stopCaptionService() },
                                     onHistory = { showHistory = true },
                                     onOpenCaptions = { showHistory = false; showCaptions = true },
+                                    onOpenCaptionTools = {
+                                        showHistory = false
+                                        showCaptions = false
+                                        showCaptionTools = true
+                                    },
                                     onCancelModelPreparation = vm::cancelModelPreparation,
                                     startPending = startPending,
                                     audioPermissionSettingsRequired = audioPermissionSettingsRequired,
@@ -221,11 +245,13 @@ class MainActivity : ComponentActivity() {
             intent.removeExtra(EXTRA_OPEN_CAPTIONS)
             showCaptions = true
             showHistory = false
+            showCaptionTools = false
         }
         if (intent?.getBooleanExtra(EXTRA_OPEN_MAIN, false) != true) return
         intent.removeExtra(EXTRA_OPEN_MAIN)
         showHistory = false
         showCaptions = false
+        showCaptionTools = false
         // Cancel the existing gate, retaining canceled pending permission results until delivered.
         startGate.cancel()
         syncStartPending()
@@ -234,6 +260,7 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("show_history", showHistory)
         outState.putBoolean("show_captions", showCaptions)
+        outState.putBoolean("show_caption_tools", showCaptionTools)
         outState.putBoolean("companion_launch_pending", companionLaunchPending)
         outState.putString("start_stage", startGate.savedStage)
         outState.putBoolean("audio_permission_requested", completedAudioPermissionRequest)

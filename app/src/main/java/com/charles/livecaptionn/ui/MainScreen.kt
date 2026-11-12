@@ -80,6 +80,7 @@ fun MainScreen(
     onStop: () -> Unit,
     onHistory: () -> Unit,
     onOpenCaptions: () -> Unit,
+    onOpenCaptionTools: () -> Unit,
     onCancelModelPreparation: () -> Unit,
     startPending: Boolean = false,
     audioPermissionSettingsRequired: Boolean = false,
@@ -92,6 +93,9 @@ fun MainScreen(
     val languageLabel = if (ui.settings.sourceLanguageCode == RecognitionLanguages.AUTO)
         "언어 자동 감지" else "${RecognitionLanguages.koreanLabel(ui.settings.sourceLanguageCode)} 고정"
     val inputLabel = if (ui.settings.audioSource == AudioSource.SYSTEM) "동영상 음성" else "마이크"
+    val placementLabel = if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN)
+        "분할 화면" else "팝업"
+    val selectionLabel = "$placementLabel · $inputLabel · $languageLabel → 한국어"
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -186,12 +190,23 @@ fun MainScreen(
                 ) {
                     if (!setup.isVisible) {
                         Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
-                        Text("$languageLabel → 한국어 · $inputLabel", fontWeight = FontWeight.Medium)
+                        Text(selectionLabel, fontWeight = FontWeight.Medium)
                         Text(statusLabel, style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Text("선택한 번역 방식", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(selectionLabel, style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium)
+                        if (setup.modelStage == ModelSetupStage.NOT_DOWNLOADED &&
+                            setup.downloadedBytes == 0L) {
+                            Text("첫 사용 시 음성·번역 모델 약 2.1GB를 내려받아야 합니다. 준비 후에는 인터넷 없이 번역할 수 있습니다.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     ui.runtime.lastError?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error)
+                        AppStatusMessage(message = it, isError = true)
                     }
                     ui.runtime.captureHint?.takeIf {
                         ui.runtime.lastError.isNullOrBlank() && !ui.runtime.stopping &&
@@ -211,9 +226,6 @@ fun MainScreen(
                             onPrepareModels = viewModel::prepareSelectedTranslationModel,
                             onCancelModelPreparation = onCancelModelPreparation
                         )
-                        Text("$languageLabel → 한국어 · $inputLabel",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -248,8 +260,8 @@ fun MainScreen(
                     }
                 }
                 Text(if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN)
-                    "영상과 화면을 나눠 자막을 봅니다. 화면 비율은 Android 구분선으로 조절합니다."
-                    else "영상 위에 자막창을 띄웁니다. 위치와 크기를 조절할 수 있습니다.",
+                    "영상 옆에 자막을 표시합니다. 화면 비율은 Android 구분선으로 조절합니다."
+                    else "영상 위에 자막창을 표시하며 위치·크기를 조절할 수 있습니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (sessionBusy) Text("화면 배치는 번역 종료 후 변경할 수 있습니다.",
@@ -296,8 +308,8 @@ fun MainScreen(
                     ) { Text("마이크") }
                 }
                 Text(if (ui.settings.audioSource == AudioSource.SYSTEM)
-                    "캡처를 허용하는 동영상 앱의 소리만 인식합니다."
-                    else "마이크로 들리는 주변 음성을 번역합니다.",
+                    "앱에서 캡처를 허용한 동영상 소리만 인식합니다."
+                    else "마이크로 들어오는 주변 음성을 번역합니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -329,24 +341,41 @@ fun MainScreen(
                 Text("번역 결과: 한국어", fontWeight = FontWeight.Medium)
                 Text(
                     if (ui.settings.sourceLanguageCode == RecognitionLanguages.AUTO)
-                        "구간마다 언어를 감지합니다. 짧은 발화나 혼합 음성은 감지가 어려울 수 있습니다."
-                    else "선택한 언어로 고정해 인식합니다. 여러 언어는 자동 감지를 선택하세요.",
+                        "음성을 구간별로 감지합니다. 짧거나 여러 언어가 섞인 발화는 정확하지 않을 수 있습니다."
+                    else "선택한 언어로 인식합니다. 여러 언어가 섞이면 자동 감지를 선택하세요.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text("모든 모드는 같은 모델을 사용하므로 추가 다운로드가 없습니다.",
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onOpenCaptionTools,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = RectangleShape
+                ) { Text("사용자 용어집 · 자막 프리셋") }
+                Text("번역 용어를 바꾸거나 자막 글자 크기·언어 설정을 저장할 수 있습니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            TextButton(
-                onClick = { showAdvancedSettings = !showAdvancedSettings },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-            ) {
-                Text(if (showAdvancedSettings) "자막 및 앱 설정 접기" else "자막 및 앱 설정 펼치기")
-                Icon(if (showAdvancedSettings) Icons.Outlined.ExpandLess
-                    else Icons.Outlined.ExpandMore, contentDescription = null)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("자막 및 앱 설정", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "자막 크기 · 원문 표시 · 팝업 · 화면 테마 · 기록 저장",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TextButton(
+                    onClick = { showAdvancedSettings = !showAdvancedSettings },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text(if (showAdvancedSettings) "설정 접기" else "세부 설정 열기")
+                    Icon(if (showAdvancedSettings) Icons.Outlined.ExpandLess
+                        else Icons.Outlined.ExpandMore, contentDescription = null)
+                }
             }
 
             if (showAdvancedSettings) {
@@ -376,9 +405,7 @@ fun MainScreen(
                         else "최근 2개 자막 구간을 표시합니다. 창 너비에 따라 줄바꿈됩니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("말이 이어져도 확인된 문장부터 번역합니다. " +
-                        "문장 끝을 판단하기 어려우면 무음 또는 최대 8초 경계에서 처리합니다. " +
-                        "인식이나 번역이 밀리면 일부 대기 구간을 생략하고 안내합니다.",
+                    Text("확정된 문장부터 자막을 표시합니다. 인식이 지연되면 일부 음성 구간이 생략될 수 있습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("글자 크기: " + ui.settings.textSizeSp.toInt() + "sp")
@@ -387,12 +414,19 @@ fun MainScreen(
                     SettingToggle("원문도 함께 표시", ui.settings.showOriginal,
                         viewModel::updateShowOriginal)
                     if (ui.settings.captionPlacement == CaptionPlacement.POPUP) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text("팝업 자막창", style = MaterialTheme.typography.titleMedium)
+                        Text("팝업의 투명도를 조절하거나 저장된 위치와 크기를 초기화합니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("팝업 불투명도: " + (ui.settings.overlayOpacity * 100).toInt() + "%")
                         Slider(value = ui.settings.overlayOpacity, onValueChange = viewModel::updateOpacity,
                             valueRange = 0.2f..1f)
-                        OutlinedButton(shape = RectangleShape, onClick = viewModel::resetOverlayPosition) {
-                            Text("팝업 위치·크기 초기화")
-                        }
+                        OutlinedButton(
+                            shape = RectangleShape,
+                            onClick = viewModel::resetOverlayPosition,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) { Text("팝업 위치·크기 초기화") }
                     }
                 }
 
@@ -429,10 +463,15 @@ fun MainScreen(
                     Text("기록 및 개인정보", style = MaterialTheme.typography.titleMedium)
                     SettingToggle("번역 기록 저장", ui.settings.saveHistory,
                         viewModel::updateSaveHistory)
-                    Text("기록 저장은 기본적으로 꺼져 있습니다. 저장을 꺼도 이전 기록은 유지되며, 기록 화면에서 개별·전체 삭제할 수 있습니다.",
+                    Text("기록 저장 기본값은 꺼짐입니다. 저장을 꺼도 기존 기록은 남으며 기록 화면에서 삭제할 수 있습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("음성 인식과 번역은 기기 안에서 처리합니다. Android 백업 및 광고·분석·오류 수집 SDK는 사용하지 않습니다.",
+                    OutlinedButton(
+                        onClick = onHistory,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        shape = RectangleShape
+                    ) { Text("저장된 번역 기록 관리") }
+                    Text("음성 인식과 번역은 기기 안에서 처리합니다. 광고·분석·오류 수집 SDK 및 Android 백업을 사용하지 않습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = {
@@ -468,12 +507,12 @@ private fun StartSetupGuidance(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        LinearProgressIndicator(
+        if (!setup.isComplete) LinearProgressIndicator(
             progress = { setup.completedSteps.toFloat() / setup.totalSteps },
             modifier = Modifier.fillMaxWidth()
         )
         if (setup.isComplete) {
-            Text("권한과 음성·번역 모델 준비가 완료되었습니다.",
+            Text("필수 권한과 모델 준비가 완료되었습니다. 아래에서 번역을 시작할 수 있습니다.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(
@@ -485,7 +524,7 @@ private fun StartSetupGuidance(
                     contentDescription = null)
             }
         } else {
-            Text("${setup.remainingSteps}개 항목 남음",
+            Text("${setup.remainingSteps}개 항목 남음 · 다음 준비 항목부터 진행하세요.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

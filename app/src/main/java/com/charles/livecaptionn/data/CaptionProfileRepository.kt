@@ -31,7 +31,15 @@ class FileCaptionProfileRepository private constructor(private val file: File) :
         val profiles = read().map(::fromJson); val next = profiles.filterNot { it.id == id }
         if (next.size == profiles.size) false else { file.writeText(JSONArray(next.map(::toJson)).toString()); true }
     }
-    private fun read() = try { if (file.exists()) { val a = JSONArray(file.readText()); (0 until a.length()).map(a::getJSONObject) } else emptyList() } catch (_: Throwable) { emptyList() }
+    private fun read(): List<JSONObject> {
+        if (!file.exists()) return emptyList()
+        return try {
+            val array = JSONArray(file.readText(Charsets.UTF_8))
+            (0 until array.length()).map(array::getJSONObject)
+        } catch (error: Exception) {
+            throw java.io.IOException("Saved caption tool data could not be read", error)
+        }
+    }
     private fun toJson(p: CaptionProfile) = JSONObject().put("id", p.id).put("name", p.name).put("source", p.sourceLanguage).put("target", p.targetLanguage).put("size", p.textSizeSp).put("original", p.showOriginal).put("pro", p.proOnly)
     private fun fromJson(o: JSONObject) = CaptionProfile(o.optString("id", newTranscriptId()), o.optString("name"), o.optString("source"), o.optString("target"), o.optDouble("size", 20.0).toFloat(), o.optBoolean("original", true), o.optBoolean("pro", false))
 }

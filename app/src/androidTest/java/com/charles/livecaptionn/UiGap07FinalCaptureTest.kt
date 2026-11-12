@@ -48,7 +48,7 @@ class UiGap07FinalCaptureTest {
         "fold-expanded-dark" to Variant(1768, 2208, 360, 1f, true)
     )
 
-    @Test fun verifyAndCaptureHomeSettingsHistoryAndCaptionPreview() {
+    @Test fun verifyAndCaptureHomeSettingsHistoryToolsAndCaptionPreview() {
         val arguments = InstrumentationRegistry.getArguments()
         val name = requireNotNull(arguments.getString("qaVariant"))
         val expected = requireNotNull(variants[name]) { "Unexpected UI-GAP-07 variant: $name" }
@@ -77,25 +77,33 @@ class UiGap07FinalCaptureTest {
         compose.onNodeWithText("실시간 영상 번역").assertIsDisplayed()
 
         // App theme defaults to DARK; toggling Android night mode alone is not a UI theme test.
-        compose.onNodeWithText("자막 및 앱 설정 펼치기").performScrollTo().performClick()
+        compose.onNodeWithText("세부 설정 열기").performScrollTo().performClick()
         val appThemeLabel = if (expected.dark) "다크" else "라이트"
         compose.onNodeWithText(appThemeLabel).performScrollTo().performClick()
         compose.waitUntil(timeoutMillis = 15_000) {
             runCatching { compose.onNodeWithText(appThemeLabel).assertIsSelected() }.isSuccess
         }
         compose.onNodeWithText(appThemeLabel).assertIsSelected()
-        compose.onNodeWithText("자막 및 앱 설정 접기").performScrollTo().performClick()
+        compose.onNodeWithText("설정 접기").performScrollTo().performClick()
         take("home")
 
-        compose.onNodeWithText("자막 및 앱 설정 펼치기").performScrollTo().performClick()
+        compose.onNodeWithText("세부 설정 열기").performScrollTo().performClick()
         compose.onNodeWithText("개인정보처리방침 (외부 브라우저)")
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText(appThemeLabel).performScrollTo().assertIsSelected()
         take("settings")
 
         compose.onNodeWithContentDescription("번역 기록").performClick()
-        compose.onNodeWithText("아직 저장된 기록이 없습니다.").assertIsDisplayed()
+        compose.onNodeWithText("아직 저장된 번역 기록이 없습니다.", substring = true).assertIsDisplayed()
         take("history")
+
+        compose.activityRule.scenario.onActivity {
+            it.onBackPressedDispatcher.onBackPressed()
+        }
+        compose.onNodeWithText("사용자 용어집 · 자막 프리셋").performScrollTo().performClick()
+        compose.onNodeWithText("용어집·자막 프리셋").assertIsDisplayed()
+        compose.onNodeWithText("용어 추가").performScrollTo().assertIsDisplayed()
+        take("caption-tools")
 
         compose.activityRule.scenario.onActivity {
             it.onBackPressedDispatcher.onBackPressed()
