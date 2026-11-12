@@ -36,9 +36,12 @@ class ReleaseFreezeTests(unittest.TestCase):
             "play-ui-gap-closed.yml",
         ):
             text = workflow(name)
+            event_config = text.split("\npermissions:", 1)[0]
+            self.assertNotIn("  workflow_dispatch:", event_config, name)
+            self.assertTrue("  workflow_run:" in event_config or "  push:" in event_config, name)
             jobs = text.split("\njobs:\n", 1)[1]
             before_next_job = jobs.split("\n    runs-on:", 1)[0]
-            self.assertIn("if: ${{ false }}", before_next_job, name)
+            self.assertIn("if: github.event_name == 'workflow_dispatch'", before_next_job, name)
 
     def test_all_manual_play_mutations_have_final_approval_guard(self):
         for name, mode in (
