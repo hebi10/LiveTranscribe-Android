@@ -9,6 +9,7 @@ on:
       - app/src/androidTest/**/UiGap07FinalCaptureTest.kt
       - app/src/androidTest/**/CaptionToolsUiTest.kt
       - app/src/androidTest/**/HistoryUiCaptureTest.kt
+      - app/src/androidTest/**/CaptionCorrectionSpansTest.kt
       - scripts/qa/ui_gap_07.py
       - app/src/main/java/com/charles/livecaptionn/ui/**
       - app/src/main/java/com/charles/livecaptionn/MainActivity.kt
@@ -19,6 +20,7 @@ on:
       - app/src/androidTest/**/UiGap07FinalCaptureTest.kt
       - app/src/androidTest/**/CaptionToolsUiTest.kt
       - app/src/androidTest/**/HistoryUiCaptureTest.kt
+      - app/src/androidTest/**/CaptionCorrectionSpansTest.kt
       - scripts/qa/ui_gap_07.py
       - app/src/main/java/com/charles/livecaptionn/ui/**
       - app/src/main/java/com/charles/livecaptionn/MainActivity.kt
@@ -141,7 +143,7 @@ jobs:
             adb shell settings put system font_scale 1.0
             adb shell cmd uimode night yes
             adb shell pm clear com.hebi.livetranslate.debug >/dev/null || true
-            ./gradlew --no-daemon -PplayCaptureAbi=x86_64 "-Pandroid.testInstrumentationRunnerArguments.class=com.charles.livecaptionn.CaptionToolsUiTest,com.charles.livecaptionn.HistoryUiCaptureTest" connectedDebugAndroidTest </dev/null
+            ./gradlew --no-daemon -PplayCaptureAbi=x86_64 "-Pandroid.testInstrumentationRunnerArguments.class=com.charles.livecaptionn.CaptionToolsUiTest,com.charles.livecaptionn.HistoryUiCaptureTest,com.charles.livecaptionn.CaptionCorrectionSpansTest" connectedDebugAndroidTest </dev/null
             adb pull /sdcard/Download/hebi-history-qa-captures/. history-captures/
           fi
           adb pull /sdcard/Download/hebi-ui-gap-07-captures/. qa-captures/
