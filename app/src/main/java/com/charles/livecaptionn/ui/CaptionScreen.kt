@@ -1,6 +1,8 @@
 package com.charles.livecaptionn.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -43,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -118,14 +121,17 @@ fun CaptionScreen(
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
                     .padding(start = if (compact) 8.dp else 16.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).heightIn(min = 48.dp).clickable { showDetails = true }.padding(vertical = 8.dp)) {
+                    Column(Modifier.weight(1f).heightIn(min = 48.dp)
+                        .clickable(onClickLabel = "상태와 알림 보기", role = Role.Button) { showDetails = true }
+                        .padding(vertical = 8.dp)) {
                         if (!compact) Text(when {
                             suggestion != null -> "언어 전환 추천 · 자세히"
                             notice.isNotBlank() -> "알림 · 자세히 보기"
                             else -> "분할 자막"
                         }, style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                        Text(status, style = MaterialTheme.typography.labelLarge, maxLines = 1,
+                        Text(if (compact && (suggestion != null || notice.isNotBlank())) "알림 · $status" else status,
+                            style = MaterialTheme.typography.labelLarge, maxLines = 1,
                             overflow = TextOverflow.Ellipsis)
                     }
                     IconButton(onClick = if (busy) onPauseResume else if (ui.canStart) onStart else onSettings,
@@ -146,25 +152,34 @@ fun CaptionScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (messages.isEmpty()) {
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-                            verticalArrangement = Arrangement.Center) {
-                            Text(if (busy) {
-                                if (compact) "자막 대기 중" else "자막을 기다리고 있어요"
-                            } else "영상 옆에, 자막만",
-                                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                            Text(if (busy) "음성이 인식되면 번역이 여기에 표시됩니다."
-                                else if (compact) "번역 시작 후 함께 볼 앱을 선택하세요."
-                                else "번역을 시작한 뒤 함께 볼 앱을 선택하세요. 화면 비율은 시스템 구분선으로 조절할 수 있어요.",
+                        Column(
+                            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                                .padding(horizontal = if (compact) 12.dp else 24.dp,
+                                    vertical = if (compactHeight) 8.dp else 24.dp),
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(if (busy) "자막 대기 중" else "영상 옆에, 자막만",
+                                style = if (compact) MaterialTheme.typography.titleMedium
+                                    else MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold)
+                            Text(if (busy) "음성이 인식되면 번역 자막이 여기에 표시됩니다."
+                                else if (compact) "번역 후 함께 볼 앱을 선택하세요."
+                                else "번역을 시작하고 함께 볼 앱을 선택하세요. 화면 비율은 Android 분할선에서 조절합니다.",
                                 modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
-                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (!busy) Button(onClick = if (ui.canStart) onStart else onSettings,
                                 modifier = Modifier.heightIn(min = 48.dp), shape = RectangleShape) {
                                 Text(if (ui.canStart) "번역 시작" else "시작 준비")
                             }
-                            if (compactHeight) TextButton(onClick = onChooseApp, modifier = Modifier.heightIn(min = 48.dp)) {
-                                Text("함께 볼 앱 선택")
+                            if (compactHeight) {
+                                TextButton(onClick = onChooseApp, modifier = Modifier.heightIn(min = 48.dp)) {
+                                    Text("함께 볼 앱 선택")
+                                }
+                                TextButton(onClick = onSplitHelp, modifier = Modifier.heightIn(min = 48.dp)) {
+                                    Text("분할 화면 안내")
+                                }
                             }
-                            TextButton(onClick = onSplitHelp, modifier = Modifier.heightIn(min = 48.dp)) { Text("분할 화면 안내") }
                         }
                     } else {
                         AndroidView(
@@ -182,7 +197,10 @@ fun CaptionScreen(
                     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RectangleShape) {
                         TextButton(onClick = { readingView?.showLatest() },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        ) { Text("최신 자막으로 이동") }
+                        ) {
+                            Text(if (compact) "최신 자막으로 이동"
+                                else "이전 자막 읽는 중 · 최신 자막으로 이동")
+                        }
                     }
                 }
                 if (!compactHeight) {
@@ -208,6 +226,7 @@ fun CaptionScreen(
         title = { Text("자막 보기") },
         text = {
             Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                Text("분할 화면", style = MaterialTheme.typography.labelLarge)
                 if (!following && messages.isNotEmpty()) TextButton(
                     onClick = { readingView?.showLatest(); showMore = false }, modifier = Modifier.heightIn(min = 48.dp)
                 ) { Text("최신 자막으로 이동") }
@@ -217,7 +236,10 @@ fun CaptionScreen(
                 TextButton(onClick = { showMore = false; onSplitHelp() }, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("분할 화면 안내")
                 }
-                Text("읽기 방식", style = MaterialTheme.typography.labelLarge)
+                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                Text("자막 표시", style = MaterialTheme.typography.labelLarge)
+                Text("읽기 방식", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 CaptionReadOption("최근 자막", "최근 2개 구간", ui.settings.captionDisplayMode == CaptionDisplayMode.CAPTIONS) {
                     onDisplayModeChange(CaptionDisplayMode.CAPTIONS)
                 }
@@ -225,9 +247,12 @@ fun CaptionScreen(
                     onDisplayModeChange(CaptionDisplayMode.CHAT)
                 }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .toggleable(value = ui.settings.showOriginal, role = Role.Switch,
+                            onValueChange = onShowOriginalChange),
+                    verticalAlignment = Alignment.CenterVertically) {
                     Text("원문 함께 보기", Modifier.weight(1f))
-                    Switch(checked = ui.settings.showOriginal, onCheckedChange = onShowOriginalChange)
+                    Switch(checked = ui.settings.showOriginal, onCheckedChange = null)
                 }
                 Text("글자 크기 · ${ui.settings.textSizeSp.toInt()}", Modifier.padding(top = 16.dp))
                 Slider(value = ui.settings.textSizeSp.coerceIn(14f, 40f), onValueChange = onTextSizeChange,
@@ -262,9 +287,10 @@ fun CaptionScreen(
 
 @Composable
 private fun CaptionReadOption(label: String, detail: String, selected: Boolean, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(onClick = onClick),
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected = selected, onClick = onClick)
+        RadioButton(selected = selected, onClick = null)
         Column(Modifier.weight(1f)) {
             Text(label)
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
