@@ -7,6 +7,8 @@ on:
     paths:
       - .github/workflows/ui-gap-07-final.yml
       - app/src/androidTest/**/UiGap07FinalCaptureTest.kt
+      - app/src/androidTest/**/CaptionToolsUiTest.kt
+      - app/src/androidTest/**/HistoryUiCaptureTest.kt
       - scripts/qa/ui_gap_07.py
       - app/src/main/java/com/charles/livecaptionn/ui/**
       - app/src/main/java/com/charles/livecaptionn/MainActivity.kt
@@ -15,6 +17,8 @@ on:
     paths:
       - .github/workflows/ui-gap-07-final.yml
       - app/src/androidTest/**/UiGap07FinalCaptureTest.kt
+      - app/src/androidTest/**/CaptionToolsUiTest.kt
+      - app/src/androidTest/**/HistoryUiCaptureTest.kt
       - scripts/qa/ui_gap_07.py
       - app/src/main/java/com/charles/livecaptionn/ui/**
       - app/src/main/java/com/charles/livecaptionn/MainActivity.kt
@@ -130,6 +134,16 @@ jobs:
               "-Pandroid.testInstrumentationRunnerArguments.qaVariant=$name" \
               "-Pandroid.testInstrumentationRunnerArguments.qaRevision=$GITHUB_SHA" connectedDebugAndroidTest </dev/null
           done 3< <(python3 scripts/qa/ui_gap_07.py scenarios --names "$QA_VARIANTS")
+          if [[ "$QA_API" == "35" ]]; then
+            echo "FINAL-QA-01: isolated glossary, preset, and history UI functional tests"
+            adb shell wm size 1080x1920
+            adb shell wm density 420
+            adb shell settings put system font_scale 1.0
+            adb shell cmd uimode night yes
+            adb shell pm clear com.hebi.livetranslate.debug >/dev/null || true
+            ./gradlew --no-daemon -PplayCaptureAbi=x86_64 "-Pandroid.testInstrumentationRunnerArguments.class=com.charles.livecaptionn.CaptionToolsUiTest,com.charles.livecaptionn.HistoryUiCaptureTest" connectedDebugAndroidTest </dev/null
+            adb pull /sdcard/Download/hebi-history-qa-captures/. history-captures/
+          fi
           adb pull /sdcard/Download/hebi-ui-gap-07-captures/. qa-captures/
           SH
       - name: Run actual Android API ${{ matrix.api }} emulator captures
@@ -156,6 +170,7 @@ jobs:
           name: ui-gap-07-api-${{ matrix.api }}-${{ github.sha }}
           path: |
             qa-captures/
+            history-captures/
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
           if-no-files-found: warn
