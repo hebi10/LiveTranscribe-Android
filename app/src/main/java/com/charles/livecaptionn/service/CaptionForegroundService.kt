@@ -13,6 +13,7 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
@@ -23,6 +24,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.BufferOverflow
 import androidx.core.app.NotificationCompat
@@ -73,6 +76,7 @@ class CaptionForegroundService : Service() {
     @Volatile private var failureMessage: String? = null
     private val lineIdCounter = java.util.concurrent.atomic.AtomicLong(0)
     private var translationQueue: CaptionTranslationQueue<CaptionTranslationRequest>? = null
+    private var correctionJob: Job? = null
     private var setupJob: Job? = null
     private var cleanupJob: Job? = null
     private var destroyed = false
@@ -190,6 +194,8 @@ class CaptionForegroundService : Service() {
     private fun startFlow() {
         if (stopping || !captionSessionActive.compareAndSet(false, true)) return
         translationReleased = false
+        correctionJob?.cancel()
+        correctionJob = null
         failureMessage = null
         windowLanguages.clear()
         app.container.runtimeStore.update {
@@ -465,7 +471,10 @@ class CaptionForegroundService : Service() {
 
     private fun queueTranslation(snapshot: CaptionSpeechSnapshot, lineId: Long, isFinal: Boolean, captionSessionId: Long) {
         if (app.container.runtimeStore.state.value.sessionId != captionSessionId) return
-        if (snapshot.text.isBlank() || !shouldTranslateCaption(isFinal, stableCaptions)) return
+        if (snapshot.text.isBlank()) return
+        // Speech always takes priority over a speculative second pass.
+        correctionJob?.cancel()
+        if (!shouldTranslateCaption(isFinal, stableCaptions)) return
         val request = snapshot.request(lineId, isFinal, app.container.historyRecordingGate.captureConsent())
         val accepted = if (isFinal) translationQueue?.submitFinal(request) == true
             else translationQueue?.submitPartial(request) == true
@@ -513,10 +522,94 @@ class CaptionForegroundService : Service() {
             )
         }
         if (request.isFinal && app.container.runtimeStore.state.value.sessionId == captionSessionId) {
-            app.container.historyRecordingGate.recordIfAllowed(request.historyConsent) {
-                app.container.transcriptHistory.add(
-                    captionHistoryEntry(request.withDetectedWindowLanguage(windowLanguages[request.audioWindowId]), translatedWithGlossary)
+            val historyEntry = captionHistoryEntry(
+                request.withDetectedWindowLanguage(windowLanguages[request.audioWindowId]), translatedWithGlossary)
+            val saved = app.container.historyRecordingGate.recordIfAllowed(request.historyConsent) {
+                app.container.transcriptHistory.add(historyEntry)
+            }
+            if (captionSettings.aiCorrectionEnabled && captionSessionActive.get() && !stopping) {
+                scheduleCaptionCorrection(
+                    captionSessionId = captionSessionId,
+                    lineId = request.lineId,
+                    firstTranslation = translatedWithGlossary,
+                    historyEntryId = if (saved) historyEntry.id else null,
+                    consent = request.historyConsent,
+                    highlightEnabled = captionSettings.correctionHighlightEnabled,
+                    durationMs = captionSettings.correctionHighlightDurationMs
                 )
+            }
+        }
+    }
+
+    private fun scheduleCaptionCorrection(
+        captionSessionId: Long,
+        lineId: Long,
+        firstTranslation: String,
+        historyEntryId: String?,
+        consent: com.charles.livecaptionn.data.HistoryRecordingGate.Consent?,
+        highlightEnabled: Boolean,
+        durationMs: Int
+    ) {
+        correctionJob?.cancel()
+        correctionJob = serviceScope.launch(Dispatchers.IO) {
+            // Wait for immediate speech work. A newer partial/final cancels this task.
+            delay(650)
+            val before = app.container.runtimeStore.state.value
+            val target = before.transcriptLines.firstOrNull { it.id == lineId }
+            if (!captionSessionActive.get() || before.sessionId != captionSessionId ||
+                !before.running || before.stopping || before.translating ||
+                translationQueue?.pendingFinalCount != 0 ||
+                target?.translatedText != firstTranslation || !target.finalTranslationCommitted) return@launch
+            val polished = try {
+                withTimeoutOrNull(9_000) {
+                    app.container.translationRepository.refineKoreanSubtitle(firstTranslation)
+                } ?: return@launch
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                return@launch // A failed second pass must never hide the first translation.
+            }
+            val revised = try {
+                applyGlossary(polished, app.container.glossary.list())
+            } catch (_: Exception) { return@launch }
+            val currentSettings = app.container.settingsRepository.settingsFlow.first()
+            if (!currentSettings.aiCorrectionEnabled) return@launch
+            val ms = com.charles.livecaptionn.settings.CorrectionHighlightPalette.normalizeDuration(durationMs)
+            val until = if (highlightEnabled && currentSettings.correctionHighlightEnabled)
+                SystemClock.elapsedRealtime() + ms else 0L
+            app.container.runtimeStore.update {
+                if (!captionSessionActive.get()) it else applyCaptionCorrection(
+                    runtime = it,
+                    sessionId = captionSessionId,
+                    lineId = lineId,
+                    firstTranslation = firstTranslation,
+                    revised = revised,
+                    untilElapsedMs = until,
+                    highlight = highlightEnabled && currentSettings.correctionHighlightEnabled
+                )
+            }
+            val accepted = app.container.runtimeStore.state.value.transcriptLines.any {
+                it.id == lineId && it.translatedText == revised.trim() &&
+                    it.finalTranslationCommitted
+            }
+            if (!accepted) return@launch
+            // Keep persisted text consistent with the revised caption if this consent interval is still valid.
+            if (historyEntryId != null) {
+                try {
+                    app.container.historyRecordingGate.recordIfAllowed(consent) {
+                        app.container.transcriptHistory.updateTranslatedTextById(
+                            historyEntryId, firstTranslation, revised.trim())
+                    }
+                } catch (_: Exception) { /* The on-screen corrected text remains usable. */ }
+            }
+            if (until > 0L) {
+                // Independent expiry: cancelling an obsolete correction must not freeze its tint.
+                serviceScope.launch {
+                    delay(ms.toLong())
+                    app.container.runtimeStore.update {
+                        expireCaptionCorrection(it, captionSessionId, lineId, until)
+                    }
+                }
             }
         }
     }
@@ -619,6 +712,8 @@ class CaptionForegroundService : Service() {
     private fun finishSession(error: String? = null, completionMessage: String? = null) {
         if (stopping) return
         stopping = true
+        correctionJob?.cancel()
+        correctionJob = null
         val sessionId = ownedSessionId
         if (sessionId == null) {
             if (error != null) app.container.runtimeStore.update {
@@ -709,6 +804,8 @@ class CaptionForegroundService : Service() {
         languageSamples?.close()
         languageSamples = null
         translationQueue?.cancel()
+        correctionJob?.cancel()
+        correctionJob = null
         overlayController?.hide()
         overlayController = null
         beginCleanup()
