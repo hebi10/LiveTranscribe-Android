@@ -33,7 +33,10 @@ fun visibleOverlayMessages(ui: OverlayUiState): List<OverlayCaptionMessage> {
     val messages = ui.messages.filter {
         it.translatedText.isNotBlank() && (!ui.stableCaptions || it.isFinal)
     }
-    return messages.takeLast(
+    val visible = messages.takeLast(
         if (ui.displayMode == CaptionDisplayMode.CHAT) MAX_OVERLAY_MESSAGES else MAX_CAPTION_MESSAGES
     )
+    return if (ui.correctionHighlightEnabled) visible else visible.map {
+        it.copy(correctionRanges = emptyList(), correctionHighlightUntilMs = 0L)
+    }
 }
