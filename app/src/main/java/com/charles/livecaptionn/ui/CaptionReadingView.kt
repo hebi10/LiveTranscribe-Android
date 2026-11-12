@@ -2,6 +2,7 @@ package com.charles.livecaptionn.ui
 
 import android.content.Context
 import android.graphics.Typeface
+import com.charles.livecaptionn.overlay.correctionStyledCaption
 import android.graphics.text.LineBreaker
 import android.view.View
 import android.widget.LinearLayout
@@ -15,7 +16,7 @@ import com.charles.livecaptionn.overlay.OverlayRowBounds
 internal class CaptionReadingView(context: Context, private val reader: CaptionReadingState) : ScrollView(context) {
     private data class Row(val id: Long, val container: LinearLayout, val translation: TextView, val source: TextView)
     private data class Content(val messages: List<OverlayCaptionMessage>, val showOriginal: Boolean,
-        val sizeSp: Float, val foreground: Int, val secondary: Int)
+        val sizeSp: Float, val foreground: Int, val secondary: Int, val correctionColor: Int)
 
     private val column = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -39,8 +40,8 @@ internal class CaptionReadingView(context: Context, private val reader: CaptionR
         contentDescription = "번역 자막. 스크롤하여 이전 자막 읽기"
     }
 
-    fun render(messages: List<OverlayCaptionMessage>, showOriginal: Boolean, sizeSp: Float, foreground: Int, secondary: Int) {
-        val next = Content(messages, showOriginal, sizeSp, foreground, secondary)
+    fun render(messages: List<OverlayCaptionMessage>, showOriginal: Boolean, sizeSp: Float, foreground: Int, secondary: Int, correctionColor: Int) {
+        val next = Content(messages, showOriginal, sizeSp, foreground, secondary, correctionColor)
         if (next == content) return // Recognition/status-only emissions never move the reader.
         preserve()
         // The first render after recreation must restore its saved anchor, including while following.
@@ -52,7 +53,8 @@ internal class CaptionReadingView(context: Context, private val reader: CaptionR
         rows.clear()
         messages.forEach { message ->
             val row = retained[message.id] ?: newRow(message.id)
-            row.translation.text = message.translatedText
+            row.translation.text = correctionStyledCaption(message.translatedText,
+                message.correctionRanges, message.correctionHighlightUntilMs, correctionColor)
             row.translation.textSize = sizeSp
             row.translation.setTextColor(foreground)
             row.source.text = message.originalText
