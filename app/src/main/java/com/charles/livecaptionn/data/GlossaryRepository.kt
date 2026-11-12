@@ -21,7 +21,15 @@ class FileGlossaryRepository private constructor(private val file: File) : Gloss
     override suspend fun list() = withContext(Dispatchers.IO) { read().map(::fromJson) }
     override suspend fun save(entry: GlossaryEntry) = withContext(Dispatchers.IO) { val next = read().map(::fromJson).filterNot { it.id == entry.id } + entry; file.parentFile?.mkdirs(); file.writeText(JSONArray(next.map(::toJson)).toString()) }
     override suspend fun delete(id: String) = withContext(Dispatchers.IO) { val old = read().map(::fromJson); val next = old.filterNot { it.id == id }; if (old.size == next.size) false else { file.writeText(JSONArray(next.map(::toJson)).toString()); true } }
-    private fun read() = try { if (file.exists()) { val a = JSONArray(file.readText()); (0 until a.length()).map(a::getJSONObject) } else emptyList() } catch (_: Throwable) { emptyList() }
+    private fun read(): List<JSONObject> {
+        if (!file.exists()) return emptyList()
+        return try {
+            val array = JSONArray(file.readText(Charsets.UTF_8))
+            (0 until array.length()).map(array::getJSONObject)
+        } catch (error: Exception) {
+            throw java.io.IOException("Saved caption tool data could not be read", error)
+        }
+    }
     private fun toJson(e: GlossaryEntry) = JSONObject().put("id", e.id).put("phrase", e.phrase).put("replacement", e.replacement).put("caseSensitive", e.caseSensitive)
     private fun fromJson(o: JSONObject) = GlossaryEntry(o.optString("id", newTranscriptId()), o.optString("phrase"), o.optString("replacement"), o.optBoolean("caseSensitive", false))
 }
