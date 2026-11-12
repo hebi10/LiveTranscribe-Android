@@ -19,7 +19,7 @@ VARIANTS = {
     "fold-cover-light": (904, 2268, 420, 1.0, "light"),
     "fold-expanded-dark": (1768, 2208, 360, 1.0, "dark"),
 }
-SCREENS = ("home", "settings", "history", "caption-preview")
+SCREENS = ("home", "settings", "history", "caption-tools", "caption-preview")
 SCOPE = "Real emulator idle UI only; no physical fold, model install, speech recognition or translation."
 
 
@@ -104,7 +104,7 @@ def main():
     if args.command == "selftest":
         assert len(VARIANTS) == 10
         assert all(variant[0] > 0 and variant[1] > 0 for variant in VARIANTS.values())
-        assert set(SCREENS) == {"home", "settings", "history", "caption-preview"}
+        assert set(SCREENS) == {"home", "settings", "history", "caption-tools", "caption-preview"}
         print("UI-GAP-07 QA variant contract passed")
         return
     variants = names_from(args.names)
