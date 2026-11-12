@@ -10,7 +10,7 @@ import java.io.File
 data class GlossaryEntry(val id: String = newTranscriptId(), val phrase: String, val replacement: String, val caseSensitive: Boolean = false)
 
 fun applyGlossary(text: String, entries: List<GlossaryEntry>): String = entries.filter { it.phrase.isNotEmpty() }.fold(text) { result, e ->
-    if (e.caseSensitive) result.replace(e.phrase, e.replacement) else result.replace(Regex(Regex.escape(e.phrase), RegexOption.IGNORE_CASE), e.replacement)
+    if (e.caseSensitive) result.replace(e.phrase, e.replacement) else result.replace(Regex(Regex.escape(e.phrase), RegexOption.IGNORE_CASE)) { e.replacement }
 }
 
 interface GlossaryRepository { suspend fun list(): List<GlossaryEntry>; suspend fun save(entry: GlossaryEntry); suspend fun delete(id: String): Boolean }
