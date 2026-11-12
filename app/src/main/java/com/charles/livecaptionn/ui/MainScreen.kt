@@ -51,6 +51,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import com.charles.livecaptionn.settings.CorrectionHighlightPalette
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -364,7 +367,7 @@ fun MainScreen(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("자막 및 앱 설정", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "자막 크기 · 원문 표시 · 팝업 · 화면 테마 · 기록 저장",
+                    "자막 크기 · 2차 AI 교정 · 팝업 · 화면 테마 · 기록",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -413,6 +416,59 @@ fun MainScreen(
                         valueRange = 14f..40f)
                     SettingToggle("원문도 함께 표시", ui.settings.showOriginal,
                         viewModel::updateShowOriginal)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Text("2차 AI 자막 교정", style = MaterialTheme.typography.titleMedium)
+                    SettingToggle("확정 자막을 한 번 더 다듬기", ui.settings.aiCorrectionEnabled,
+                        viewModel::updateAiCorrectionEnabled)
+                    Text("1차 번역은 바로 표시합니다. 대기 중인 번역이 있으면 2차 교정은 생략되며, 별도 AI 모델을 다운로드하지 않습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SettingToggle("교정된 단어 색상 강조", ui.settings.correctionHighlightEnabled,
+                        viewModel::updateCorrectionHighlightEnabled)
+                    Text("강조 색상", style = MaterialTheme.typography.labelLarge)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        val light = MaterialTheme.colorScheme.background.luminance() > 0.5f
+                        for (swatch in CorrectionHighlightPalette.SWATCHES) {
+                            val selected = ui.settings.correctionHighlightColor == swatch.id
+                            val tint = Color(CorrectionHighlightPalette.colorInt(swatch.id, light))
+                            if (selected) FilledTonalButton(
+                                shape = RectangleShape,
+                                onClick = { viewModel.updateCorrectionHighlightColor(swatch.id) },
+                                modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
+                            ) { Text(swatch.label, color = tint) }
+                            else OutlinedButton(
+                                shape = RectangleShape,
+                                onClick = { viewModel.updateCorrectionHighlightColor(swatch.id) },
+                                modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
+                            ) { Text(swatch.label, color = tint) }
+                        }
+                    }
+                    Text("강조 시간", style = MaterialTheme.typography.labelLarge)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for (duration in CorrectionHighlightPalette.DURATIONS_MS) {
+                            val selected = ui.settings.correctionHighlightDurationMs == duration
+                            val label = when (duration) {
+                                1000 -> "1초"
+                                1500 -> "1.5초"
+                                else -> "2초"
+                            }
+                            if (selected) FilledTonalButton(
+                                shape = RectangleShape,
+                                onClick = { viewModel.updateCorrectionHighlightDuration(duration) },
+                                modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
+                            ) { Text(label) }
+                            else OutlinedButton(
+                                shape = RectangleShape,
+                                onClick = { viewModel.updateCorrectionHighlightDuration(duration) },
+                                modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
+                            ) { Text(label) }
+                        }
+                    }
+                    Text("기본값: 초록 · 1초. 강조가 끝나면 현재 자막 색상으로 복원합니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (ui.settings.captionPlacement == CaptionPlacement.POPUP) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Text("팝업 자막창", style = MaterialTheme.typography.titleMedium)
