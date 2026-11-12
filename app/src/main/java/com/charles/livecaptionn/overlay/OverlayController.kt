@@ -33,6 +33,7 @@ import com.charles.livecaptionn.R
 import com.charles.livecaptionn.data.SettingsRepository
 import com.charles.livecaptionn.settings.CaptionDisplayMode
 import com.charles.livecaptionn.settings.CaptionSettings
+import com.charles.livecaptionn.settings.CorrectionHighlightPalette
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.ui.l10n.UiStrings
 import kotlinx.coroutines.CoroutineScope
@@ -107,7 +108,8 @@ class OverlayController(
         val mode: CaptionDisplayMode,
         val display: OverlayTextDisplay,
         val messages: List<OverlayCaptionMessage>,
-        val showOriginal: Boolean
+        val showOriginal: Boolean,
+        val correctionColor: String
     )
     private data class CaptionAppearance(val themeId: String, val fontId: String, val sizeSp: Float)
     private data class PendingViewport(
@@ -480,7 +482,7 @@ class OverlayController(
                 it.copy(translatedText = s["Captions appear in short speech segments"])
             } else it
         }
-        val content = CaptionContent(ui.displayMode, display, visibleOverlayMessages(ui), ui.showOriginal)
+        val content = CaptionContent(ui.displayMode, display, visibleOverlayMessages(ui), ui.showOriginal, ui.correctionColor)
         val appearance = CaptionAppearance(ui.themeId, ui.fontId, ui.textSizeSp)
         // A recognizer status/detail update must not rewrite caption text or move its viewport.
         if (content != lastContent || appearance != lastAppearance) {
@@ -514,7 +516,11 @@ class OverlayController(
         }
         dividerView?.setBackgroundColor(withAlpha(color, 45))
         translatedText?.let {
-            setTextIfChanged(it, display.translatedText)
+            val recent = content.messages.takeLast(MAX_CAPTION_MESSAGES)
+            val joined = recent.joinToString("\n") { message -> message.translatedText }
+            it.text = if (joined == display.translatedText && recent.isNotEmpty())
+                correctionStyledCaptions(recent, CorrectionHighlightPalette.colorInt(content.correctionColor, false))
+                else display.translatedText
             applyCaptionStyle(it, color, translationTypeface, display.translatedTextSizeSp)
         }
         if (!chat) return
@@ -541,7 +547,9 @@ class OverlayController(
             val translated = message.translatedText.ifBlank { message.originalText }.ifBlank { "…" }
             val sourceVisible = content.showOriginal && message.originalText.isNotBlank() &&
                 !message.originalText.trim().equals(translated.trim(), ignoreCase = true)
-            setTextIfChanged(row.translated, translated)
+            row.translated.text = correctionStyledCaption(translated, message.correctionRanges,
+                message.correctionHighlightUntilMs,
+                CorrectionHighlightPalette.colorInt(content.correctionColor, false))
             setTextIfChanged(row.source, message.originalText)
             row.source.visibility = if (sourceVisible) View.VISIBLE else View.GONE
             applyCaptionStyle(row.translated, color, translationTypeface, display.translatedTextSizeSp)
