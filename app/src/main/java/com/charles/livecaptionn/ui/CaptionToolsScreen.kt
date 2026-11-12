@@ -101,7 +101,7 @@ fun CaptionToolsScreen(
     }
 
     fun execute(success: String, operation: suspend () -> Boolean) {
-        if (loading || busy || readFailed) return
+        if (loading || busy || readFailed || !canChangeSettings) return
         busy = true
         notice = null
         scope.launch {
@@ -112,7 +112,7 @@ fun CaptionToolsScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                notice = "변경 사항을 저장하지 못했습니다. 다시 시도해 주세요."
+                notice = "작업을 완료하지 못했습니다. 내용을 확인하고 다시 시도해 주세요."
                 noticeIsError = true
             } finally {
                 busy = false
@@ -153,24 +153,29 @@ fun CaptionToolsScreen(
                 }
             }
             if (loading) item {
-                Text("저장된 항목을 불러오는 중…",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                AppStatusMessage(message = "사용자 용어집과 자막 프리셋을 불러오는 중입니다.")
             }
             notice?.let { message ->
                 item {
-                    Text(message, color = if (noticeIsError) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.bodyMedium)
-                    if (readFailed) TextButton(onClick = {
-                        notice = null
-                        retryRead += 1
-                    }) { Text("다시 읽기") }
+                    if (readFailed) {
+                        AppStatusMessage(
+                            message = message,
+                            isError = true,
+                            actionLabel = "다시 읽기",
+                            onAction = { notice = null; retryRead += 1 }
+                        )
+                    } else {
+                        AppStatusMessage(message = message, isError = noticeIsError)
+                    }
                 }
             }
             item {
                 Text("사용자 용어집", style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold)
-                Text("번역 결과에 들어 있는 표현을 지정한 용어로 바꿉니다. 이후 생성되는 자막부터 적용됩니다.",
+                if (!loading && !readFailed) Text("등록된 용어 ${entries.size}개",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("번역된 자막의 일치하는 표현을 지정한 용어로 바꿉니다. 원문은 그대로 유지됩니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -181,7 +186,7 @@ fun CaptionToolsScreen(
                     shape = RectangleShape
                 ) { Text("용어 추가") }
             }
-            if (!loading && entries.isEmpty()) {
+            if (!loading && !readFailed && entries.isEmpty()) {
                 item { Text("등록한 용어가 없습니다.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
@@ -209,7 +214,10 @@ fun CaptionToolsScreen(
             item {
                 Text("자막 프리셋", style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold)
-                Text("인식 언어, 자막 글자 크기, 원문 표시 설정을 저장하고 다시 적용합니다. 번역 출력 언어는 한국어로 고정됩니다.",
+                if (!loading && !readFailed) Text("저장된 프리셋 ${profiles.size}개",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("인식 언어, 글자 크기, 원문 표시 설정을 저장합니다. 적용 시 현재 설정만 변경합니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -220,7 +228,7 @@ fun CaptionToolsScreen(
                     Text("현재 설정으로 프리셋 추가")
                 }
             }
-            if (!loading && profiles.isEmpty()) {
+            if (!loading && !readFailed && profiles.isEmpty()) {
                 item { Text("저장된 자막 프리셋이 없습니다.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
@@ -259,6 +267,7 @@ fun CaptionToolsScreen(
     if (glossaryEditorOpen) GlossaryEditorDialog(
         initial = editingGlossary,
         busy = busy,
+        canSave = editEnabled,
         onDismiss = { glossaryEditorOpen = false },
         onSave = { entry ->
             execute("용어를 저장했습니다.") {
@@ -273,6 +282,7 @@ fun CaptionToolsScreen(
         initial = editingProfile,
         currentSettings = currentSettings,
         busy = busy,
+        canSave = editEnabled,
         onDismiss = { profileEditorOpen = false },
         onSave = { profile ->
             execute("자막 프리셋을 저장했습니다.") {
@@ -288,6 +298,7 @@ fun CaptionToolsScreen(
             name = target.phrase,
             onDismiss = { glossaryToDelete = null },
             busy = busy,
+            canDelete = editEnabled,
             onDelete = {
                 execute("용어를 삭제했습니다.") {
                     val deleted = glossaryRepository.delete(target.id)
@@ -303,6 +314,7 @@ fun CaptionToolsScreen(
             name = target.name,
             onDismiss = { profileToDelete = null },
             busy = busy,
+            canDelete = editEnabled,
             onDelete = {
                 execute("프리셋을 삭제했습니다.") {
                     val deleted = profileRepository.delete(target.id)
@@ -319,6 +331,7 @@ fun CaptionToolsScreen(
 private fun GlossaryEditorDialog(
     initial: GlossaryEntry?,
     busy: Boolean,
+    canSave: Boolean,
     onDismiss: () -> Unit,
     onSave: (GlossaryEntry) -> Unit
 ) {
@@ -359,7 +372,7 @@ private fun GlossaryEditorDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = valid && !busy,
+                enabled = valid && !busy && canSave,
                 onClick = {
                     val saved = if (initial == null) GlossaryEntry(
                         phrase = phrase.trim(), replacement = replacement.trim(),
@@ -379,6 +392,7 @@ private fun ProfileEditorDialog(
     initial: CaptionProfile?,
     currentSettings: CaptionSettings,
     busy: Boolean,
+    canSave: Boolean,
     onDismiss: () -> Unit,
     onSave: (CaptionProfile) -> Unit
 ) {
@@ -434,7 +448,7 @@ private fun ProfileEditorDialog(
             }
         },
         confirmButton = {
-            TextButton(enabled = name.trim().isNotEmpty() && name.trim().length <= 60 && !busy,
+            TextButton(enabled = name.trim().isNotEmpty() && name.trim().length <= 60 && !busy && canSave,
                 onClick = {
                     val profile = if (initial == null) CaptionProfile(
                         name = name.trim(), sourceLanguage = language, targetLanguage = "ko",
@@ -455,6 +469,7 @@ private fun ProfileEditorDialog(
 private fun ConfirmToolDeletionDialog(
     name: String,
     busy: Boolean,
+    canDelete: Boolean,
     onDismiss: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -464,7 +479,7 @@ private fun ConfirmToolDeletionDialog(
         title = { Text("항목 삭제") },
         text = { Text("‘" + name + "’ 항목을 삭제하시겠습니까? 삭제한 항목은 복구할 수 없습니다.") },
         confirmButton = {
-            TextButton(onClick = onDelete, enabled = !busy) {
+            TextButton(onClick = onDelete, enabled = !busy && canDelete) {
                 Text("삭제", color = MaterialTheme.colorScheme.error)
             }
         },
