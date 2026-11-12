@@ -54,7 +54,7 @@ def release_mode(env, event, commit_subject):
     if subject in ('Release: Alpha track inspect [release-01-b-check]',
                    'Release: reconcile existing Alpha draft [release-01-b-closed]'):
         return 'check'
-    if '[sync-play-images]' in subject or re.search(r'(?<!\S)\[(?:promote-play-alpha-22|commit-play-alpha-draft-v22|ui-gap-00-capture|ui-gap-01-design|ui-gap-02-home|ui-gap-03-setup)\](?!\S)', subject):
+    if '[sync-play-images]' in subject or re.search(r'(?<!\S)\[(?:promote-play-alpha-22|commit-play-alpha-draft-v22|store-01-screenshots|ui-gap-00-capture|ui-gap-01-design|ui-gap-02-home|ui-gap-03-setup)\](?!\S)', subject):
         return 'check'
     return 'initialize' if re.search(r'(?<!\S)\[initialize-play\](?!\S)', subject) else 'deploy'
 

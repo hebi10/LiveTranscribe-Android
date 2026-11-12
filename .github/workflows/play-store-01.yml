@@ -1,0 +1,102 @@
+name: Play STORE-01 screenshots only
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'check = verify local screenshots; apply = update only Google Play ko-KR phone screenshots'
+        required: true
+        type: choice
+        default: check
+        options: [check, apply]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-com-hebi-livetranslate-store-images
+  cancel-in-progress: false
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require latest exact main and successful Android CI
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/play/source.py
+      - name: Verify pinned eight images and unchanged existing brand assets
+        run: python3 scripts/play/screenshots_only.py check
+
+  apply:
+    needs: source
+    if: inputs.mode == 'apply'
+    runs-on: ubuntu-latest
+    environment: google-play
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - name: Check app-specific Play credentials
+        id: credentials
+        env:
+          PLAY_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          PLAY_SERVICE_ACCOUNT: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: python3 scripts/play/preflight.py auth
+      - name: Authenticate with Workload Identity Federation
+        id: wif
+        if: steps.credentials.outputs.auth_mode == 'wif'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Authenticate with legacy service-account JSON
+        id: json
+        if: steps.credentials.outputs.auth_mode == 'json'
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+      - name: Recheck registered Play app and binary
+        id: readiness
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+        run: python3 scripts/play/publisher.py --report output/store01-play-readiness.json inspect --require-binary
+      - name: Verify main has not advanced
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python3 scripts/play/source.py --assert-current "$SOURCE_SHA"
+      - name: Update ONLY ko-KR phone screenshots and verify independent readback
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token || steps.json.outputs.access_token }}
+          PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
+        run: python3 scripts/play/screenshots_only.py apply --report output/store01-image-readback.json
+      - name: Preserve non-secret Play image report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store01-play-screenshots-${{ github.run_id }}
+          path: output/store01-*.json
+          if-no-files-found: warn
