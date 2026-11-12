@@ -8,7 +8,8 @@ on:
         type: choice
         options: [check, apply]
         required: true
-        default: check      final_release_approved:
+        default: check
+      final_release_approved:
         description: 'Final batch only: approved image/listing update'
         required: true
         type: boolean
