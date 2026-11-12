@@ -594,6 +594,15 @@ class CaptionForegroundService : Service() {
                     it.finalTranslationCommitted
             }
             if (!accepted) return@launch
+            if (until > 0L) {
+                // Schedule removal before disk I/O. Slow history writes cannot extend the tint.
+                serviceScope.launch {
+                    delay(ms.toLong())
+                    app.container.runtimeStore.update {
+                        expireCaptionCorrection(it, captionSessionId, lineId, until)
+                    }
+                }
+            }
             // Keep persisted text consistent with the revised caption if this consent interval is still valid.
             if (historyEntryId != null) {
                 try {
@@ -602,15 +611,6 @@ class CaptionForegroundService : Service() {
                             historyEntryId, firstTranslation, revised.trim())
                     }
                 } catch (_: Exception) { /* The on-screen corrected text remains usable. */ }
-            }
-            if (until > 0L) {
-                // Independent expiry: cancelling an obsolete correction must not freeze its tint.
-                serviceScope.launch {
-                    delay(ms.toLong())
-                    app.container.runtimeStore.update {
-                        expireCaptionCorrection(it, captionSessionId, lineId, until)
-                    }
-                }
             }
         }
     }
