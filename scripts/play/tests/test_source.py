@@ -24,6 +24,8 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Store imagery [sync-play-images] (#37)'), 'check')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'STORE-01: actual screenshots [store-01-screenshots] (#70)'), 'check')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'FEATURE-02: integrate verified polish [feature-02-qa-only] (#70)'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'COMPAT-01: verified device storage setup [compat-01-qa-only] (#71)'), 'check')
+        self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [compat-01-qa-only]-suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [feature-02-qa-only]-suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'Fake [store-01-screenshots]-suffix'), 'deploy')
         self.assertEqual(source.release_mode(env, {'workflow_run': run}, 'QA: recapture current UI [ui-gap-00-capture] (#53)'), 'check')
