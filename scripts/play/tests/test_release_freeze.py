@@ -40,6 +40,24 @@ class ReleaseFreezeTests(unittest.TestCase):
             before_next_job = jobs.split("\n    runs-on:", 1)[0]
             self.assertIn("if: ${{ false }}", before_next_job, name)
 
+    def test_all_manual_play_mutations_have_final_approval_guard(self):
+        for name, mode in (
+            ("play-listing.yml", "apply"),
+            ("play-store-01.yml", "apply"),
+            ("play-promote.yml", "promote"),
+        ):
+            raw = workflow(name)
+            self.assertIn("      final_release_approved:", raw, name)
+            self.assertIn("        default: false", raw, name)
+            self.assertIn("if: inputs.mode == '" + mode + "'", raw, name)
+            self.assertIn('FINAL_RELEASE_APPROVED: ${{ inputs.final_release_approved }}', raw, name)
+            self.assertIn('if [[ "$FINAL_RELEASE_APPROVED" != "true" ]]', raw, name)
+
+        images = workflow("play-drive-assets.yml")
+        self.assertIn("      final_release_approved:", images)
+        self.assertIn('FINAL_RELEASE_APPROVED: ${{ inputs.final_release_approved }}', images)
+        self.assertIn('if [[ "$FINAL_RELEASE_APPROVED" != "true" ]]', images)
+
     def test_final_manual_play_promotion_is_still_available(self):
         raw = workflow("play-promote.yml")
         head = raw.split("\npermissions:", 1)[0]
