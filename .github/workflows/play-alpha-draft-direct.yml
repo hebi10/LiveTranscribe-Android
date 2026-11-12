@@ -9,10 +9,8 @@ permissions:
 
 jobs:
   source:
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      contains(github.event.head_commit.message, '[commit-play-alpha-draft-v22]')
+    # Legacy Play mutation route disabled until a final consolidated release is approved.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
