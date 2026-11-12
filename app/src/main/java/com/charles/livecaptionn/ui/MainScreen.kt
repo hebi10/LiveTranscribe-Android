@@ -206,7 +206,7 @@ fun MainScreen(
                         }
                     }
                     ui.runtime.lastError?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error)
+                        AppStatusMessage(message = it, isError = true)
                     }
                     ui.runtime.captureHint?.takeIf {
                         ui.runtime.lastError.isNullOrBlank() && !ui.runtime.stopping &&
@@ -361,13 +361,21 @@ fun MainScreen(
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            TextButton(
-                onClick = { showAdvancedSettings = !showAdvancedSettings },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-            ) {
-                Text(if (showAdvancedSettings) "자막 및 앱 설정 접기" else "자막 및 앱 설정 펼치기")
-                Icon(if (showAdvancedSettings) Icons.Outlined.ExpandLess
-                    else Icons.Outlined.ExpandMore, contentDescription = null)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("자막 및 앱 설정", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "자막 크기 · 원문 표시 · 팝업 · 화면 테마 · 기록 저장",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TextButton(
+                    onClick = { showAdvancedSettings = !showAdvancedSettings },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text(if (showAdvancedSettings) "설정 접기" else "세부 설정 열기")
+                    Icon(if (showAdvancedSettings) Icons.Outlined.ExpandLess
+                        else Icons.Outlined.ExpandMore, contentDescription = null)
+                }
             }
 
             if (showAdvancedSettings) {
@@ -397,9 +405,7 @@ fun MainScreen(
                         else "최근 2개 자막 구간을 표시합니다. 창 너비에 따라 줄바꿈됩니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("말이 이어져도 확인된 문장부터 번역합니다. " +
-                        "문장 끝을 판단하기 어려우면 무음 또는 최대 8초 경계에서 처리합니다. " +
-                        "인식이나 번역이 밀리면 일부 대기 구간을 생략하고 안내합니다.",
+                    Text("확정된 문장부터 자막을 표시합니다. 인식이 지연되면 일부 음성 구간이 생략될 수 있습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("글자 크기: " + ui.settings.textSizeSp.toInt() + "sp")
@@ -408,12 +414,19 @@ fun MainScreen(
                     SettingToggle("원문도 함께 표시", ui.settings.showOriginal,
                         viewModel::updateShowOriginal)
                     if (ui.settings.captionPlacement == CaptionPlacement.POPUP) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text("팝업 자막창", style = MaterialTheme.typography.titleMedium)
+                        Text("팝업의 투명도를 조절하거나 저장된 위치와 크기를 초기화합니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("팝업 불투명도: " + (ui.settings.overlayOpacity * 100).toInt() + "%")
                         Slider(value = ui.settings.overlayOpacity, onValueChange = viewModel::updateOpacity,
                             valueRange = 0.2f..1f)
-                        OutlinedButton(shape = RectangleShape, onClick = viewModel::resetOverlayPosition) {
-                            Text("팝업 위치·크기 초기화")
-                        }
+                        OutlinedButton(
+                            shape = RectangleShape,
+                            onClick = viewModel::resetOverlayPosition,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) { Text("팝업 위치·크기 초기화") }
                     }
                 }
 
@@ -450,10 +463,15 @@ fun MainScreen(
                     Text("기록 및 개인정보", style = MaterialTheme.typography.titleMedium)
                     SettingToggle("번역 기록 저장", ui.settings.saveHistory,
                         viewModel::updateSaveHistory)
-                    Text("기록 저장은 기본적으로 꺼져 있습니다. 저장을 꺼도 이전 기록은 유지되며, 기록 화면에서 개별·전체 삭제할 수 있습니다.",
+                    Text("기록 저장 기본값은 꺼짐입니다. 저장을 꺼도 기존 기록은 남으며 기록 화면에서 삭제할 수 있습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("음성 인식과 번역은 기기 안에서 처리합니다. Android 백업 및 광고·분석·오류 수집 SDK는 사용하지 않습니다.",
+                    OutlinedButton(
+                        onClick = onHistory,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        shape = RectangleShape
+                    ) { Text("저장된 번역 기록 관리") }
+                    Text("음성 인식과 번역은 기기 안에서 처리합니다. 광고·분석·오류 수집 SDK 및 Android 백업을 사용하지 않습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = {
