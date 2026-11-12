@@ -1,10 +1,6 @@
 name: Play internal release
 
 on:
-  workflow_run:
-    workflows: ["Private Android APK"]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
@@ -13,6 +9,11 @@ on:
         type: choice
         default: check
         options: [check, build, initialize, deploy]
+      final_release_approved:
+        description: 'Required for deploy/initialize: all planned work and final integration/device QA approved'
+        required: true
+        type: boolean
+        default: false
       version_code:
         description: 'Build-only versionCode (minimum/default 14); deploy allocates above all Play artifacts'
         type: string
@@ -36,7 +37,7 @@ concurrency:
 
 jobs:
   source:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -50,6 +51,17 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
+      - name: Require explicit final batch release approval before any Play binary upload
+        if: inputs.mode == 'deploy' || inputs.mode == 'initialize'
+        env:
+          FINAL_RELEASE_APPROVED: ${{ inputs.final_release_approved }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$FINAL_RELEASE_APPROVED" != "true" ]]; then
+            echo 'Play release frozen: finish planned PR integration, final QA and explicit final approval first.' >&2
+            exit 1
+          fi
       - name: Require exact main source and successful build job
         id: source
         env:
