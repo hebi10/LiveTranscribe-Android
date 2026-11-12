@@ -71,6 +71,8 @@ fun CaptionToolsScreen(
     var entries by remember(glossaryRepository) { mutableStateOf<List<GlossaryEntry>>(emptyList()) }
     var profiles by remember(profileRepository) { mutableStateOf<List<CaptionProfile>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var readFailed by remember { mutableStateOf(false) }
+    var retryRead by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeIsError by remember { mutableStateOf(false) }
@@ -81,15 +83,17 @@ fun CaptionToolsScreen(
     var editingProfile by remember { mutableStateOf<CaptionProfile?>(null) }
     var profileToDelete by remember { mutableStateOf<CaptionProfile?>(null) }
 
-    LaunchedEffect(glossaryRepository, profileRepository) {
+    LaunchedEffect(glossaryRepository, profileRepository, retryRead) {
         loading = true
+        readFailed = false
         try {
             entries = glossaryRepository.list()
             profiles = profileRepository.list()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            notice = "저장된 항목을 불러오지 못했습니다. 화면을 다시 열어 주세요."
+            readFailed = true
+            notice = "저장된 항목을 불러오지 못했습니다. 원본을 보존하고 다시 읽어 주세요."
             noticeIsError = true
         } finally {
             loading = false
@@ -97,7 +101,7 @@ fun CaptionToolsScreen(
     }
 
     fun execute(success: String, operation: suspend () -> Boolean) {
-        if (loading || busy) return
+        if (loading || busy || readFailed) return
         busy = true
         notice = null
         scope.launch {
@@ -116,7 +120,7 @@ fun CaptionToolsScreen(
         }
     }
 
-    val editEnabled = !loading && !busy && canChangeSettings
+    val editEnabled = !loading && !busy && !readFailed && canChangeSettings
 
     Scaffold(
         modifier = modifier,
@@ -148,11 +152,19 @@ fun CaptionToolsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            if (loading) item {
+                Text("저장된 항목을 불러오는 중…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             notice?.let { message ->
                 item {
                     Text(message, color = if (noticeIsError) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodyMedium)
+                    if (readFailed) TextButton(onClick = {
+                        notice = null
+                        retryRead += 1
+                    }) { Text("다시 읽기") }
                 }
             }
             item {
@@ -340,7 +352,7 @@ private fun GlossaryEditorDialog(
                     Text("대소문자 구별", modifier = Modifier.weight(1f))
                     Switch(checked = caseSensitive, onCheckedChange = null)
                 }
-                Text("원문 인식 결과는 변경하지 않으며, 이후 번역 결과의 일치하는 표현에 적용됩니다.",
+                Text("찾을 표현은 120자, 변경할 표현은 160자 이내로 입력해 주세요. 이후 번역 결과에 적용되며 원문은 그대로 유지됩니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
