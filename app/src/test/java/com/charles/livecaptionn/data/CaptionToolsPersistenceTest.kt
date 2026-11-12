@@ -14,7 +14,7 @@ class CaptionToolsPersistenceTest {
     @get:Rule val tmp = TemporaryFolder()
 
     @Test fun glossaryCrudPreservesEntryIdsAndLiteralReplacements() = runBlocking {
-        val path = tmp.newFile("glossary.json")
+        val path = File(tmp.root, "glossary.json")
         val store = FileGlossaryRepository(path, forTesting = true)
         val entry = GlossaryEntry(id = "qa-glossary", phrase = "API",
             replacement = "한국어 표기", caseSensitive = false)
@@ -34,7 +34,7 @@ class CaptionToolsPersistenceTest {
     }
 
     @Test fun profileCrudKeepsLanguageSizeAndOriginalVisibility() = runBlocking {
-        val file = tmp.newFile("profiles.json")
+        val file = File(tmp.root, "profiles.json")
         val repo = FileCaptionProfileRepository(file, forTesting = true)
         val item = CaptionProfile(id = "qa-profile", name = "영화", sourceLanguage = "ja",
             targetLanguage = "ko", textSizeSp = 26f, showOriginal = false)
