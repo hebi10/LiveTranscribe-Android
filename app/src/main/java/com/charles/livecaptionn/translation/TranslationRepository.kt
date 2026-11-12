@@ -19,6 +19,9 @@ interface TranslationRepository {
      */
     suspend fun prewarm(sourceCode: String, targetCode: String) {}
 
+    /** Optional best-effort second pass; no-op for backends without a correction model. */
+    suspend fun refineKoreanSubtitle(translation: String): String = translation
+
     /**
      * Release any held resources (cached translators, HTTP clients, etc.).
      * Called when the repository is no longer needed.
