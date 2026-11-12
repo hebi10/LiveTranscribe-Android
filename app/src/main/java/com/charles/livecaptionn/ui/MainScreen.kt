@@ -92,6 +92,9 @@ fun MainScreen(
     val languageLabel = if (ui.settings.sourceLanguageCode == RecognitionLanguages.AUTO)
         "언어 자동 감지" else "${RecognitionLanguages.koreanLabel(ui.settings.sourceLanguageCode)} 고정"
     val inputLabel = if (ui.settings.audioSource == AudioSource.SYSTEM) "동영상 음성" else "마이크"
+    val placementLabel = if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN)
+        "분할 화면" else "팝업"
+    val selectionLabel = "$placementLabel · $inputLabel · $languageLabel → 한국어"
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -186,9 +189,20 @@ fun MainScreen(
                 ) {
                     if (!setup.isVisible) {
                         Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
-                        Text("$languageLabel → 한국어 · $inputLabel", fontWeight = FontWeight.Medium)
+                        Text(selectionLabel, fontWeight = FontWeight.Medium)
                         Text(statusLabel, style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Text("선택한 번역 방식", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(selectionLabel, style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium)
+                        if (setup.modelStage == ModelSetupStage.NOT_DOWNLOADED &&
+                            setup.downloadedBytes == 0L) {
+                            Text("첫 사용 시 음성·번역 모델 약 2.1GB를 내려받아야 합니다. 준비 후에는 인터넷 없이 번역할 수 있습니다.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     ui.runtime.lastError?.takeIf { it.isNotBlank() }?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)
@@ -211,9 +225,6 @@ fun MainScreen(
                             onPrepareModels = viewModel::prepareSelectedTranslationModel,
                             onCancelModelPreparation = onCancelModelPreparation
                         )
-                        Text("$languageLabel → 한국어 · $inputLabel",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -248,8 +259,8 @@ fun MainScreen(
                     }
                 }
                 Text(if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN)
-                    "영상과 화면을 나눠 자막을 봅니다. 화면 비율은 Android 구분선으로 조절합니다."
-                    else "영상 위에 자막창을 띄웁니다. 위치와 크기를 조절할 수 있습니다.",
+                    "영상 옆에 자막을 표시합니다. 화면 비율은 Android 구분선으로 조절합니다."
+                    else "영상 위에 자막창을 표시하며 위치·크기를 조절할 수 있습니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (sessionBusy) Text("화면 배치는 번역 종료 후 변경할 수 있습니다.",
@@ -296,8 +307,8 @@ fun MainScreen(
                     ) { Text("마이크") }
                 }
                 Text(if (ui.settings.audioSource == AudioSource.SYSTEM)
-                    "캡처를 허용하는 동영상 앱의 소리만 인식합니다."
-                    else "마이크로 들리는 주변 음성을 번역합니다.",
+                    "앱에서 캡처를 허용한 동영상 소리만 인식합니다."
+                    else "마이크로 들어오는 주변 음성을 번역합니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -329,14 +340,11 @@ fun MainScreen(
                 Text("번역 결과: 한국어", fontWeight = FontWeight.Medium)
                 Text(
                     if (ui.settings.sourceLanguageCode == RecognitionLanguages.AUTO)
-                        "구간마다 언어를 감지합니다. 짧은 발화나 혼합 음성은 감지가 어려울 수 있습니다."
-                    else "선택한 언어로 고정해 인식합니다. 여러 언어는 자동 감지를 선택하세요.",
+                        "음성을 구간별로 감지합니다. 짧거나 여러 언어가 섞인 발화는 정확하지 않을 수 있습니다."
+                    else "선택한 언어로 인식합니다. 여러 언어가 섞이면 자동 감지를 선택하세요.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text("모든 모드는 같은 모델을 사용하므로 추가 다운로드가 없습니다.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -468,12 +476,12 @@ private fun StartSetupGuidance(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        LinearProgressIndicator(
+        if (!setup.isComplete) LinearProgressIndicator(
             progress = { setup.completedSteps.toFloat() / setup.totalSteps },
             modifier = Modifier.fillMaxWidth()
         )
         if (setup.isComplete) {
-            Text("권한과 음성·번역 모델 준비가 완료되었습니다.",
+            Text("필수 권한과 모델 준비가 완료되었습니다. 아래에서 번역을 시작할 수 있습니다.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(
@@ -485,7 +493,7 @@ private fun StartSetupGuidance(
                     contentDescription = null)
             }
         } else {
-            Text("${setup.remainingSteps}개 항목 남음",
+            Text("${setup.remainingSteps}개 항목 남음 · 다음 준비 항목부터 진행하세요.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
