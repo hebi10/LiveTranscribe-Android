@@ -24,12 +24,12 @@ class DeviceCompatibilityTest {
  
     @Test
     fun kindleTablet_evaluatesToBorderline() {
-        // Amazon Fire HD 8 spec: 2783 MB RAM, 4 cores, 32-bit (armeabi-v7a), 2100 MB free storage
+        // Amazon Fire HD 8 spec: 2783 MB RAM, 4 cores, 32-bit (armeabi-v7a), 2800 MB free storage
         val (tier, reasons) = DeviceCompatibilityChecker.evaluateTier(
             totalRamMb = 2783L,
             cpuCores = 4,
             is64Bit = false,
-            freeStorageMb = 2100L
+            freeStorageMb = 2800L
         )
         assertEquals(CompatibilityTier.BORDERLINE, tier)
         assertTrue(reasons.any { it.contains("2.5 GB minimum") || it.contains("4 GB+ is recommended") })
@@ -65,7 +65,7 @@ class DeviceCompatibilityTest {
  
     @Test
     fun lowStorage_evaluatesToUnsupported() {
-        // Low storage: 8000 MB RAM, 8 cores, 64-bit, 100 MB free storage (< 350 MB min)
+        // Low storage: 8000 MB RAM, 8 cores, 64-bit, 100 MB free storage (below the pinned model catalog + reserve minimum)
         val (tier, reasons) = DeviceCompatibilityChecker.evaluateTier(
             totalRamMb = 8000L,
             cpuCores = 8,
@@ -73,7 +73,7 @@ class DeviceCompatibilityTest {
             freeStorageMb = 100L
         )
         assertEquals(CompatibilityTier.UNSUPPORTED, tier)
-        assertTrue(reasons.any { it.contains("Free internal storage") && it.contains("under the 350 MB") })
+        assertTrue(reasons.any { it.contains("Free internal storage") && it.contains("required for the current offline model") })
     }
  
     @Test
@@ -91,10 +91,27 @@ class DeviceCompatibilityTest {
     }
  
     @Test
+    fun actualPinnedCatalogControlsDownloadThresholdWithoutBlockingAlreadyInstalledModels() {
+        val minimum = DeviceCompatibilityChecker.MIN_STORAGE_MB
+        assertTrue("The current offline model is larger than the old 1500MB estimate", minimum > 2100L)
+        val below = DeviceCompatibilityChecker.evaluateTier(8000L, 8, true, minimum - 1)
+        assertEquals(CompatibilityTier.UNSUPPORTED, below.first)
+        val enough = DeviceCompatibilityChecker.evaluateTier(8000L, 8, true,
+            DeviceCompatibilityChecker.REC_STORAGE_MB + 1)
+        assertEquals(CompatibilityTier.PASSED, enough.first)
+        val installed = DeviceCompatibilityChecker.evaluateTier(
+            8000L, 8, true, freeStorageMb = 300L, modelsAlreadyVerified = true)
+        assertEquals(CompatibilityTier.PASSED, installed.first)
+        val unknown = DeviceCompatibilityChecker.evaluateTier(
+            8000L, 8, true, freeStorageMb = -1L)
+        assertEquals(CompatibilityTier.BORDERLINE, unknown.first)
+    }
+
+    @Test
     fun deviceSpecs_helperProperties() {
         val (passedTier, _) = DeviceCompatibilityChecker.evaluateTier(8000L, 8, true, 5000L)
         val (unsupportedTier, _) = DeviceCompatibilityChecker.evaluateTier(1500L, 2, false, 100L)
-        val (borderlineTier, _) = DeviceCompatibilityChecker.evaluateTier(3000L, 4, false, 500L)
+        val (borderlineTier, _) = DeviceCompatibilityChecker.evaluateTier(3000L, 4, false, 3000L)
  
         val passedSpecs = com.charles.livecaptionn.compatibility.DeviceSpecs(
             8000L, 8, true, 5000L, "Pixel 8", "Android 14", passedTier, emptyList()

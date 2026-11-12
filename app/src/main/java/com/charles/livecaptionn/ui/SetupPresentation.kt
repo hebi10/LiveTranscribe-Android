@@ -77,3 +77,24 @@ internal fun MainSetupState.modelPreparationGuidance(): String = when {
         "이전 다운로드에서 이어받습니다. 네트워크 연결을 확인해 주세요."
     else -> "처음 사용할 때 약 2.1GB를 다운로드합니다. Wi-Fi와 충분한 저장 공간을 확인해 주세요. 모바일 데이터 사용 시 요금이 발생할 수 있습니다."
 }
+
+/** Estimates only missing model bytes; the downloader performs the authoritative space check. */
+internal data class ModelStorageNotice(val message: String, val insufficient: Boolean)
+
+internal fun MainSetupState.modelStorageNotice(availableBytes: Long): ModelStorageNotice? {
+    if (modelStage == ModelSetupStage.READY || modelStage == ModelSetupStage.CHECKING || totalBytes <= 0) return null
+    val remaining = (totalBytes - downloadedBytes.coerceIn(0L, totalBytes)).coerceAtLeast(0L)
+    if (remaining == 0L) return null
+    if (availableBytes <= 0L) return ModelStorageNotice(
+        "기기 저장 공간을 확인할 수 없습니다. 다운로드 전 사용 가능한 공간을 확인해 주세요.", false)
+    val reserve = com.charles.livecaptionn.compatibility.DeviceCompatibilityChecker.DOWNLOAD_RESERVE_BYTES
+    val required = remaining + reserve
+    val requiredMb = (required + 999_999L) / 1_000_000L
+    val freeMb = availableBytes / 1_000_000L
+    return ModelStorageNotice(
+        if (availableBytes < required)
+            "모델 저장 공간 부족: 약 ${requiredMb}MB 필요 · 현재 ${freeMb}MB 사용 가능. 공간을 확보한 뒤 다시 시도해 주세요."
+        else "모델 추가 저장 공간: 약 ${requiredMb}MB 필요 · 현재 ${freeMb}MB 사용 가능.",
+        insufficient = availableBytes < required
+    )
+}

@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Process
 import android.os.StatFs
+import com.charles.livecaptionn.models.OfflineModelCatalog
 
 enum class CompatibilityTier(val label: String) {
     PASSED("Fully Supported"),
@@ -36,16 +37,18 @@ object DeviceCompatibilityChecker {
     const val MIN_RAM_MB = 2560L
     const val REC_RAM_MB = 3840L
 
-    // Minimum free storage for unpacking Vosk acoustic model + ML Kit pair: 350 MB
-    // Recommended storage: 1.5 GB (1500 MB)
-    const val MIN_STORAGE_MB = 350L
-    const val REC_STORAGE_MB = 1500L
+    // Derived from the actual pinned 2.12 GB offline speech+translation catalog,
+    // plus the same 16 MiB reserve enforced by OfflineModelStore.
+    const val DOWNLOAD_RESERVE_BYTES = 16L * 1024 * 1024
+    val MIN_STORAGE_MB: Long = (OfflineModelCatalog.files.sumOf { it.sizeBytes } +
+        DOWNLOAD_RESERVE_BYTES + 999_999L) / 1_000_000L
+    val REC_STORAGE_MB: Long = MIN_STORAGE_MB + 512L
 
     // CPU Cores: 4 minimum for background decoding + Compose UI thread
     const val MIN_CPU_CORES = 4
     const val REC_CPU_CORES = 6
 
-    fun inspect(context: Context, simulatedTier: CompatibilityTier? = null): DeviceSpecs {
+    fun inspect(context: Context, simulatedTier: CompatibilityTier? = null, modelsAlreadyVerified: Boolean = false): DeviceSpecs {
         val totalRamMb = getSystemTotalRamMb(context)
         val cpuCores = Runtime.getRuntime().availableProcessors()
         val is64Bit = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -62,7 +65,8 @@ object DeviceCompatibilityChecker {
             cpuCores = cpuCores,
             is64Bit = is64Bit,
             freeStorageMb = freeStorageMb,
-            abi = Build.SUPPORTED_ABIS.firstOrNull() ?: if (is64Bit) "64-bit" else "32-bit"
+            abi = Build.SUPPORTED_ABIS.firstOrNull() ?: if (is64Bit) "64-bit" else "32-bit",
+            modelsAlreadyVerified = modelsAlreadyVerified
         )
 
         val effectiveTier = simulatedTier ?: detectedTier
@@ -90,7 +94,8 @@ object DeviceCompatibilityChecker {
         cpuCores: Int,
         is64Bit: Boolean,
         freeStorageMb: Long,
-        abi: String = if (is64Bit) "arm64-v8a" else "armeabi-v7a"
+        abi: String = if (is64Bit) "arm64-v8a" else "armeabi-v7a",
+        modelsAlreadyVerified: Boolean = false
     ): Pair<CompatibilityTier, List<String>> {
         val reasons = mutableListOf<String>()
         var isUnsupported = false
@@ -117,12 +122,17 @@ object DeviceCompatibilityChecker {
             reasons.add("Device runs 32-bit architecture ($abi). High-capacity models are restricted.")
         }
 
-        if (freeStorageMb < MIN_STORAGE_MB) {
-            isUnsupported = true
-            reasons.add("Free internal storage ($freeStorageMb MB) is under the 350 MB needed for offline models.")
-        } else if (freeStorageMb < REC_STORAGE_MB) {
-            isBorderline = true
-            reasons.add("Storage space ($freeStorageMb MB) is low; downloading extra language models may fill storage.")
+        if (!modelsAlreadyVerified) {
+            if (freeStorageMb < 0L) {
+                isBorderline = true
+                reasons.add("Free internal storage could not be measured; verify space before downloading.")
+            } else if (freeStorageMb < MIN_STORAGE_MB) {
+                isUnsupported = true
+                reasons.add("Free internal storage ($freeStorageMb MB) is below the $MIN_STORAGE_MB MB required for the current offline model files and download reserve.")
+            } else if (freeStorageMb < REC_STORAGE_MB) {
+                isBorderline = true
+                reasons.add("Storage space ($freeStorageMb MB) meets the download minimum but has limited headroom.")
+            }
         }
 
         val detectedTier = when {
@@ -146,8 +156,8 @@ object DeviceCompatibilityChecker {
             val path = context.filesDir
             val stat = StatFs(path.path)
             (stat.availableBlocksLong * stat.blockSizeLong) / (1024 * 1024)
-        } catch (_: Throwable) {
-            1024L
+        } catch (_: Exception) {
+            -1L
         }
     }
 }
