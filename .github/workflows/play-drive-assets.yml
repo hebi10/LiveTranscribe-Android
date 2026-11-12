@@ -8,7 +8,12 @@ on:
         type: choice
         options: [check, apply]
         required: true
-        default: check
+        default: check      final_release_approved:
+        description: 'Final batch only: approved image/listing update'
+        required: true
+        type: boolean
+        default: false
+
 
 permissions:
   contents: read
@@ -42,6 +47,7 @@ jobs:
           SOURCE_SHA: ${{ steps.ci.outputs.sha }}
           EVENT_NAME: ${{ github.event_name }}
           REQUEST_MODE: ${{ inputs.mode }}
+          FINAL_RELEASE_APPROVED: ${{ inputs.final_release_approved }}
         shell: bash
         run: |
           set -euo pipefail
@@ -51,6 +57,10 @@ jobs:
             exit 1
           fi
           if [[ "$REQUEST_MODE" == "apply" ]]; then
+            if [[ "$FINAL_RELEASE_APPROVED" != "true" ]]; then
+              echo 'Play approved image updates are frozen until the final release.' >&2
+              exit 1
+            fi
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
