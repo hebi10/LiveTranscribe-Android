@@ -176,6 +176,36 @@ class MainViewModel(
         viewModelScope.launch { container.settingsRepository.update { it.copy(showOriginal = enabled) } }
     }
 
+    fun updateAiCorrectionEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsRepository.update { it.copy(aiCorrectionEnabled = enabled) }
+        }
+    }
+
+    fun updateCorrectionHighlightEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsRepository.update { it.copy(correctionHighlightEnabled = enabled) }
+        }
+    }
+
+    fun updateCorrectionHighlightColor(color: String) {
+        viewModelScope.launch {
+            container.settingsRepository.update {
+                it.copy(correctionHighlightColor =
+                    com.charles.livecaptionn.settings.CorrectionHighlightPalette.normalizeColor(color))
+            }
+        }
+    }
+
+    fun updateCorrectionHighlightDuration(durationMs: Int) {
+        viewModelScope.launch {
+            container.settingsRepository.update {
+                it.copy(correctionHighlightDurationMs =
+                    com.charles.livecaptionn.settings.CorrectionHighlightPalette.normalizeDuration(durationMs))
+            }
+        }
+    }
+
     fun updateCaptionPlacement(placement: CaptionPlacement) {
         if (!mutable.value.placementSelectionEnabled) return
         viewModelScope.launch {
