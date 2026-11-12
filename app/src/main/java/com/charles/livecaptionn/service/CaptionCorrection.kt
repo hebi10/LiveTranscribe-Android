@@ -45,7 +45,7 @@ internal fun correctionChangedRanges(previous: String, revised: String): List<Ca
         val token = fresh[index]
         val start = token.range.first
         val end = token.range.last + 1
-        if (ranges.isNotEmpty() && revised.substring(ranges.last().endExclusive, start).isBlank()) {
+        if (ranges.isNotEmpty() && ranges.last().endExclusive == start) {
             val last = ranges.removeAt(ranges.lastIndex)
             ranges += CaptionCorrectionRange(last.start, end)
         } else ranges += CaptionCorrectionRange(start, end)
