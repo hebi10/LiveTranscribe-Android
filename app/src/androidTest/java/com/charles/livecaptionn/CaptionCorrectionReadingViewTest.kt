@@ -61,8 +61,9 @@ class CaptionCorrectionReadingViewTest {
             assertSame(translated, after)
             assertEquals(Color.WHITE, after.currentTextColor)
             assertEquals(revised, after.text.toString())
-            assertTrue((after.text as Spanned).getSpans(0, after.text.length,
-                ForegroundColorSpan::class.java).isEmpty())
+            val remainingSpans = (after.text as? Spanned)?.getSpans(0, after.text.length,
+                ForegroundColorSpan::class.java)
+            assertTrue(remainingSpans == null || remainingSpans.isEmpty())
             assertEquals(8L, reader.sessionId)
         }
     }
