@@ -572,6 +572,7 @@ class CaptionForegroundService : Service() {
             val revised = try {
                 applyGlossary(polished, app.container.glossary.list())
             } catch (_: Exception) { return@launch }
+            if (!acceptableCaptionCorrection(firstTranslation, revised)) return@launch
             val currentSettings = app.container.settingsRepository.settingsFlow.first()
             if (!currentSettings.aiCorrectionEnabled) return@launch
             val ms = com.charles.livecaptionn.settings.CorrectionHighlightPalette.normalizeDuration(durationMs)
