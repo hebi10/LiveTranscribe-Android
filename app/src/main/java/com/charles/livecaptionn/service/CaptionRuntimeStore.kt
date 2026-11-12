@@ -20,7 +20,9 @@ data class CaptionRuntimeLine(
     val finalTranslationCommitted: Boolean = isFinal && translatedText.isNotBlank(),
     val sourceLanguageCode: String = RecognitionLanguages.UNKNOWN,
     /** Links sentence captions to asynchronous language metadata from the same captured audio. */
-    val audioWindowId: Long? = null
+    val audioWindowId: Long? = null,
+    val correctionRanges: List<CaptionCorrectionRange> = emptyList(),
+    val correctionHighlightUntilMs: Long = 0L
 )
 
 /** Bounded in-memory timings. Never records speech or transcript content. */
@@ -196,6 +198,7 @@ internal fun completedCaptionSession(
     val completedLines = if (sessionPlacement == CaptionPlacement.SPLIT_SCREEN)
         retainedLines.filter { it.isFinal && it.finalTranslationCommitted &&
             it.originalText.isNotBlank() && it.translatedText.isNotBlank() }.takeLast(MAX_OVERLAY_MESSAGES)
+            .map { it.copy(correctionRanges = emptyList(), correctionHighlightUntilMs = 0L) }
         else emptyList()
     return CaptionRuntimeState(
         originalText = completedLines.lastOrNull()?.originalText.orEmpty(),

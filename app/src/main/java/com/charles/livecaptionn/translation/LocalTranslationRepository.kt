@@ -45,6 +45,18 @@ class LocalTranslationRepository internal constructor(
         }
     }
 
+    override suspend fun refineKoreanSubtitle(translation: String): String {
+        val clean = translation.trim()
+        if (clean.isEmpty() || clean.length > 600) return clean
+        val prompt = "Polish the following Korean subtitle for natural grammar and spacing. " +
+            "Preserve the original meaning, names, numbers, and tone. " +
+            "Do not add or explain anything. Output ONLY the polished Korean subtitle:\n\n$clean"
+        return execute { session, request ->
+            backend.translate(session, request, prompt.toByteArray(Charsets.UTF_8), 192, 8_000)
+                .toString(Charsets.UTF_8).trim()
+        }
+    }
+
     override suspend fun prewarm(sourceCode: String, targetCode: String) {
         val source = requirePair(sourceCode, targetCode, allowAutomaticMode = true)
         if (source != "ko") execute { _, _ -> Unit }

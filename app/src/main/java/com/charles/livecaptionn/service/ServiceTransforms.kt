@@ -158,6 +158,8 @@ internal fun buildOverlayUiState(runtime: CaptionRuntimeState, settings: Caption
         textSizeSp = settings.textSizeSp,
         opacity = settings.overlayOpacity,
         showOriginal = settings.showOriginal,
+        correctionColor = settings.correctionHighlightColor,
+        correctionHighlightEnabled = settings.correctionHighlightEnabled,
         minimized = settings.overlayMinimized,
         suggestedLanguageCode = runtime.suggestedLanguageCode,
         themeId = settings.overlayThemeId,

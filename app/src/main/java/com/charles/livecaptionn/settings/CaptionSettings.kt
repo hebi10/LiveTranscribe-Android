@@ -19,7 +19,11 @@ data class CaptionSettings(
     val overlayFontId: String = "default",
     val saveHistory: Boolean = false,
     val captionPlacement: CaptionPlacement = CaptionPlacement.POPUP,
-    val appThemeMode: AppThemeMode = AppThemeMode.DARK
+    val appThemeMode: AppThemeMode = AppThemeMode.DARK,
+    val aiCorrectionEnabled: Boolean = true,
+    val correctionHighlightEnabled: Boolean = true,
+    val correctionHighlightColor: String = CorrectionHighlightPalette.DEFAULT_COLOR,
+    val correctionHighlightDurationMs: Int = CorrectionHighlightPalette.DEFAULT_DURATION_MS
 ) {
     companion object {
         const val DEFAULT_OVERLAY_WIDTH_DP = 340

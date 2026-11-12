@@ -3,12 +3,16 @@ package com.charles.livecaptionn.overlay
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.service.CaptionPhase
 import com.charles.livecaptionn.settings.CaptionDisplayMode
+import com.charles.livecaptionn.settings.CorrectionHighlightPalette
+import com.charles.livecaptionn.service.CaptionCorrectionRange
 
 data class OverlayCaptionMessage(
     val id: Long,
     val originalText: String,
     val translatedText: String,
-    val isFinal: Boolean
+    val isFinal: Boolean,
+    val correctionRanges: List<CaptionCorrectionRange> = emptyList(),
+    val correctionHighlightUntilMs: Long = 0L
 )
 
 data class OverlayUiState(
@@ -31,6 +35,8 @@ data class OverlayUiState(
     val textSizeSp: Float = 18f,
     val opacity: Float = 0.65f,
     val showOriginal: Boolean = true,
+    val correctionColor: String = CorrectionHighlightPalette.DEFAULT_COLOR,
+    val correctionHighlightEnabled: Boolean = true,
     val minimized: Boolean = false,
     val suggestedLanguageCode: String? = null,
     /** Optional local font and theme identifiers; no subscriptions. */

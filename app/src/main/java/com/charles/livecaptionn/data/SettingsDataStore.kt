@@ -15,6 +15,7 @@ import com.charles.livecaptionn.settings.CaptionSettings
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionDisplayMode
+import com.charles.livecaptionn.settings.CorrectionHighlightPalette
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -50,7 +51,11 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
                 overlayFontId = p[OVERLAY_FONT] ?: defaults.overlayFontId,
                 saveHistory = p[SAVE_HISTORY] ?: defaults.saveHistory,
                 captionPlacement = CaptionPlacement.fromName(p[PLACEMENT]),
-                appThemeMode = AppThemeMode.fromName(p[APP_THEME_MODE])
+                appThemeMode = AppThemeMode.fromName(p[APP_THEME_MODE]),
+                aiCorrectionEnabled = p[AI_CORRECTION_ENABLED] ?: defaults.aiCorrectionEnabled,
+                correctionHighlightEnabled = p[CORRECTION_HIGHLIGHT_ENABLED] ?: defaults.correctionHighlightEnabled,
+                correctionHighlightColor = CorrectionHighlightPalette.normalizeColor(p[CORRECTION_COLOR]),
+                correctionHighlightDurationMs = CorrectionHighlightPalette.normalizeDuration(p[CORRECTION_DURATION] ?: defaults.correctionHighlightDurationMs)
             )
         }
 
@@ -76,6 +81,10 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
             p[SAVE_HISTORY] = next.saveHistory
             p[PLACEMENT] = next.captionPlacement.name
             p[APP_THEME_MODE] = next.appThemeMode.name
+            p[AI_CORRECTION_ENABLED] = next.aiCorrectionEnabled
+            p[CORRECTION_HIGHLIGHT_ENABLED] = next.correctionHighlightEnabled
+            p[CORRECTION_COLOR] = CorrectionHighlightPalette.normalizeColor(next.correctionHighlightColor)
+            p[CORRECTION_DURATION] = CorrectionHighlightPalette.normalizeDuration(next.correctionHighlightDurationMs)
         }
 
         private val SOURCE = stringPreferencesKey("source")
@@ -97,5 +106,9 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
         private val PLACEMENT = stringPreferencesKey("caption_placement")
         private val SAVE_HISTORY = booleanPreferencesKey("save_history")
         private val APP_THEME_MODE = stringPreferencesKey("app_theme_mode")
+        private val AI_CORRECTION_ENABLED = booleanPreferencesKey("ai_correction_enabled")
+        private val CORRECTION_HIGHLIGHT_ENABLED = booleanPreferencesKey("correction_highlight_enabled")
+        private val CORRECTION_COLOR = stringPreferencesKey("correction_highlight_color")
+        private val CORRECTION_DURATION = intPreferencesKey("correction_highlight_duration_ms")
     }
 }
