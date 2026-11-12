@@ -554,6 +554,7 @@ private fun StartSetupGuidance(
     onCancelModelPreparation: () -> Unit
 ) {
     var showAllDetails by rememberSaveable(setup.isComplete) { mutableStateOf(false) }
+    val deviceContext = LocalContext.current
     val visibleSteps = setup.visibleChecklistSteps(showAllDetails)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
@@ -640,6 +641,14 @@ private fun StartSetupGuidance(
                     Text("현재 파일: $name",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (setup.modelStage != ModelSetupStage.READY) {
+                    setup.modelStorageNotice(deviceContext.noBackupFilesDir.usableSpace)?.let { notice ->
+                        Text(notice.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (notice.insufficient) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 if (modelNext) {
                     NextSetupAction(
