@@ -10,6 +10,7 @@ import android.provider.Settings
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.charles.livecaptionn.data.CaptionProfile
 import com.charles.livecaptionn.di.AppContainer
 import com.charles.livecaptionn.service.manuallySelectedCaptionLanguage
 import com.charles.livecaptionn.settings.AudioSource
@@ -87,6 +88,30 @@ class MainViewModel(
                 manuallySelectedCaptionLanguage(it, code)
             }
         }
+    }
+
+    suspend fun applyCaptionProfile(profile: CaptionProfile): Boolean {
+        val language = profile.sourceLanguage
+        if (!RecognitionLanguages.isValidMode(language) ||
+            profile.targetLanguage != "ko" || !profile.textSizeSp.isFinite()) return false
+        if (container.runtimeStore.state.value.running || container.runtimeStore.state.value.stopping) return false
+        var applied = false
+        container.settingsRepository.update { settings ->
+            val runtime = container.runtimeStore.state.value
+            if (runtime.running || runtime.stopping) settings
+            else {
+                applied = true
+                settings.copy(
+                    sourceLanguageCode = language,
+                    textSizeSp = profile.textSizeSp.coerceIn(14f, 40f),
+                    showOriginal = profile.showOriginal
+                )
+            }
+        }
+        if (applied) {
+            container.runtimeStore.update { manuallySelectedCaptionLanguage(it, language) }
+        }
+        return applied
     }
 
     fun prepareSelectedTranslationModel() {
