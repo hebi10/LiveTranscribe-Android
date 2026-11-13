@@ -403,5 +403,61 @@ class GuardShellFailurePropagationTests(unittest.TestCase):
 
 
 
+class EffectiveGuardShellSelectionTests(unittest.TestCase):
+    def test_unrelated_custom_shell_does_not_change_guard_safety(self):
+        read_file = audit.read
+        path = ".github/workflows/play-internal-release.yml"
+        original = read_file(path)
+        self.assertIn("    steps:\n", original)
+        modified = original.replace(
+            "    steps:\n",
+            "    steps:\n"
+            "      - name: Unrelated diagnostic\n"
+            "        shell: python {0}\n"
+            "        run: print('ready')\n", 1)
+        with patch.object(audit, "read", side_effect=lambda name:
+                          modified if name == path else read_file(name)):
+            blockers = audit.findings()
+        self.assertFalse(any("PROVENANCE: OPS-04" in item
+                             for item in blockers), blockers)
+
+    def test_unsafe_job_default_shell_is_inherited_by_guard(self):
+        read_file = audit.read
+        path = ".github/workflows/play-internal-release.yml"
+        original = read_file(path)
+        modified = original.replace(
+            "    steps:\n",
+            "    defaults:\n"
+            "      run:\n"
+            "        shell: bash {0}\n"
+            "    steps:\n", 1)
+        with patch.object(audit, "read", side_effect=lambda name:
+                          modified if name == path else read_file(name)):
+            blockers = audit.findings()
+        self.assertTrue(any("PROVENANCE: OPS-04 verify" in item
+                            for item in blockers), blockers)
+
+    def test_fail_fast_step_shell_overrides_unsafe_job_default(self):
+        read_file = audit.read
+        path = ".github/workflows/play-internal-release.yml"
+        original = read_file(path)
+        command = "        run: python3 scripts/ops04/internal.py guard\n"
+        self.assertIn(command, original)
+        modified = original.replace(
+            "    steps:\n",
+            "    defaults:\n"
+            "      run:\n"
+            "        shell: bash {0}\n"
+            "    steps:\n", 1)
+        modified = modified.replace(
+            command, "        shell: bash -e {0}\n" + command, 1)
+        with patch.object(audit, "read", side_effect=lambda name:
+                          modified if name == path else read_file(name)):
+            blockers = audit.findings()
+        self.assertFalse(any("PROVENANCE: OPS-04 verify" in item
+                             for item in blockers), blockers)
+
+
+
 if __name__ == "__main__":
     unittest.main()
