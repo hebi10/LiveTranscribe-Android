@@ -369,6 +369,8 @@ def _safe_store_step(guard_step, mutation_steps, body, filename):
         return False
     if re.search(r"(?m)^[ \t]*(?:run:[ \t]*)?set[ \t]+\+e\b", guard_step):
         return False
+    if re.search(r"(?m)^[ \t]*(?:run:[ \t]*)?if[ \t]+[^\n]*\bthen\b|^[ \t]*(?:elif|else|fi)\b", guard_step):
+        return False
     guard_cond = _step_condition(guard_step)
     if not guard_cond:
         return True
