@@ -372,10 +372,17 @@ def _guard_shell_unsafe(step, job, workflow=""):
     return False
 
 
+def _failure_ignored(step):
+    values = re.findall(
+        r"""(?m)^[ \t]+(?:-[ \t]+)?(?:continue-on-error|["']continue-on-error["']):[ \t]*([^\n#]*)""",
+        step)
+    return any(value.strip().lower() != "false" for value in values)
+
+
 def _safe_store_step(guard_step, mutation_steps, body, filename):
     if _guard_shell_unsafe(guard_step, body):
         return False
-    if re.search(r"(?m)^[ \t]+(?:-[ \t]+)?continue-on-error[ \t]*:[ \t]*(?!false[ \t]*(?:#.*)?$)[^\n]+", guard_step):
+    if _failure_ignored(guard_step):
         return False
     guard_command = r"(?m)^[ \t]*(?:-[ \t]+)?(?:run:[ \t]*)?python(?:3)?\s+scripts/ops06/store_gate\.py\s+apply"
     if not re.search(guard_command + r"(?:\s|$)", guard_step):
@@ -540,8 +547,7 @@ def findings():
                 problems.append("PROVENANCE: OPS-04 " + stage + " requires an executable signed-source guard")
                 continue
             index, guard = guards[0]
-            ignore_failure = re.search(
-                r"(?m)^[ \t]+(?:-[ \t]+)?continue-on-error[ \t]*:[ \t]*(?!false[ \t]*(?:#.*)?$)[^\n]*", guard)
+            ignore_failure = _failure_ignored(guard)
             if (_step_condition(guard) or ignore_failure
                     or _guard_shell_unsafe(guard, body, internal)
                     or re.search(guard_command + r"[^\n]*(?:&&|\|\||;[ \t]*true\b|\|(?!\|))", guard)
