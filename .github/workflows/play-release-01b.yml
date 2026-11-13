@@ -13,7 +13,8 @@ concurrency:
 jobs:
   source:
     # Legacy Play mutation route disabled until a final consolidated release is approved.
-    if: false # Historical Play path frozen; OPS-04/05 manual workflow is the only approved route.
+    # Legacy route permanently dormant: workflow_dispatch never matches this event.
+    if: github.event_name == 'ops07-legacy-play-disabled'
     runs-on: ubuntu-latest
     permissions:
       contents: read
