@@ -327,5 +327,26 @@ class ShellConditionalGuardRegressionTests(unittest.TestCase):
         self.assertTrue(any("STORE_OPTIONAL" in item for item in issues), issues)
 
 
+class ProvenanceShellConditionalRegressionTests(unittest.TestCase):
+    def test_existing_source_guards_cannot_be_wrapped_in_false_shell_conditions(self):
+        read_file = audit.read
+        path = ".github/workflows/play-internal-release.yml"
+        original = read_file(path)
+        guard = "run: python3 scripts/ops04/internal.py guard"
+        self.assertEqual(original.count(guard), 2)
+        conditional = ("run: |\n"
+                       "          if false; then\n"
+                       "            python3 scripts/ops04/internal.py guard\n"
+                       "          fi")
+        forged = original.replace(guard, conditional)
+        with patch.object(audit, "read", side_effect=lambda name:
+                          forged if name == path else read_file(name)):
+            issues = audit.findings()
+        for stage in ("verify", "publish"):
+            with self.subTest(stage=stage):
+                self.assertTrue(any("PROVENANCE: OPS-04 " + stage in issue
+                                    for issue in issues), issues)
+
+
 if __name__ == "__main__":
     unittest.main()
