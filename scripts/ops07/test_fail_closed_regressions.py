@@ -348,5 +348,60 @@ class ProvenanceShellConditionalRegressionTests(unittest.TestCase):
                                     for issue in issues), issues)
 
 
+class GuardShellFailurePropagationTests(unittest.TestCase):
+    def test_explicit_continue_on_error_false_does_not_weaken_provenance(self):
+        read_file = audit.read
+        path = ".github/workflows/play-internal-release.yml"
+        original = read_file(path)
+        command = "        run: python3 scripts/ops04/internal.py guard\n"
+        self.assertEqual(original.count(command), 2)
+        modified = original.replace(command,
+                                    "        continue-on-error: false\n" + command)
+        with patch.object(audit, "read", side_effect=lambda name:
+                          modified if name == path else read_file(name)):
+            findings = audit.findings()
+        self.assertFalse(any("PROVENANCE: OPS-04" in item
+                             for item in findings), findings)
+
+    def test_unprotected_custom_shell_cannot_mask_provenance_failure(self):
+        read_file = audit.read
+        path = ".github/workflows/play-internal-release.yml"
+        original = read_file(path)
+        command = "        run: python3 scripts/ops04/internal.py guard\n"
+        self.assertEqual(original.count(command), 2)
+        modified = original.replace(
+            command,
+            "        shell: bash {0}\n"
+            "        run: |\n"
+            "          python3 scripts/ops04/internal.py guard\n"
+            "          echo completed\n")
+        with patch.object(audit, "read", side_effect=lambda name:
+                          modified if name == path else read_file(name)):
+            findings = audit.findings()
+        for stage in ("verify", "publish"):
+            with self.subTest(stage=stage):
+                self.assertTrue(any("PROVENANCE: OPS-04 " + stage in item
+                                    for item in findings), findings)
+
+    def test_unprotected_custom_shell_cannot_mask_store_rejection(self):
+        read_file = audit.read
+        path = ".github/workflows/play-listing.yml"
+        original = read_file(path)
+        command = "        run: python3 scripts/ops06/store_gate.py apply\n"
+        self.assertIn(command, original)
+        modified = original.replace(
+            command,
+            "        shell: bash {0}\n"
+            "        run: |\n"
+            "          python3 scripts/ops06/store_gate.py apply\n"
+            "          echo completed\n", 1)
+        with patch.object(audit, "read", side_effect=lambda name:
+                          modified if name == path else read_file(name)):
+            findings = audit.findings()
+        self.assertTrue(any("STORE_OPTIONAL: play-listing.yml" in item
+                            for item in findings), findings)
+
+
+
 if __name__ == "__main__":
     unittest.main()
