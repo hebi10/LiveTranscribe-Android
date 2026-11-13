@@ -286,5 +286,29 @@ class InterpreterOptionsRegressionTests(unittest.TestCase):
         self.assertTrue(any("STORE_GUARD" in item for item in issues), issues)
 
 
+
+class VariableIndentRegressionTests(unittest.TestCase):
+    def test_four_space_job_properties_preserve_manual_gate(self):
+        workflow = ("on:\n  push:\n  workflow_dispatch:\njobs:\n"
+                    "    deliver:\n"
+                    "        if: github.event_name == 'workflow_dispatch'\n"
+                    "        runs-on: ubuntu-latest\n"
+                    "        steps:\n"
+                    "          - run: python3 scripts/play/publisher.py deploy\n")
+        parsed = audit.jobs(workflow)
+        self.assertEqual(audit.job_condition(parsed["deliver"]),
+                         "github.event_name == 'workflow_dispatch'")
+        self.assertEqual(audit.automatic_mutations("play.yml", workflow), [])
+
+    def test_four_space_job_properties_do_not_hide_push_publish(self):
+        workflow = ("on:\n  push:\n  workflow_dispatch:\njobs:\n"
+                    "    deliver:\n"
+                    "        if: github.event_name == 'workflow_dispatch' || true\n"
+                    "        runs-on: ubuntu-latest\n"
+                    "        steps:\n"
+                    "          - run: python3 scripts/play/publisher.py deploy\n")
+        self.assertTrue(audit.automatic_mutations("play.yml", workflow))
+
+
 if __name__ == "__main__":
     unittest.main()
