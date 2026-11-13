@@ -146,7 +146,7 @@ jobs:
           PLAY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: python3 scripts/play/publisher.py --report output/play-readiness.json inspect --require-binary
       - name: Commit reviewed Korean images only
-        if: needs.source.outputs.publish == 'true'
+        if: inputs.mode == 'apply'
         env:
           PLAY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           PLAY_CONSOLE_INITIALIZED: ${{ steps.readiness.outputs.initialized }}
