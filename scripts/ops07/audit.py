@@ -359,7 +359,22 @@ def _step_condition(body):
     return " ".join(parts) if parts else "__unparsed_condition__"
 
 
+def _guard_shell_unsafe(step, job, workflow=""):
+    for block in (step, job, workflow or ""):
+        for raw in re.findall(r"(?m)^[ \t]*(?:-[ \t]+)?shell:[ \t]*([^\n#]+)", block):
+            shell = raw.strip().strip("'\"")
+            if "{0}" not in shell:
+                continue
+            if not re.search(r"(?:^|\s)-[A-Za-z]*e[A-Za-z]*(?=\s|$)|(?:^|\s)-o\s+errexit\b", shell):
+                return True
+            if re.search(r"(?:^|\s)\+e(?:\s|$)", shell):
+                return True
+    return False
+
+
 def _safe_store_step(guard_step, mutation_steps, body, filename):
+    if _guard_shell_unsafe(guard_step, body):
+        return False
     if re.search(r"(?m)^[ \t]+(?:-[ \t]+)?continue-on-error[ \t]*:[ \t]*(?!false[ \t]*(?:#.*)?$)[^\n]+", guard_step):
         return False
     guard_command = r"(?m)^[ \t]*(?:-[ \t]+)?(?:run:[ \t]*)?python(?:3)?\s+scripts/ops06/store_gate\.py\s+apply"
@@ -525,7 +540,10 @@ def findings():
                 problems.append("PROVENANCE: OPS-04 " + stage + " requires an executable signed-source guard")
                 continue
             index, guard = guards[0]
-            if (_step_condition(guard) or re.search(r"(?m)^[ \t]+(?:-[ \t]+)?continue-on-error[ \t]*:", guard)
+            ignore_failure = re.search(
+                r"(?m)^[ \t]+(?:-[ \t]+)?continue-on-error[ \t]*:[ \t]*(?!false[ \t]*(?:#.*)?$)[^\n]*", guard)
+            if (_step_condition(guard) or ignore_failure
+                    or _guard_shell_unsafe(guard, body, internal)
                     or re.search(guard_command + r"[^\n]*(?:&&|\|\||;[ \t]*true\b|\|(?!\|))", guard)
                     or re.search(r"(?m)^[ \t]*(?:run:[ \t]*)?set[ \t]+\+e\b", guard)
                     or re.search(r"(?m)^[ \t]*(?:run:[ \t]*)?(?:if[ \t]+|(?:elif|else|fi)\b)", guard)):
