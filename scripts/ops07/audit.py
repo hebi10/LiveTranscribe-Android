@@ -118,7 +118,10 @@ def job_condition(body):
     if not lines:
         return ""
     header_indent = len(lines[0]) - len(lines[0].lstrip())
-    key_indent = header_indent + 2
+    key_levels = [len(line) - len(line.lstrip()) for line in lines[1:]
+                  if line.strip() and not line.lstrip().startswith("#")
+                  and len(line) - len(line.lstrip()) > header_indent]
+    key_indent = min(key_levels, default=header_indent + 2)
     for index, line in enumerate(lines):
         if len(line) - len(line.lstrip()) != key_indent:
             continue
