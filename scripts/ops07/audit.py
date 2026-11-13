@@ -360,16 +360,47 @@ def _step_condition(body):
 
 
 def _guard_shell_unsafe(step, job, workflow=""):
-    for block in (step, job, workflow or ""):
-        for raw in re.findall(r"(?m)^[ \t]*(?:-[ \t]+)?shell:[ \t]*([^\n#]+)", block):
-            shell = raw.strip().strip("'\"")
-            if "{0}" not in shell:
+    def declared_shell(block, indentation):
+        for line in block.splitlines():
+            match = re.match(r"^" + " " * indentation + r"shell:[ \t]*([^\n#]*)", line)
+            if match:
+                return match.group(1).strip().strip("'\"")
+        return None
+
+    def inherited_shell(block, indentation):
+        lines = block.splitlines()
+        for index, line in enumerate(lines):
+            if line.strip() != "defaults:" or len(line) - len(line.lstrip()) != indentation:
                 continue
-            if not re.search(r"(?:^|\s)-[A-Za-z]*e[A-Za-z]*(?=\s|$)|(?:^|\s)-o\s+errexit\b", shell):
-                return True
-            if re.search(r"(?:^|\s)\+e(?:\s|$)", shell):
-                return True
-    return False
+            within_run = False
+            for child in lines[index + 1:]:
+                if not child.strip() or child.lstrip().startswith("#"):
+                    continue
+                depth = len(child) - len(child.lstrip())
+                if depth <= indentation:
+                    break
+                if depth == indentation + 2:
+                    within_run = child.strip() == "run:"
+                if within_run and depth == indentation + 4:
+                    match = re.match(r"^\s+shell:[ \t]*([^\n#]*)", child)
+                    if match:
+                        return match.group(1).strip().strip("'\"")
+        return None
+
+    step_lines = step.splitlines()
+    step_depth = len(step_lines[0]) - len(step_lines[0].lstrip()) if step_lines else 0
+    first = re.match(r"^\s*-[ \t]+shell:[ \t]*([^\n#]*)", step_lines[0]) if step_lines else None
+    explicit = first.group(1).strip().strip("'\"") if first else declared_shell(step, step_depth + 2)
+    job_lines = job.splitlines()
+    job_depth = len(job_lines[0]) - len(job_lines[0].lstrip()) if job_lines else 0
+    shell = (explicit if explicit is not None else
+             inherited_shell(job, job_depth + 2))
+    if shell is None:
+        shell = inherited_shell(workflow or "", 0)
+    if not shell or "{0}" not in shell:
+        return False
+    return (not re.search(r"(?:^|\s)-[A-Za-z]*e[A-Za-z]*(?=\s|$)|(?:^|\s)-o\s+errexit\b", shell)
+            or bool(re.search(r"(?:^|\s)\+e(?:\s|$)", shell)))
 
 
 def _failure_ignored(step):
