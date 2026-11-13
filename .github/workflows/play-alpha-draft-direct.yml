@@ -1,8 +1,7 @@
 name: Play alpha v22 approved direct commit
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -10,7 +9,7 @@ permissions:
 jobs:
   source:
     # Legacy Play mutation route disabled until a final consolidated release is approved.
-    if: github.event_name == 'workflow_dispatch'
+    if: false # Historical Play path frozen; OPS-04/05 manual workflow is the only approved route.
     runs-on: ubuntu-latest
     permissions:
       contents: read
