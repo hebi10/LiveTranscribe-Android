@@ -59,7 +59,9 @@ jobs:
 
   promote:
     needs: [source, gates]
-    if: needs.source.outputs.approved == 'true' && needs.gates.result == 'success'
+    if: >-
+      false &&
+      (needs.source.outputs.approved == 'true' && needs.gates.result == 'success')
     runs-on: ubuntu-latest
     environment: google-play
     permissions:
