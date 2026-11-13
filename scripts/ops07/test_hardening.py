@@ -56,6 +56,24 @@ class HardeningTests(unittest.TestCase):
             "misc.yml", publisher("true", job="closed",
                                   command="curl -X POST https://androidpublisher.googleapis.com/androidpublisher/v3/applications/example")))
 
+    def test_unreachable_legacy_publisher_requires_executable_dependencies(self):
+        source = (
+            "on:\n  workflow_run:\n    workflows: [Private Android APK]\n    types: [completed]\n"
+            "jobs:\n  source:\n"
+            "    if: github.event_name == 'workflow_dispatch'\n"
+            "    runs-on: ubuntu-latest\n"
+            "  verified-ci:\n    needs: source\n"
+            "    runs-on: ubuntu-latest\n"
+            "  reconcile:\n    needs: [source, verified-ci]\n"
+            "    if: needs.verified-ci.result == 'success'\n"
+            "    runs-on: ubuntu-latest\n    steps:\n"
+            "      - run: python3 scripts/play/publisher.py reconcile-alpha-draft\n"
+        )
+        self.assertEqual(audit.automatic_mutations("play-release-01b.yml", source), [])
+        unsafe = source.replace("github.event_name == 'workflow_dispatch'", "true")
+        self.assertTrue(audit.automatic_mutations("play-release-01b.yml", unsafe))
+
+
     def test_unsigned_smoke_is_not_play_publication(self):
         smoke = publisher("true", job="release-smoke", command="./gradlew assembleDebug")
         self.assertEqual(audit.automatic_mutations("play-preflight.yml", smoke), [])
