@@ -9,7 +9,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 class ManualPlayFreezeTests(unittest.TestCase):
     def test_release_workflows_are_manual_and_approved(self):
-        for name in ("play-internal.yml", "play-promote.yml"):
+        for name in ("play-internal.yml", "play-promote.yml", "play-drive-assets.yml", "play-listing.yml", "play-store-01.yml"):
             with self.subTest(workflow=name):
                 text = (WORKFLOWS / name).read_text(encoding="utf-8")
                 self.assertRegex(text, r"(?m)^  workflow_dispatch:")
