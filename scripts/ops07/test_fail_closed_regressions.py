@@ -310,5 +310,22 @@ class VariableIndentRegressionTests(unittest.TestCase):
         self.assertTrue(audit.automatic_mutations("play.yml", workflow))
 
 
+
+class ShellConditionalGuardRegressionTests(unittest.TestCase):
+    def test_shell_if_false_cannot_skip_store_approval(self):
+        source = store_workflow(
+            guard_run="|\n          if false; then\n"
+                      "            python3 scripts/ops06/store_gate.py apply\n"
+                      "          fi")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / ".github/workflows"
+            folder.mkdir(parents=True)
+            (folder / "play-listing.yml").write_text(source, encoding="utf-8")
+            with patch.object(audit, "ROOT", root):
+                issues = audit.store_guard_findings()
+        self.assertTrue(any("STORE_OPTIONAL" in item for item in issues), issues)
+
+
 if __name__ == "__main__":
     unittest.main()
