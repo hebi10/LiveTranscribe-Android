@@ -229,6 +229,36 @@ def _publishing_command(body):
     return False
 
 
+def _job_dependencies(body):
+    match = re.search(r"(?m)^\s+needs:\s*([^\n#]*)", body)
+    if not match:
+        return []
+    expression = match.group(1).strip()
+    if expression.startswith("[") and expression.endswith("]"):
+        return [value.strip().strip("'\"") for value in expression[1:-1].split(",") if value.strip()]
+    if re.fullmatch(r"[A-Za-z][\w-]*", expression):
+        return [expression]
+    return []
+
+
+def _cannot_run_from_automatic_events(name, workflow_jobs, seen=None):
+    if seen is None:
+        seen = set()
+    if name in seen:
+        return False
+    body = workflow_jobs.get(name)
+    if body is None:
+        return False
+    condition = job_condition(body)
+    if is_disabled(condition) or is_manual_only(condition):
+        return True
+    if re.search(r"\b(?:always|failure|cancelled)\s*\(", condition):
+        return False
+    dependencies = _job_dependencies(body)
+    return any(_cannot_run_from_automatic_events(dep, workflow_jobs, seen | {name})
+               for dep in dependencies)
+
+
 def automatic_mutations(filename, source):
     events = triggers(source) - {"workflow_dispatch"}
     if not events:
@@ -247,11 +277,8 @@ def automatic_mutations(filename, source):
         condition = job_condition(body)
         if is_disabled(condition) or is_manual_only(condition):
             continue
-        need = re.search(r"(?m)^    needs:\s*([A-Za-z][\w-]*)\s*$", body)
-        if need and not re.search(r"\b(?:always|failure|cancelled)\s*\(", condition):
-            predecessor = workflow_jobs.get(need.group(1))
-            if predecessor is not None and is_disabled(job_condition(predecessor)):
-                continue
+        if _cannot_run_from_automatic_events(name, workflow_jobs):
+            continue
         issues.append(filename + ": job " + name + " may publish from automatic events "
                       + ",".join(sorted(events)))
     return issues
