@@ -246,6 +246,9 @@ fun CaptionScreen(
                 }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text("자막 표시", style = MaterialTheme.typography.labelLarge)
+                if (ui.settings.readingFocusMode) Text("집중 모드에서는 2차 AI 교정을 잠시 생략해 읽던 번역문을 유지합니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         .toggleable(value = ui.settings.readingFocusMode, role = Role.Switch,
                             onValueChange = onReadingFocusChange),

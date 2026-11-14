@@ -386,7 +386,7 @@ fun MainScreen(
                     Text("자막 표시", style = MaterialTheme.typography.titleMedium)
                     SettingToggle("시청 집중 모드", ui.settings.readingFocusMode,
                         viewModel::updateReadingFocusMode)
-                    Text("최근 자막에서는 최신 번역 구간 하나에 집중합니다. 원문은 잠시 숨기고 긴 문장은 자르지 않습니다. 이전 자막은 목록에서 확인할 수 있습니다.",
+                    Text("최근 자막의 최신 번역 구간 하나에 집중합니다. 원문을 잠시 숨기고 2차 AI 교정을 생략해 문장 변경을 줄입니다. 기존 설정과 이전 자막은 보존됩니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -426,7 +426,7 @@ fun MainScreen(
                     Text("2차 AI 자막 교정", style = MaterialTheme.typography.titleMedium)
                     SettingToggle("확정 자막을 한 번 더 다듬기", ui.settings.aiCorrectionEnabled,
                         viewModel::updateAiCorrectionEnabled)
-                    Text("1차 번역은 바로 표시합니다. 대기 중인 번역이 있으면 2차 교정은 생략되며, 별도 AI 모델을 다운로드하지 않습니다.",
+                    Text("1차 번역은 바로 표시합니다. 시청 집중 모드 또는 번역 대기 중에는 2차 교정을 생략합니다. 별도 AI 모델을 다운로드하지 않습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SettingToggle("교정된 단어 색상 강조", ui.settings.correctionHighlightEnabled,

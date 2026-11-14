@@ -462,6 +462,7 @@ class CaptionForegroundService : Service() {
             ) { runtime, settings, _ -> Pair(runtime, settings) }
                 .collectLatest { (runtime, settings) ->
                     stableCaptions = settings.stableCaptions
+                    if (settings.readingFocusMode) correctionJob?.cancel()
                     val overlay = overlayController ?: return@collectLatest
                     val ui = buildOverlayUiState(runtime, settings)
                     overlay.update(ui)
@@ -527,7 +528,7 @@ class CaptionForegroundService : Service() {
             val saved = app.container.historyRecordingGate.recordIfAllowed(request.historyConsent) {
                 app.container.transcriptHistory.add(historyEntry)
             }
-            if (captionSettings.aiCorrectionEnabled && captionSessionActive.get() && !stopping) {
+            if (shouldRefineCaptionDuringReading(captionSettings) && captionSessionActive.get() && !stopping) {
                 scheduleCaptionCorrection(
                     captionSessionId = captionSessionId,
                     lineId = request.lineId,
@@ -574,7 +575,7 @@ class CaptionForegroundService : Service() {
             } catch (_: Exception) { return@launch }
             if (!acceptableCaptionCorrection(firstTranslation, revised)) return@launch
             val currentSettings = app.container.settingsRepository.settingsFlow.first()
-            if (!currentSettings.aiCorrectionEnabled) return@launch
+            if (!shouldRefineCaptionDuringReading(currentSettings)) return@launch
             val ms = com.charles.livecaptionn.settings.CorrectionHighlightPalette.normalizeDuration(durationMs)
             val until = if (highlightEnabled && currentSettings.correctionHighlightEnabled)
                 SystemClock.elapsedRealtime() + ms else 0L

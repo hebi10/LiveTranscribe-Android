@@ -1,5 +1,11 @@
 package com.charles.livecaptionn.service
 
+import com.charles.livecaptionn.settings.CaptionSettings
+
+/** In focused viewing, keep the first translation stable without changing the saved AI preference. */
+internal fun shouldRefineCaptionDuringReading(settings: CaptionSettings): Boolean =
+    settings.aiCorrectionEnabled && !settings.readingFocusMode
+
 /** UTF-16 offsets into the corrected subtitle, end exclusive. */
 data class CaptionCorrectionRange(val start: Int, val endExclusive: Int)
 
