@@ -82,6 +82,7 @@ fun CaptionScreen(
     onChooseApp: () -> Unit,
     onSplitHelp: () -> Unit,
     onShowOriginalChange: (Boolean) -> Unit,
+    onReadingFocusChange: (Boolean) -> Unit,
     onTextSizeChange: (Float) -> Unit,
     onDisplayModeChange: (CaptionDisplayMode) -> Unit,
     onStart: () -> Unit,
@@ -193,7 +194,8 @@ fun CaptionScreen(
                                 view.onFollowingChanged = { following = it }
                                 view.render(messages, ui.settings.showOriginal &&
                                     !(ui.settings.readingFocusMode && ui.settings.captionDisplayMode == CaptionDisplayMode.CAPTIONS),
-                                    ui.settings.textSizeSp, foreground, secondary, correctionColor)
+                                    ui.settings.textSizeSp, foreground, secondary, correctionColor,
+                                    ui.settings.readingFocusMode && ui.settings.captionDisplayMode == CaptionDisplayMode.CAPTIONS)
                             }
                         )
                     }
@@ -244,9 +246,16 @@ fun CaptionScreen(
                 }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text("자막 표시", style = MaterialTheme.typography.labelLarge)
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .toggleable(value = ui.settings.readingFocusMode, role = Role.Switch,
+                            onValueChange = onReadingFocusChange),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("시청 집중 모드", Modifier.weight(1f))
+                    Switch(checked = ui.settings.readingFocusMode, onCheckedChange = null)
+                }
                 Text("읽기 방식", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                CaptionReadOption("최근 자막", "최근 2개 구간", ui.settings.captionDisplayMode == CaptionDisplayMode.CAPTIONS) {
+                CaptionReadOption("최근 자막", if (ui.settings.readingFocusMode) "집중 모드: 최신 1개 구간" else "최근 2개 구간", ui.settings.captionDisplayMode == CaptionDisplayMode.CAPTIONS) {
                     onDisplayModeChange(CaptionDisplayMode.CAPTIONS)
                 }
                 CaptionReadOption("자막 목록", "최대 40개 구간", ui.settings.captionDisplayMode == CaptionDisplayMode.CHAT) {

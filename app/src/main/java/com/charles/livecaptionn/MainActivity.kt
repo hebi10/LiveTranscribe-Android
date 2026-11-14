@@ -177,6 +177,7 @@ class MainActivity : ComponentActivity() {
                                     onChooseApp = { chooseCompanionApp() },
                                     onSplitHelp = { splitHelpMessage = null; showSplitHelp = true },
                                     onShowOriginalChange = vm::updateShowOriginal,
+                                    onReadingFocusChange = vm::updateReadingFocusMode,
                                     onTextSizeChange = vm::updateTextSize,
                                     onDisplayModeChange = vm::updateCaptionDisplayMode,
                                     onStart = { startCaptioning() },
