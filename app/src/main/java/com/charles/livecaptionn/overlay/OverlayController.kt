@@ -394,7 +394,8 @@ class OverlayController(
         val theme = OverlayThemeCatalog.find(ui.themeId)
         val font = OverlayFontCatalog.find(ui.fontId)
         val s = uiStrings()
-        val effectiveOpacity = ui.opacity.coerceIn(0.2f, 1.0f)
+        val focusCaption = ui.readingFocusMode && ui.displayMode == CaptionDisplayMode.CAPTIONS
+        val effectiveOpacity = maxOf(ui.opacity.coerceIn(0.2f, 1.0f), if (focusCaption) 0.94f else 0.2f)
         (container.background as? GradientDrawable)?.setColor(withAlpha(theme.backgroundRgb, (effectiveOpacity * 255).roundToInt()))
         statusText?.apply {
             setTextColor(theme.textRgb)
@@ -446,10 +447,11 @@ class OverlayController(
         setButton(modeButton, if (ui.displayMode == CaptionDisplayMode.CHAT) R.drawable.ic_overlay_chat else R.drawable.ic_overlay_captions,
             if (ui.displayMode == CaptionDisplayMode.CHAT) "Switch to caption view" else "Switch to chat view")
         modeButton?.isSelected = ui.displayMode == CaptionDisplayMode.CHAT
-        sourceButton?.isSelected = ui.showOriginal
+        sourceButton?.isSelected = ui.showOriginal && !focusCaption
+        sourceButton?.isEnabled = !focusCaption
         setButton(sourceButton, R.drawable.ic_overlay_source, if (ui.showOriginal) "Hide original text" else "Show original text")
         setControlLabel(modeButton, if (ui.displayMode == CaptionDisplayMode.CHAT) "자막 목록" else "최근 자막")
-        setControlLabel(sourceButton, if (ui.showOriginal) "원문 켜짐" else "원문 꺼짐")
+        setControlLabel(sourceButton, if (focusCaption) "원문 숨김·집중" else if (ui.showOriginal) "원문 켜짐" else "원문 꺼짐")
         for (button in buttons) applyButtonStyle(button, theme.textRgb, button.isSelected || button === resizeHandle)
         for ((button, label) in controlLabels) {
             label.setTextColor(theme.textRgb)
