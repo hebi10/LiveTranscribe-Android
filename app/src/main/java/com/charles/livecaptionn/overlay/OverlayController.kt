@@ -537,8 +537,8 @@ class OverlayController(
     private fun renderCaptions(content: CaptionContent, color: Int, typeface: Typeface, translationTypeface: Typeface) {
         val display = content.display
         val chat = content.mode == CaptionDisplayMode.CHAT
-        translatedText?.breakStrategy = if (lastAppearance?.focusReading == true ||
-            (latestUi?.readingFocusMode == true && !chat)) LineBreaker.BREAK_STRATEGY_BALANCED
+        translatedText?.breakStrategy = if (latestUi?.readingFocusMode == true && !chat)
+            LineBreaker.BREAK_STRATEGY_BALANCED
             else LineBreaker.BREAK_STRATEGY_SIMPLE
         translatedText?.setLineSpacing(dp(if (latestUi?.readingFocusMode == true && !chat) 4 else 2).toFloat(),
             if (latestUi?.readingFocusMode == true && !chat) 1.08f else 1.05f)
