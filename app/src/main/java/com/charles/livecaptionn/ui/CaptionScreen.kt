@@ -191,7 +191,9 @@ fun CaptionScreen(
                             modifier = Modifier.fillMaxSize(),
                             update = { view ->
                                 view.onFollowingChanged = { following = it }
-                                view.render(messages, ui.settings.showOriginal, ui.settings.textSizeSp, foreground, secondary, correctionColor)
+                                view.render(messages, ui.settings.showOriginal &&
+                                    !(ui.settings.readingFocusMode && ui.settings.captionDisplayMode == CaptionDisplayMode.CAPTIONS),
+                                    ui.settings.textSizeSp, foreground, secondary, correctionColor)
                             }
                         )
                     }
