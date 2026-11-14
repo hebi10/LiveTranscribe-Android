@@ -41,6 +41,7 @@ jobs:
       - name: Require approved one-time draft reconciliation commit
         id: approval
         env:
+          GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
         shell: bash
         run: |
