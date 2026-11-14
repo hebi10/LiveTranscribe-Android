@@ -384,6 +384,11 @@ fun MainScreen(
             if (showAdvancedSettings) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("자막 표시", style = MaterialTheme.typography.titleMedium)
+                    SettingToggle("시청 집중 모드", ui.settings.readingFocusMode,
+                        viewModel::updateReadingFocusMode)
+                    Text("최근 자막에서는 최신 번역 구간 하나에 집중합니다. 원문은 잠시 숨기고 긴 문장은 자르지 않습니다. 이전 자막은 목록에서 확인할 수 있습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         for ((mode, label) in listOf(
@@ -405,7 +410,8 @@ fun MainScreen(
                     }
                     Text(if (ui.settings.captionDisplayMode == CaptionDisplayMode.CHAT)
                         "최근 40개 자막 구간을 모아 봅니다. 읽는 동안 자동 이동이 멈춥니다."
-                        else "최근 2개 자막 구간을 표시합니다. 창 너비에 따라 줄바꿈됩니다.",
+                        else if (ui.settings.readingFocusMode) "최신 번역 구간 1개를 표시합니다. 이전 자막은 목록에서 읽을 수 있습니다."
+                         else "최근 2개 자막 구간을 표시합니다. 창 너비에 따라 줄바꿈됩니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("확정된 문장부터 자막을 표시합니다. 인식이 지연되면 일부 음성 구간이 생략될 수 있습니다.",

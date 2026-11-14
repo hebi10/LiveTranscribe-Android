@@ -7,6 +7,7 @@ data class CaptionSettings(
     val overlayOpacity: Float = 0.85f,
     val showOriginal: Boolean = false,
     val captionDisplayMode: CaptionDisplayMode = CaptionDisplayMode.CAPTIONS,
+    val readingFocusMode: Boolean = false,
     val stableCaptions: Boolean = true,
     val overlayControlsExpanded: Boolean = false,
     val overlayX: Int = 24,

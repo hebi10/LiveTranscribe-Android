@@ -139,13 +139,16 @@ internal fun shouldTranslateCaption(isFinal: Boolean, stableCaptions: Boolean): 
 /** Build source and translated display text from the same eligible snapshots. */
 internal fun buildOverlayUiState(runtime: CaptionRuntimeState, settings: CaptionSettings): OverlayUiState {
     val messages = overlayCaptionMessages(runtime, settings.stableCaptions)
-    val captions = messages.takeLast(MAX_CAPTION_MESSAGES)
+    val captions = messages.takeLast(if (settings.readingFocusMode &&
+        settings.captionDisplayMode == com.charles.livecaptionn.settings.CaptionDisplayMode.CAPTIONS) 1
+        else MAX_CAPTION_MESSAGES)
     return OverlayUiState(
         originalText = captions.joinToString("\n") { it.originalText },
         translatedText = captions.lastOrNull()?.translatedText.orEmpty(),
         transcriptText = captions.joinToString("\n") { it.translatedText },
         messages = messages,
         displayMode = settings.captionDisplayMode,
+        readingFocusMode = settings.readingFocusMode,
         stableCaptions = settings.stableCaptions,
         controlsExpanded = settings.overlayControlsExpanded,
         status = runtime.status,
