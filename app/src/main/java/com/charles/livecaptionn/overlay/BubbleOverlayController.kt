@@ -59,6 +59,7 @@ class BubbleOverlayController(
     private var latestSettings = CaptionSettings()
     private val presentation = BubbleCaptionPresentationState()
     private var captionVisible = false
+    private var draggingBubble = false
     private var timer: Job? = null
     private var scheduledFor: Long? = null
 
@@ -121,11 +122,22 @@ class BubbleOverlayController(
         }
         setOnTouchListener(DragListener())
     }
-    private val menu = LinearLayout(context).apply {
+    private val menuContent = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        visibility = View.GONE
         setPadding(dp(8), dp(8), dp(8), dp(8))
         setBackgroundColor(Color.rgb(36, 36, 36))
+    }
+    private val menu = object : ScrollView(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val (top, bottom) = insets()
+            val available = (displayHeight() - top - bottom - dp(48) - dp(16)).coerceAtLeast(dp(80))
+            super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(
+                available, View.MeasureSpec.AT_MOST))
+        }
+    }.apply {
+        visibility = View.GONE
+        isVerticalScrollBarEnabled = true
+        addView(menuContent)
     }
     private val durationAction = menuAction("자막 유지 5초") {
         val values = BubbleCaptionOptions.durationsMs
@@ -180,14 +192,14 @@ class BubbleOverlayController(
     init {
         captionRow.addView(captionScroll)
         captionRow.addView(bubbleButton, LinearLayout.LayoutParams(dp(48), dp(48)))
-        menu.addView(statusText)
-        menu.addView(durationAction)
-        menu.addView(textSizeAction)
-        menu.addView(originalAction)
-        menu.addView(focusAction)
-        menu.addView(resetAction)
-        menu.addView(pauseAction)
-        menu.addView(stopAction)
+        menuContent.addView(statusText)
+        menuContent.addView(durationAction)
+        menuContent.addView(textSizeAction)
+        menuContent.addView(originalAction)
+        menuContent.addView(focusAction)
+        menuContent.addView(resetAction)
+        menuContent.addView(pauseAction)
+        menuContent.addView(stopAction)
         root.addView(captionRow)
         root.addView(menu)
     }
@@ -279,7 +291,7 @@ class BubbleOverlayController(
 
     private fun refreshView() {
         if (!attached) return
-        val hasCaption = captionVisible &&
+        val hasCaption = captionVisible && !draggingBubble &&
             latestUi?.stopping != true && !settingsOpen
         captionScroll.visibility = if (hasCaption) View.VISIBLE else View.GONE
         captionScroll.layoutParams = LinearLayout.LayoutParams(
@@ -400,35 +412,51 @@ class BubbleOverlayController(
                     val dy = event.rawY - startRawY
                     if (!dragging && abs(dx) < slop && abs(dy) < slop) return true
                     dragging = true
+                    draggingBubble = true
                     settingsOpen = false
                     preferredY = fittedY(startY + dy.roundToInt())
-                    val next = bubbleSideAt(event.rawX, displayWidth())
-                    if (next != side) {
-                        side = next
-                        arrangeForSide()
-                    }
+                    side = bubbleSideAt(event.rawX, displayWidth())
+                    // Do not remove/re-add the ImageButton while it owns this touch stream.
                     refreshView()
                     return true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (dragging) {
-                        scope.launch {
-                            settingsRepository.update {
-                                it.copy(bubbleSide = side, bubbleY = preferredY)
+                    val moved = dragging
+                    val finalSide = side
+                    val finalY = preferredY
+                    dragging = false
+                    if (moved) {
+                        // Re-parent only after Android finishes dispatching ACTION_UP.
+                        view.post {
+                            if (!attached) return@post
+                            draggingBubble = false
+                            side = finalSide
+                            preferredY = finalY
+                            arrangeForSide()
+                            latestUi?.let { update(it, latestSettings) } ?: refreshView()
+                            scope.launch {
+                                settingsRepository.update {
+                                    it.copy(bubbleSide = finalSide, bubbleY = finalY)
+                                }
                             }
                         }
                     } else view.performClick()
-                    dragging = false
                     return true
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    if (dragging) {
-                        side = startSide
-                        preferredY = startY
-                        arrangeForSide()
-                        refreshView()
-                    }
+                    val moved = dragging
                     dragging = false
+                    if (moved) {
+                        // Layout is likewise deferred until the cancelled event unwinds.
+                        view.post {
+                            if (!attached) return@post
+                            draggingBubble = false
+                            side = startSide
+                            preferredY = startY
+                            arrangeForSide()
+                            latestUi?.let { update(it, latestSettings) } ?: refreshView()
+                        }
+                    }
                     return true
                 }
             }
