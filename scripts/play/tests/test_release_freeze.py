@@ -1,5 +1,9 @@
 """Regression guard: coding and merging work must not publish to Google Play."""
+import os
 import pathlib
+import subprocess
+import tempfile
+import textwrap
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -27,6 +31,38 @@ class ReleaseFreezeTests(unittest.TestCase):
         self.assertIn('FINAL_RELEASE_APPROVED: ${{ inputs.final_release_approved }}', raw)
         self.assertIn('if [[ "$FINAL_RELEASE_APPROVED" != "true" ]]', raw)
         self.assertIn("    if: github.event_name == 'workflow_dispatch'", raw)
+
+
+    def test_internal_qa_override_is_manual_internal_only(self):
+        raw = workflow("play-internal.yml")
+        self.assertIn("      internal_qa_approved:", raw)
+        self.assertIn('INTERNAL_QA_APPROVED: ${{ inputs.internal_qa_approved }}', raw)
+        self.assertIn('RELEASE_MODE: ${{ inputs.mode }}', raw)
+        self.assertNotIn("  push:", raw.split("\npermissions:", 1)[0])
+        approval = raw.split(
+            "      - name: Require explicit final batch release approval before any Play binary upload\n", 1
+        )[1].split("      - name: Require exact main source", 1)[0]
+        script = textwrap.dedent(approval.split("        run: |\n", 1)[1])
+        cases = (
+            ("deploy", "false", "true", True),
+            ("deploy", "false", "false", False),
+            ("initialize", "false", "true", False),
+            ("initialize", "true", "false", True),
+            ("deploy", "true", "false", True),
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            summary = pathlib.Path(folder) / "summary"
+            for mode, final, qa, expected in cases:
+                with self.subTest(mode=mode, final=final, qa=qa):
+                    result = subprocess.run(
+                        ["bash", "-e", "-u", "-o", "pipefail", "-c", script],
+                        env={**os.environ, "RELEASE_MODE": mode,
+                             "FINAL_RELEASE_APPROVED": final,
+                             "INTERNAL_QA_APPROVED": qa,
+                             "GITHUB_STEP_SUMMARY": str(summary)},
+                        text=True, capture_output=True, check=False,
+                    )
+                    self.assertEqual(result.returncode == 0, expected, result.stderr)
 
     def test_legacy_auto_alpha_routes_cannot_run_mutating_jobs(self):
         for name in (

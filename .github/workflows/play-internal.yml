@@ -10,7 +10,12 @@ on:
         default: check
         options: [check, build, initialize, deploy]
       final_release_approved:
-        description: 'Required for deploy/initialize: all planned work and final integration/device QA approved'
+        description: 'Required for final batch deploy/initialize after completed release QA'
+        required: true
+        type: boolean
+        default: false
+      internal_qa_approved:
+        description: 'Internal-only release for physical device QA before final QA; never alpha/production'
         required: true
         type: boolean
         default: false
@@ -55,12 +60,17 @@ jobs:
         if: inputs.mode == 'deploy' || inputs.mode == 'initialize'
         env:
           FINAL_RELEASE_APPROVED: ${{ inputs.final_release_approved }}
+          INTERNAL_QA_APPROVED: ${{ inputs.internal_qa_approved }}
+          RELEASE_MODE: ${{ inputs.mode }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ "$FINAL_RELEASE_APPROVED" != "true" ]]; then
-            echo 'Play release frozen: finish planned PR integration, final QA and explicit final approval first.' >&2
-            exit 1
+            if [[ "$RELEASE_MODE" != "deploy" || "$INTERNAL_QA_APPROVED" != "true" ]]; then
+              echo 'Play release frozen: final QA approval or explicit internal-only QA approval required.' >&2
+              exit 1
+            fi
+            echo 'Internal-only QA authorization: ARM64 device QA remains pending; no closed/production deployment.' >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Require exact main source and successful build job
         id: source
