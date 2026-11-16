@@ -6,13 +6,14 @@ import json
 import os
 import re
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 PACKAGE = "com.hebi.livetranslate"
 PRODUCT = "remove_ads"
 GOOGLE = "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/"
 METADATA = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+PLAY_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
 MAX_BODY = 2048
 TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._:/-]{10,1500}$")
 ACTIVE_STATES = frozenset({
@@ -46,7 +47,8 @@ def is_active(subscription: dict, now: dt.datetime | None = None) -> bool:
 
 
 def access_token() -> str:
-    request = Request(METADATA, headers={"Metadata-Flavor": "Google"})
+    query = urlencode({"scopes": PLAY_SCOPE})
+    request = Request(f"{METADATA}?{query}", headers={"Metadata-Flavor": "Google"})
     try:
         with urlopen(request, timeout=4) as response:
             data = json.loads(response.read(4096))
