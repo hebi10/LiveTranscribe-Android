@@ -11,11 +11,18 @@
 
 ## 통신 범위와 한계
 
-`INTERNET`과 `ACCESS_NETWORK_STATE` 권한은 모델 다운로드를 위해 필요합니다. 유일한 앱 네트워크 구현인 `ModelDownloadTransport`는 고정 모델 URL의 GET 요청과 HTTPS 리디렉션을 처리합니다. 요청 본문이나 업로드 스트림을 만들지 않으며, 음성·자막·번역문·계정 토큰·쿠키·앱 로그를 입력으로 받지 않습니다. 재개 다운로드에는 `Range` 헤더를 사용합니다.
+`INTERNET`과 `ACCESS_NETWORK_STATE` 권한은 모델 다운로드를 위해 필요합니다. 음성·모델 관련 앱 네트워크 구현인 `ModelDownloadTransport`는 고정 모델 URL의 GET 요청과 HTTPS 리디렉션을 처리합니다. 요청 본문이나 업로드 스트림을 만들지 않으며, 음성·자막·번역문·계정 토큰·쿠키·앱 로그를 입력으로 받지 않습니다. 재개 다운로드에는 `Range` 헤더를 사용합니다.
 
 다운로드 서버와 CDN은 IP 주소, 요청한 모델 경로, 전송 시각 등 일반적인 접속 정보를 볼 수 있습니다. Android 네트워크 권한 자체가 통신을 이 용도로 제한해 주지는 않습니다. 모델 설치 후 인식과 번역에는 네트워크가 필요하지 않지만, 실제 기기에서 통신 0건을 관측했다는 의미는 아닙니다.
 
-Firebase Analytics/Crashlytics/Performance, 광고·결제·원격 오류 제보·피드백·자동 업데이트 SDK는 사용하지 않습니다. ML Kit 제거로 과거 문서의 ML Kit 진단 수집 안내는 현재 실행 경로에 해당하지 않습니다. 원문을 남기는 텍스트 로그, 기록 공유 인텐트, 클립보드 복사 기능도 사용하지 않습니다.
+Firebase Analytics/Crashlytics/Performance와 원격 오류 제보·피드백·자동 업데이트 SDK는 추가하지 않았습니다.
+2026-11-16 ADS-01에서는 Google Mobile Ads Next-Gen, UMP 및 Play Billing을 별도 `monetization/` 경계로 추가했습니다.
+광고 요청은 실제 AdMob ID·UMP 동의·현재 확인된 비구독 상태·번역 유휴 홈 화면일 때만 허용하며,
+구독 검증용 HTTPS 전송은 구매 토큰·정해진 상품 ID로 제한합니다.
+실제 운영 광고 ID 및 검증 서버 설정은 아직 미확인/미배포이므로 이 문서는 운영 광고 게재 완료나 유료 결제 성공을 주장하지 않습니다. ML Kit 제거로 과거 문서의 ML Kit 진단 수집 안내는 현재 실행 경로에 해당하지 않습니다. 원문을 남기는 텍스트 로그, 기록 공유 인텐트, 클립보드 복사 기능도 사용하지 않습니다.
+
+새로운 결제 검증 `PurchaseVerifier`는 고정 HTTPS URL로 사용자 구매 토큰과 상품 ID만 송신하며, 음성·자막·번역 텍스트는 입력받지 않습니다.
+Google SDK 내부 데이터 흐름은 정적 검사만으로 확인할 수 없으므로 Play Data Safety·AdMob 개인정보 설정을 실제 Console에서 점검해야 합니다.
 
 ## 기록과 백업
 

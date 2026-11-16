@@ -14,6 +14,9 @@ class PrivacyAuditTest(unittest.TestCase):
         source = Path(__file__).resolve().parents[1]
         for relative in (
             "scripts/audit_privacy.py", "scripts/prepare_language_id.py",
+            "app/src/main/java/com/charles/livecaptionn/monetization/PurchaseVerifier.kt",
+            "app/src/main/java/com/charles/livecaptionn/monetization/MonetizationPolicy.kt",
+            "app/src/main/java/com/charles/livecaptionn/monetization/HomeAdBanner.kt",
             "app/build.gradle.kts", "app/src/main/AndroidManifest.xml",
             "app/src/main/res/xml/data_extraction_rules.xml",
             "app/src/main/java/com/charles/livecaptionn/data/TranscriptHistoryStore.kt",

@@ -1,9 +1,6 @@
 name: Publish public privacy policy
 
 on:
-  push:
-    branches: [main]
-    paths: [docs/privacy-policy.html, .github/workflows/privacy-pages.yml]
   workflow_dispatch:
 
 permissions:
