@@ -70,6 +70,7 @@ import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.AppThemeMode
 import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionDisplayMode
+import com.charles.livecaptionn.settings.BubbleCaptionOptions
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.translation.ModelSetupStage
@@ -485,6 +486,54 @@ fun MainScreen(
                     Text("기본값: 초록 · 1초. 강조가 끝나면 현재 자막 색상으로 복원합니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (ui.settings.captionPlacement == CaptionPlacement.BUBBLE) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text("버블 자막", style = MaterialTheme.typography.titleMedium)
+                        Text("화면 가장자리의 원형 버튼을 누르면 같은 설정을 영상 위에서도 변경할 수 있습니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("자막 유지 시간", style = MaterialTheme.typography.labelLarge)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (duration in BubbleCaptionOptions.durationsMs) {
+                                val selected = ui.settings.bubbleHoldMs == duration
+                                if (selected) FilledTonalButton(
+                                    shape = RectangleShape,
+                                    onClick = { viewModel.updateBubbleHoldMs(duration) },
+                                    modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
+                                ) { Text((duration / 1000).toString() + "초") }
+                                else OutlinedButton(
+                                    shape = RectangleShape,
+                                    onClick = { viewModel.updateBubbleHoldMs(duration) },
+                                    modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
+                                ) { Text((duration / 1000).toString() + "초") }
+                            }
+                        }
+                        Text("버블 글자 크기", style = MaterialTheme.typography.labelLarge)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (size in BubbleCaptionOptions.textSizesSp) {
+                                val selected = ui.settings.bubbleTextSizeSp == size
+                                if (selected) FilledTonalButton(
+                                    shape = RectangleShape,
+                                    onClick = { viewModel.updateBubbleTextSizeSp(size) },
+                                    modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
+                                ) { Text(size.toInt().toString() + "sp") }
+                                else OutlinedButton(
+                                    shape = RectangleShape,
+                                    onClick = { viewModel.updateBubbleTextSizeSp(size) },
+                                    modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
+                                ) { Text(size.toInt().toString() + "sp") }
+                            }
+                        }
+                        SettingToggle("원문 함께 표시", ui.settings.bubbleShowOriginal,
+                            viewModel::updateBubbleShowOriginal)
+                        OutlinedButton(
+                            shape = RectangleShape,
+                            onClick = viewModel::resetBubblePosition,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) { Text("버블 위치 초기화") }
+                    }
                     if (ui.settings.captionPlacement == CaptionPlacement.POPUP) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Text("팝업 자막창", style = MaterialTheme.typography.titleMedium)

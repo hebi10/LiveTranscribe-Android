@@ -24,6 +24,7 @@ import android.widget.TextView
 import com.charles.livecaptionn.R
 import com.charles.livecaptionn.data.SettingsRepository
 import com.charles.livecaptionn.settings.BubbleSide
+import com.charles.livecaptionn.settings.BubbleCaptionOptions
 import com.charles.livecaptionn.settings.CaptionSettings
 import com.charles.livecaptionn.settings.CorrectionHighlightPalette
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +50,8 @@ class BubbleOverlayController(
     private val density = context.resources.displayMetrics.density
     private var side = BubbleSide.RIGHT
     private var preferredY = 260
+    private var storedSide = BubbleSide.RIGHT
+    private var storedY = 260
     private var settingsOpen = false
     private var attached = false
     private var windowParams: WindowManager.LayoutParams? = null
@@ -124,6 +127,49 @@ class BubbleOverlayController(
         setPadding(dp(8), dp(8), dp(8), dp(8))
         setBackgroundColor(Color.rgb(36, 36, 36))
     }
+    private val durationAction = menuAction("자막 유지 5초") {
+        val values = BubbleCaptionOptions.durationsMs
+        val current = latestSettings.bubbleHoldMs
+        val next = values[(values.indexOf(current).coerceAtLeast(0) + 1) % values.size]
+        latestSettings = latestSettings.copy(bubbleHoldMs = next)
+        refreshView()
+        scope.launch { settingsRepository.update { it.copy(bubbleHoldMs = next) } }
+    }
+    private val textSizeAction = menuAction("글자 크기 16") {
+        val values = BubbleCaptionOptions.textSizesSp
+        val current = latestSettings.bubbleTextSizeSp
+        val next = values[(values.indexOf(current).coerceAtLeast(0) + 1) % values.size]
+        latestSettings = latestSettings.copy(bubbleTextSizeSp = next)
+        translatedView.textSize = next
+        originalView.textSize = (next - 2f).coerceAtLeast(12f)
+        refreshView()
+        scope.launch { settingsRepository.update { it.copy(bubbleTextSizeSp = next) } }
+    }
+    private val originalAction = menuAction("원문 숨김") {
+        val next = !latestSettings.bubbleShowOriginal
+        latestSettings = latestSettings.copy(bubbleShowOriginal = next)
+        latestUi?.let { update(it, latestSettings) }
+        scope.launch { settingsRepository.update { it.copy(bubbleShowOriginal = next) } }
+    }
+    private val focusAction = menuAction("시청 집중 켜짐") {
+        val next = !latestSettings.readingFocusMode
+        latestSettings = latestSettings.copy(readingFocusMode = next)
+        latestUi?.let { update(it.copy(readingFocusMode = next), latestSettings) }
+        scope.launch { settingsRepository.update { it.copy(readingFocusMode = next) } }
+    }
+    private val pauseAction = menuAction("일시정지") { onPauseResume() }
+    private val stopAction = menuAction("번역 종료") { onStop() }
+    private val resetAction = menuAction("버블 위치 초기화") {
+        side = BubbleSide.RIGHT
+        preferredY = 260
+        storedSide = side
+        storedY = preferredY
+        arrangeForSide()
+        refreshView()
+        scope.launch {
+            settingsRepository.update { it.copy(bubbleSide = BubbleSide.RIGHT, bubbleY = 260) }
+        }
+    }
     private val statusText = TextView(context).apply {
         setTextColor(Color.WHITE)
         textSize = 14f
@@ -135,8 +181,13 @@ class BubbleOverlayController(
         captionRow.addView(captionScroll)
         captionRow.addView(bubbleButton, LinearLayout.LayoutParams(dp(48), dp(48)))
         menu.addView(statusText)
-        menu.addView(menuAction("일시정지 / 재개") { onPauseResume() })
-        menu.addView(menuAction("번역 종료") { onStop() })
+        menu.addView(durationAction)
+        menu.addView(textSizeAction)
+        menu.addView(originalAction)
+        menu.addView(focusAction)
+        menu.addView(resetAction)
+        menu.addView(pauseAction)
+        menu.addView(stopAction)
         root.addView(captionRow)
         root.addView(menu)
     }
@@ -146,6 +197,8 @@ class BubbleOverlayController(
         latestSettings = settings
         side = settings.bubbleSide
         preferredY = settings.bubbleY.coerceAtLeast(0)
+        storedSide = side
+        storedY = preferredY
         arrangeForSide()
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -169,6 +222,13 @@ class BubbleOverlayController(
     fun update(ui: OverlayUiState, settings: CaptionSettings) {
         latestUi = ui
         latestSettings = settings
+        if (settings.bubbleSide != storedSide || settings.bubbleY != storedY) {
+            storedSide = settings.bubbleSide
+            storedY = settings.bubbleY
+            side = storedSide
+            preferredY = storedY.coerceAtLeast(0)
+            arrangeForSide()
+        }
         translatedView.textSize = settings.bubbleTextSizeSp
         originalView.textSize = (settings.bubbleTextSizeSp - 2f).coerceAtLeast(12f)
         val now = SystemClock.elapsedRealtime()
@@ -227,6 +287,14 @@ class BubbleOverlayController(
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
         menu.visibility = if (settingsOpen) View.VISIBLE else View.GONE
+        durationAction.text = "자막 유지 " + (latestSettings.bubbleHoldMs / 1000) + "초"
+        textSizeAction.text = "글자 크기 " + latestSettings.bubbleTextSizeSp.toInt()
+        originalAction.text = if (latestSettings.bubbleShowOriginal) "원문 켜짐" else "원문 숨김"
+        focusAction.text = if (latestSettings.readingFocusMode) "시청 집중 켜짐" else "시청 집중 꺼짐"
+        pauseAction.text = if (latestUi?.status ==
+            com.charles.livecaptionn.speech.RecognitionStatus.PAUSED) "번역 재개" else "일시정지"
+        pauseAction.isEnabled = latestUi?.stopping != true
+        stopAction.isEnabled = latestUi?.stopping != true
         menu.layoutParams = LinearLayout.LayoutParams(
             bubbleCaptionWidth(displayWidth(), density),
             ViewGroup.LayoutParams.WRAP_CONTENT
