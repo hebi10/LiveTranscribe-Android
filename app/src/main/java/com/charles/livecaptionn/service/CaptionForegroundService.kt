@@ -528,15 +528,16 @@ class CaptionForegroundService : Service() {
             val saved = app.container.historyRecordingGate.recordIfAllowed(request.historyConsent) {
                 app.container.transcriptHistory.add(historyEntry)
             }
-            if (shouldRefineCaptionDuringReading(captionSettings) && captionSessionActive.get() && !stopping) {
+            val currentCorrectionSettings = app.container.settingsRepository.settingsFlow.first()
+            if (shouldRefineCaptionDuringReading(currentCorrectionSettings) && captionSessionActive.get() && !stopping) {
                 scheduleCaptionCorrection(
                     captionSessionId = captionSessionId,
                     lineId = request.lineId,
                     firstTranslation = translatedWithGlossary,
                     historyEntryId = if (saved) historyEntry.id else null,
                     consent = request.historyConsent,
-                    highlightEnabled = captionSettings.correctionHighlightEnabled,
-                    durationMs = captionSettings.correctionHighlightDurationMs
+                    highlightEnabled = currentCorrectionSettings.correctionHighlightEnabled,
+                    durationMs = currentCorrectionSettings.correctionHighlightDurationMs
                 )
             }
         }
@@ -555,6 +556,7 @@ class CaptionForegroundService : Service() {
         correctionJob = serviceScope.launch(Dispatchers.IO) {
             // Wait for immediate speech work. A newer partial/final cancels this task.
             delay(650)
+            if (!shouldRefineCaptionDuringReading(app.container.settingsRepository.settingsFlow.first())) return@launch
             val before = app.container.runtimeStore.state.value
             val target = before.transcriptLines.firstOrNull { it.id == lineId }
             if (!captionSessionActive.get() || before.sessionId != captionSessionId ||
