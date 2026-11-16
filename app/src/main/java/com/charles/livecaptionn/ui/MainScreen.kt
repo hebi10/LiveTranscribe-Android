@@ -55,6 +55,12 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import com.charles.livecaptionn.settings.CorrectionHighlightPalette
+import com.charles.livecaptionn.BuildConfig
+import com.charles.livecaptionn.monetization.SubscriptionUiState
+import com.charles.livecaptionn.monetization.ConsentUiState
+import com.charles.livecaptionn.monetization.AdFreeStatus
+import com.charles.livecaptionn.monetization.AdPlacementPolicy
+import com.charles.livecaptionn.monetization.HomeAdBanner
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -89,6 +95,11 @@ fun MainScreen(
     onCancelModelPreparation: () -> Unit,
     startPending: Boolean = false,
     audioPermissionSettingsRequired: Boolean = false,
+    subscription: SubscriptionUiState = SubscriptionUiState(),
+    consent: ConsentUiState = ConsentUiState(),
+    onMonthlySubscription: () -> Unit = {},
+    onYearlySubscription: () -> Unit = {},
+    onPrivacyOptions: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -145,6 +156,12 @@ fun MainScreen(
         },
         bottomBar = {
             Column(Modifier.fillMaxWidth()) {
+                if (AdPlacementPolicy.canShowHomeBanner(
+                    BuildConfig.GMA_ADS_ENABLED, consent.adsAllowed, subscription.status,
+                    sessionBusy, mainScreen = true
+                )) {
+                    HomeAdBanner(visible = true)
+                }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -581,6 +598,42 @@ fun MainScreen(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("광고 제거 구독", style = MaterialTheme.typography.titleMedium)
+                    if (subscription.status == AdFreeStatus.ACTIVE) {
+                        Text("광고 제거 구독이 활성화되어 있습니다.",
+                            style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        Text("월 1,000원 · 연 9,900원(한국 출시 예정 금액). 실제 결제 가격은 Google Play에 표시된 금액이 적용됩니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = onMonthlySubscription,
+                                enabled = !sessionBusy && subscription.purchaseReady &&
+                                    subscription.monthly != null && subscription.status == AdFreeStatus.INACTIVE,
+                                shape = RectangleShape, modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            ) {
+                                Text("월간 " + (subscription.monthly?.price ?: "준비 중"))
+                            }
+                            OutlinedButton(
+                                onClick = onYearlySubscription,
+                                enabled = !sessionBusy && subscription.purchaseReady &&
+                                    subscription.yearly != null && subscription.status == AdFreeStatus.INACTIVE,
+                                shape = RectangleShape, modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            ) {
+                                Text("연간 " + (subscription.yearly?.price ?: "준비 중"))
+                            }
+                        }
+                        Text(subscription.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (consent.privacyOptionsRequired) {
+                        TextButton(onClick = onPrivacyOptions) { Text("광고 개인정보 선택 변경") }
+                    }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("기록 및 개인정보", style = MaterialTheme.typography.titleMedium)
                     SettingToggle("번역 기록 저장", ui.settings.saveHistory,
                         viewModel::updateSaveHistory)
@@ -592,7 +645,7 @@ fun MainScreen(
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                         shape = RectangleShape
                     ) { Text("저장된 번역 기록 관리") }
-                    Text("음성 인식과 번역은 기기 안에서 처리합니다. 광고·분석·오류 수집 SDK 및 Android 백업을 사용하지 않습니다.",
+                    Text("음성 인식·번역은 기기에서 처리합니다. 광고 SDK는 동의 및 구독 상태를 확인한 후 홈에서만 사용하며, 음성·자막은 광고·결제 요청에 포함하지 않습니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = {

@@ -33,6 +33,7 @@ internal class SubscriptionController(context: Context) {
     val state: StateFlow<SubscriptionUiState> = mutable.asStateFlow()
     private var product: ProductDetails? = null
     private var connected = false
+    private var connecting = false
     private var closed = false
     private var refreshRevision = 0L
 
@@ -56,8 +57,11 @@ internal class SubscriptionController(context: Context) {
             refresh()
             return
         }
+        if (connecting) return
+        connecting = true
         billing.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {
+                connecting = false
                 if (closed) return
                 if (result.responseCode == BillingClient.BillingResponseCode.OK) {
                     connected = true
@@ -69,6 +73,7 @@ internal class SubscriptionController(context: Context) {
             }
             override fun onBillingServiceDisconnected() {
                 connected = false
+                connecting = false
                 if (!closed) mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
                     purchaseReady = false, message = "Google Play 연결이 끊겼습니다.")
             }
