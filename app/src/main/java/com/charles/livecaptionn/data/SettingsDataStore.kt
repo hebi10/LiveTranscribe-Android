@@ -39,6 +39,7 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
                 overlayOpacity = (p[OPACITY] ?: defaults.overlayOpacity).coerceIn(0.2f, 1f),
                 showOriginal = p[SHOW_ORIGINAL] ?: defaults.showOriginal,
                 captionDisplayMode = CaptionDisplayMode.fromName(p[DISPLAY_MODE] ?: defaults.captionDisplayMode.name),
+                readingFocusMode = p[READING_FOCUS_MODE] ?: defaults.readingFocusMode,
                 stableCaptions = p[STABLE_CAPTIONS] ?: defaults.stableCaptions,
                 overlayControlsExpanded = p[CONTROLS_EXPANDED] ?: defaults.overlayControlsExpanded,
                 overlayX = p[OVERLAY_X] ?: defaults.overlayX,
@@ -68,6 +69,7 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
             p[OPACITY] = next.overlayOpacity.coerceIn(0.2f, 1f)
             p[SHOW_ORIGINAL] = next.showOriginal
             p[DISPLAY_MODE] = next.captionDisplayMode.name
+            p[READING_FOCUS_MODE] = next.readingFocusMode
             p[STABLE_CAPTIONS] = next.stableCaptions
             p[CONTROLS_EXPANDED] = next.overlayControlsExpanded
             p[OVERLAY_X] = next.overlayX
@@ -93,6 +95,7 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
         private val OPACITY = floatPreferencesKey("opacity")
         private val SHOW_ORIGINAL = booleanPreferencesKey("show_original")
         private val DISPLAY_MODE = stringPreferencesKey("caption_display_mode")
+        private val READING_FOCUS_MODE = booleanPreferencesKey("reading_focus_mode")
         private val STABLE_CAPTIONS = booleanPreferencesKey("stable_captions")
         private val CONTROLS_EXPANDED = booleanPreferencesKey("overlay_controls_expanded")
         private val OVERLAY_X = intPreferencesKey("overlay_x")

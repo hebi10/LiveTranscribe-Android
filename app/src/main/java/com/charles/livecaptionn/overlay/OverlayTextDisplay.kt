@@ -22,7 +22,8 @@ fun computeOverlayTextDisplay(ui: OverlayUiState): OverlayTextDisplay {
     val original = messages.joinToString("\n") { it.originalText }
     val translated = messages.joinToString("\n") { it.translatedText }
     val isIdentical = original.isNotBlank() && original.trim().equals(translated.trim(), ignoreCase = true)
-    val showOriginal = ui.showOriginal && original.isNotBlank() && !isIdentical
+    val focusCaption = ui.readingFocusMode && ui.displayMode == com.charles.livecaptionn.settings.CaptionDisplayMode.CAPTIONS
+    val showOriginal = ui.showOriginal && !focusCaption && original.isNotBlank() && !isIdentical
     val scaledOriginalSize = (ui.textSizeSp * 0.82f).coerceIn(12f, 22f)
     val displayTranslated = translated.ifBlank { "…" }
     return OverlayTextDisplay(

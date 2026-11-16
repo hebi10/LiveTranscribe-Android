@@ -22,6 +22,7 @@ data class OverlayUiState(
     /** Source and translation snapshots are always taken from the same runtime line. */
     val messages: List<OverlayCaptionMessage> = emptyList(),
     val displayMode: CaptionDisplayMode = CaptionDisplayMode.CAPTIONS,
+    val readingFocusMode: Boolean = false,
     val stableCaptions: Boolean = true,
     val controlsExpanded: Boolean = false,
     val status: RecognitionStatus = RecognitionStatus.IDLE,

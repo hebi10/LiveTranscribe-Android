@@ -216,6 +216,10 @@ class MainViewModel(
         }
     }
 
+    fun updateReadingFocusMode(enabled: Boolean) {
+        viewModelScope.launch { container.settingsRepository.update { it.copy(readingFocusMode = enabled) } }
+    }
+
     fun updateCaptionDisplayMode(mode: CaptionDisplayMode) {
         viewModelScope.launch { container.settingsRepository.update { it.copy(captionDisplayMode = mode) } }
     }
