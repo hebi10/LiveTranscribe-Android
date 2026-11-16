@@ -147,5 +147,38 @@ class QaReal01BTest(unittest.TestCase):
                   "_evidence_ref": "video-02"}
         self.assertTrue(any("digest" in error for error in evidence_reuse_errors([first, second])))
 
+    def test_truncated_manifest_row_rejected(self):
+        self.manifest.write_text(",".join(COLUMNS) + "\ncorrection_off-1,correction_off,1\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Incomplete or unexpected"):
+            analyze(self.manifest)
+
+    def test_caption_nonfinite_latency_rejected(self):
+        row = self.rows()[0]
+        row.update({"status": "PASS", "device_alias": "DEVICE_A", "clip_id": "CLIP_A",
+                    "source_sha": FAKE_SHA, "layout": "popup", "input_mode": "video",
+                    "source_language": "en", "model_ready": "YES", "first_translation": "YES",
+                    "correction_behavior": "OFF", "evidence_reference": "PRIVATE_A",
+                    "performance_csv": "perf.csv", "caption_json": "caption.json"})
+        with (self.folder / "perf.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=(
+                "elapsed_s", "pss_kb", "cpu_percent", "battery_temp_c", "battery_level_percent"))
+            writer.writeheader()
+            for i in range(61):
+                writer.writerow({"elapsed_s": i * 5, "pss_kb": 10000,
+                                 "cpu_percent": 12, "battery_temp_c": 33, "battery_level_percent": 80})
+        payload = {"schema": "read-ux-00-v1", "status": "ANNOTATED_UNVERIFIED",
+                   "source_sha": FAKE_SHA, "session_id": row["session_id"], "layout": "popup",
+                   "source_clip_ms": 300000, "capture_tail_ms": 30000,
+                   "counts": {"annotated_cues": 4, "total_revisions": 0},
+                   "missing_rate_excluding_ambiguous": 0.1,
+                   "lag_source_start_to_first_visible_ms": {"count": 4, "median": float("nan"), "p95": 2000}}
+        (self.folder / "caption.json").write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "finite nonnegative"):
+            verify_row(row, self.folder)
+        payload["lag_source_start_to_first_visible_ms"] = {"count": 4, "median": 1000, "p95": float("inf")}
+        (self.folder / "caption.json").write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "finite nonnegative"):
+            verify_row(row, self.folder)
+
 if __name__ == "__main__":
     unittest.main()

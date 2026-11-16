@@ -42,8 +42,8 @@ def load_manifest(path: Path) -> list[dict[str, str]]:
         if tuple(reader.fieldnames or ()) != COLUMNS:
             raise ValueError("Unexpected manifest columns; use the generated template")
         rows = list(reader)
-        if any(None in row for row in rows):
-            raise ValueError("Unexpected extra manifest cells")
+        if any(None in row or any(value is None for value in row.values()) for row in rows):
+            raise ValueError("Incomplete or unexpected manifest cells")
         return rows
 
 
@@ -103,7 +103,10 @@ def verify_row(row: dict[str, str], directory: Path) -> dict:
     caption = (directory / row["caption_json"].strip()).resolve()
     if directory.resolve() not in perf.parents or directory.resolve() not in caption.parents:
         raise ValueError("evidence paths must stay inside the manifest directory")
-    raw_measurements = read_run(perf)
+    try:
+        raw_measurements = read_run(perf)
+    except AttributeError as exc:
+        raise ValueError("Malformed telemetry CSV with missing fields") from exc
     if any(not math.isfinite(value) for sample in raw_measurements
            for value in sample.values() if value is not None):
         raise ValueError("Telemetry values and timestamps must be finite")
@@ -114,20 +117,32 @@ def verify_row(row: dict[str, str], directory: Path) -> dict:
         raise ValueError("PASS needs at least 30 valid CPU and PSS samples")
     with caption.open("r", encoding="utf-8") as stream:
         timed = json.load(stream)
+    if not isinstance(timed, dict):
+        raise ValueError("Caption report must be a JSON object")
+    counts = timed.get("counts")
+    if not isinstance(counts, dict):
+        raise ValueError("Caption report counts missing")
     if (timed.get("schema") != "read-ux-00-v1" or
             timed.get("source_sha") != sha or
             timed.get("session_id") != name or
             timed.get("layout") != row["layout"].strip() or
             timed.get("status") != "ANNOTATED_UNVERIFIED" or
-            timed.get("counts", {}).get("annotated_cues", 0) < 1 or
+            type(counts.get("annotated_cues")) is not int or
+            counts["annotated_cues"] < 1 or
+            type(counts.get("total_revisions")) is not int or
+            counts["total_revisions"] < 0 or
             timed.get("source_clip_ms") != 300000 or
             timed.get("capture_tail_ms") != 30000):
         raise ValueError("caption report source, session, layout or data missing")
     lag = timed.get("lag_source_start_to_first_visible_ms", {})
-    if lag.get("count", 0) < 1 or lag.get("median") is None:
+    if not isinstance(lag, dict) or type(lag.get("count")) is not int or lag["count"] < 1:
         raise ValueError("caption report has no measured on-screen translation")
+    median, p95 = lag.get("median"), lag.get("p95")
+    if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
+           for value in (median, p95)) or p95 < median:
+        raise ValueError("caption latency median/p95 must be finite nonnegative numbers")
     rate = timed.get("missing_rate_excluding_ambiguous")
-    if rate is None or not isinstance(rate, (int, float)) or not 0 <= rate <= 1:
+    if type(rate) not in (int, float) or not math.isfinite(rate) or not 0 <= rate <= 1:
         raise ValueError("caption report has no valid missing-rate observation")
     result.update({
         "source_sha": sha, "device_alias": row["device_alias"].strip(),
@@ -139,7 +154,7 @@ def verify_row(row: dict[str, str], directory: Path) -> dict:
         "first_caption_lag_median_ms": lag["median"],
         "first_caption_lag_p95_ms": lag["p95"],
         "missing_rate": rate,
-        "revisions": timed["counts"].get("total_revisions"),
+        "revisions": counts["total_revisions"],
         "correction_behavior": behavior,
         "_performance_path": str(perf), "_caption_path": str(caption),
         "_performance_digest": hashlib.sha256(perf.read_bytes()).hexdigest(),
