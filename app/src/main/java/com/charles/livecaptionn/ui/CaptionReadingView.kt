@@ -16,7 +16,8 @@ import com.charles.livecaptionn.overlay.OverlayRowBounds
 internal class CaptionReadingView(context: Context, private val reader: CaptionReadingState) : ScrollView(context) {
     private data class Row(val id: Long, val container: LinearLayout, val translation: TextView, val source: TextView)
     private data class Content(val messages: List<OverlayCaptionMessage>, val showOriginal: Boolean,
-        val sizeSp: Float, val foreground: Int, val secondary: Int, val correctionColor: Int)
+        val sizeSp: Float, val foreground: Int, val secondary: Int, val correctionColor: Int,
+        val focusReading: Boolean)
 
     private val column = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -40,8 +41,9 @@ internal class CaptionReadingView(context: Context, private val reader: CaptionR
         contentDescription = "번역 자막. 스크롤하여 이전 자막 읽기"
     }
 
-    fun render(messages: List<OverlayCaptionMessage>, showOriginal: Boolean, sizeSp: Float, foreground: Int, secondary: Int, correctionColor: Int) {
-        val next = Content(messages, showOriginal, sizeSp, foreground, secondary, correctionColor)
+    fun render(messages: List<OverlayCaptionMessage>, showOriginal: Boolean, sizeSp: Float, foreground: Int,
+        secondary: Int, correctionColor: Int, focusReading: Boolean = false) {
+        val next = Content(messages, showOriginal, sizeSp, foreground, secondary, correctionColor, focusReading)
         if (next == content) return // Recognition/status-only emissions never move the reader.
         preserve()
         // The first render after recreation must restore its saved anchor, including while following.
@@ -56,6 +58,9 @@ internal class CaptionReadingView(context: Context, private val reader: CaptionR
             row.translation.text = correctionStyledCaption(message.translatedText,
                 message.correctionRanges, message.correctionHighlightUntilMs, correctionColor)
             row.translation.textSize = sizeSp
+            row.translation.breakStrategy = if (focusReading) LineBreaker.BREAK_STRATEGY_BALANCED
+                else LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
+            row.translation.setLineSpacing(dp(if (focusReading) 5 else 4).toFloat(), 1f)
             row.translation.setTextColor(foreground)
             row.source.text = message.originalText
             row.source.textSize = (sizeSp * 0.8f).coerceAtLeast(12f)

@@ -78,6 +78,7 @@ class OverlayController(
     private var expandButton: ImageButton? = null
     private var modeButton: ImageButton? = null
     private var sourceButton: ImageButton? = null
+    private var focusButton: TextView? = null
     private var minButton: ImageButton? = null
     private var closeButton: ImageButton? = null
     private var resizeHandle: ImageButton? = null
@@ -111,7 +112,8 @@ class OverlayController(
         val showOriginal: Boolean,
         val correctionColor: String
     )
-    private data class CaptionAppearance(val themeId: String, val fontId: String, val sizeSp: Float)
+    private data class CaptionAppearance(val themeId: String, val fontId: String, val sizeSp: Float,
+        val focusReading: Boolean)
     private data class PendingViewport(
         val following: Boolean,
         val position: OverlayScrollPosition,
@@ -252,6 +254,25 @@ class OverlayController(
             .forEach { (button, label) ->
                 button?.let { controlStrip.addView(makeLabeledControl(it, label)) }
             }
+        focusButton = TextView(context).apply {
+            text = "집중 꺼짐"
+            textSize = 12f
+            gravity = Gravity.CENTER
+            minHeight = dp(OverlayChromeMetrics.TOUCH_DP)
+            minWidth = dp(OverlayChromeMetrics.LABELED_CONTROL_MIN_WIDTH_DP)
+            setPadding(dp(8), 0, dp(8), 0)
+            isClickable = true
+            isFocusable = true
+            contentDescription = "시청 집중 모드 켜기"
+            setOnClickListener {
+                val current = latestUi ?: return@setOnClickListener
+                if (current.stopping) return@setOnClickListener
+                val enabled = !current.readingFocusMode
+                update(current.copy(readingFocusMode = enabled))
+                scope.launch { settingsRepository.update { it.copy(readingFocusMode = enabled) } }
+            }
+        }
+        controlStrip.addView(focusButton)
         controls?.addView(HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
             addView(controlStrip)
@@ -452,6 +473,13 @@ class OverlayController(
         setButton(sourceButton, R.drawable.ic_overlay_source, if (ui.showOriginal) "Hide original text" else "Show original text")
         setControlLabel(modeButton, if (ui.displayMode == CaptionDisplayMode.CHAT) "자막 목록" else "최근 자막")
         setControlLabel(sourceButton, if (focusCaption) "원문 숨김·집중" else if (ui.showOriginal) "원문 켜짐" else "원문 꺼짐")
+        focusButton?.apply {
+            setTextColor(theme.textRgb)
+            setTextIfChanged(this, if (ui.readingFocusMode) "집중 켜짐" else "집중 꺼짐")
+            background = flatBackground(if (ui.readingFocusMode) withAlpha(theme.textRgb, 32) else Color.TRANSPARENT)
+            contentDescription = if (ui.readingFocusMode) "시청 집중 모드 끄기" else "시청 집중 모드 켜기"
+            isEnabled = !ui.stopping
+        }
         for (button in buttons) applyButtonStyle(button, theme.textRgb, button.isSelected || button === resizeHandle)
         for ((button, label) in controlLabels) {
             label.setTextColor(theme.textRgb)
@@ -485,7 +513,7 @@ class OverlayController(
             } else it
         }
         val content = CaptionContent(ui.displayMode, display, visibleOverlayMessages(ui), ui.showOriginal, ui.correctionColor)
-        val appearance = CaptionAppearance(ui.themeId, ui.fontId, ui.textSizeSp)
+        val appearance = CaptionAppearance(ui.themeId, ui.fontId, ui.textSizeSp, focusCaption)
         // A recognizer status/detail update must not rewrite caption text or move its viewport.
         if (content != lastContent || appearance != lastAppearance) {
             preserveViewport()
@@ -509,6 +537,11 @@ class OverlayController(
     private fun renderCaptions(content: CaptionContent, color: Int, typeface: Typeface, translationTypeface: Typeface) {
         val display = content.display
         val chat = content.mode == CaptionDisplayMode.CHAT
+        translatedText?.breakStrategy = if (latestUi?.readingFocusMode == true && !chat)
+            LineBreaker.BREAK_STRATEGY_BALANCED
+            else LineBreaker.BREAK_STRATEGY_SIMPLE
+        translatedText?.setLineSpacing(dp(if (latestUi?.readingFocusMode == true && !chat) 4 else 2).toFloat(),
+            if (latestUi?.readingFocusMode == true && !chat) 1.08f else 1.05f)
         originalContainer?.visibility = if (!chat && display.showOriginal) View.VISIBLE else View.GONE
         chatContainer?.visibility = if (chat && content.messages.isNotEmpty()) View.VISIBLE else View.GONE
         translatedText?.visibility = if (!chat || content.messages.isEmpty()) View.VISIBLE else View.GONE
@@ -712,6 +745,7 @@ class OverlayController(
         expandButton = null
         modeButton = null
         sourceButton = null
+        focusButton = null
         minButton = null
         closeButton = null
         resizeHandle = null
@@ -762,6 +796,8 @@ class OverlayController(
         (listOfNotNull(statusDetail, statusInformation, suggestionLabel) + suggestionChoices)
             .forEach { it.textSize = 12f }
         gestureHint?.textSize = 11f
+        focusButton?.minHeight = dp(OverlayChromeMetrics.TOUCH_DP)
+        focusButton?.minWidth = dp(OverlayChromeMetrics.LABELED_CONTROL_MIN_WIDTH_DP)
         gestureHint?.setPadding(0, dp(2), 0, dp(4))
         statusDetail?.setPadding(0, dp(2), 0, dp(4))
         suggestionChoices.forEach {
