@@ -1,10 +1,10 @@
 package com.charles.livecaptionn.monetization
 
-internal enum class AdFreeStatus { UNKNOWN, ACTIVE, INACTIVE }
+enum class AdFreeStatus { UNKNOWN, ACTIVE, INACTIVE }
 
-internal data class SubscriptionPlan(val id: String, val label: String, val price: String)
+data class SubscriptionPlan(val id: String, val label: String, val price: String)
 
-internal data class SubscriptionUiState(
+data class SubscriptionUiState(
     val status: AdFreeStatus = AdFreeStatus.UNKNOWN,
     val monthly: SubscriptionPlan? = null,
     val yearly: SubscriptionPlan? = null,
@@ -12,7 +12,7 @@ internal data class SubscriptionUiState(
     val message: String = "Google Play 구독 정보를 확인 중입니다."
 )
 
-internal data class ConsentUiState(
+data class ConsentUiState(
     val adsAllowed: Boolean = false,
     val privacyOptionsRequired: Boolean = false
 )
