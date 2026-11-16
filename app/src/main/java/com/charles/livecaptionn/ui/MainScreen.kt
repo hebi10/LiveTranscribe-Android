@@ -158,7 +158,9 @@ fun MainScreen(
             Column(Modifier.fillMaxWidth()) {
                 if (AdPlacementPolicy.canShowHomeBanner(
                     BuildConfig.GMA_ADS_ENABLED, consent.adsAllowed, subscription.status,
-                    sessionBusy, mainScreen = true
+                    sessionBusy || ui.translationModel.stage == ModelSetupStage.CHECKING ||
+                        ui.translationModel.stage == ModelSetupStage.DOWNLOADING,
+                    mainScreen = true
                 )) {
                     HomeAdBanner(visible = true)
                 }

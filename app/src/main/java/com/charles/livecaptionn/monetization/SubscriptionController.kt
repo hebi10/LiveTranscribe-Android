@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -190,7 +191,33 @@ internal class SubscriptionController(context: Context) {
             if (confirmed != null && !confirmed.isAcknowledged) {
                 val params = AcknowledgePurchaseParams.newBuilder()
                     .setPurchaseToken(confirmed.purchaseToken).build()
-                billing.acknowledgePurchase(params) { /* Never log purchase tokens. */ }
+                acknowledgeVerifiedPurchase(params)
+            }
+        }
+    }
+
+    /** Play requires verified purchases to be acknowledged; retry recoverable failures.
+     * The subsequent app resume also checks and acknowledges any unacknowledged receipt. */
+    private fun acknowledgeVerifiedPurchase(params: AcknowledgePurchaseParams, attempt: Int = 0) {
+        if (closed) return
+        billing.acknowledgePurchase(params) { result ->
+            if (closed) return@acknowledgePurchase
+            if (result.responseCode == BillingClient.BillingResponseCode.OK) return@acknowledgePurchase
+            val retryable = result.responseCode in setOf(
+                BillingClient.BillingResponseCode.SERVICE_DISCONNECTED,
+                BillingClient.BillingResponseCode.SERVICE_UNAVAILABLE,
+                BillingClient.BillingResponseCode.NETWORK_ERROR,
+                BillingClient.BillingResponseCode.ERROR
+            )
+            if (retryable && attempt < 5) {
+                scope.launch {
+                    delay(1000L * (1L shl attempt))
+                    acknowledgeVerifiedPurchase(params, attempt + 1)
+                }
+            } else {
+                mutable.value = mutable.value.copy(
+                    message = "Google Play 구매 확인이 지연되었습니다. 앱을 다시 열어 확인해 주세요."
+                )
             }
         }
     }

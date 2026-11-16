@@ -17,6 +17,8 @@ class MonetizationContractTests(unittest.TestCase):
         self.assertIn("status == AdFreeStatus.INACTIVE", policy)
         home = (APP / "ui/MainScreen.kt").read_text()
         self.assertIn("HomeAdBanner(visible = true)", home)
+        self.assertIn("ModelSetupStage.CHECKING", home)
+        self.assertIn("ModelSetupStage.DOWNLOADING", home)
         for f in list((APP / "overlay").glob("*.kt")) + list((APP / "speech").glob("*.kt")):
             self.assertNotIn("com.google.android.libraries.ads.mobile.sdk.", f.read_text())
             self.assertNotIn("com.android.billingclient.api.", f.read_text())
@@ -26,6 +28,8 @@ class MonetizationContractTests(unittest.TestCase):
         self.assertIn("verifier.verify(purchase.purchaseToken)", purchase)
         self.assertIn("confirmed != null -> AdFreeStatus.ACTIVE", purchase)
         self.assertIn("acknowledgePurchase(params)", purchase)
+        self.assertIn("acknowledgeVerifiedPurchase(params)", purchase)
+        self.assertIn("retryable && attempt < 5", purchase)
         self.assertIn("!verifier.configured", purchase)
         self.assertIn("offerId == null", purchase)
 
