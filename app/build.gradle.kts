@@ -23,6 +23,24 @@ if (playCaptureAbi != null && (playCaptureAbi != "x86_64" ||
     throw GradleException("playCaptureAbi=x86_64 is allowed only for debug screenshot capture")
 }
 
+
+// ADS-01: no live ad request unless real AdMob identifiers were supplied for this build.
+val testGmaAppId = "ca-app-pub-3940256099942544~3347511713"
+val testBannerUnitId = "ca-app-pub-3940256099942544/9214589741"
+val providedGmaAppId = providers.gradleProperty("gmaAppId")
+    .orElse(providers.environmentVariable("GMA_APP_ID")).orElse("").get().trim()
+val providedGmaBanner = providers.gradleProperty("gmaBannerUnitId")
+    .orElse(providers.environmentVariable("GMA_BANNER_UNIT_ID")).orElse("").get().trim()
+val liveGmaReady = Regex("""ca-app-pub-\d{16}~\d{10}""").matches(providedGmaAppId) &&
+    Regex("""ca-app-pub-\d{16}/\d{10}""").matches(providedGmaBanner) &&
+    providedGmaAppId != testGmaAppId && providedGmaBanner != testBannerUnitId
+val testAdsEnabled = providers.gradleProperty("enableTestAds").orElse("false").get() == "true"
+val verifierEndpoint = providers.gradleProperty("billingVerifierUrl")
+    .orElse(providers.environmentVariable("BILLING_VERIFIER_URL")).orElse("").get().trim()
+val trustedVerifierEndpoint = Regex("""https://[A-Za-z0-9][A-Za-z0-9.-]*(?:/[A-Za-z0-9/_-]*)?""")
+    .matches(verifierEndpoint) && !verifierEndpoint.contains("localhost", ignoreCase = true)
+val subscriptionId = "remove_ads"
+
 android {
     namespace = "com.charles.livecaptionn"
     compileSdk = 36
@@ -38,6 +56,10 @@ android {
         externalNativeBuild { cmake { arguments += "-DANDROID_STL=c++_static" } }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+        manifestPlaceholders["gmaApplicationId"] = if (liveGmaReady) providedGmaAppId else testGmaAppId
+        buildConfigField("String", "REMOVE_ADS_SUBSCRIPTION_ID", "\"" + subscriptionId + "\"")
+        buildConfigField("String", "BILLING_VERIFIER_URL",
+            "\"" + (if (trustedVerifierEndpoint) verifierEndpoint else "") + "\"")
     }
 
     signingConfigs {
@@ -54,9 +76,17 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-test-only"
+            buildConfigField("boolean", "GMA_ADS_ENABLED", testAdsEnabled.toString())
+            buildConfigField("String", "GMA_APP_ID", "\"" + testGmaAppId + "\"")
+            buildConfigField("String", "GMA_BANNER_UNIT_ID", "\"" + testBannerUnitId + "\"")
         }
         release {
             if (hasReleaseSigning) signingConfig = signingConfigs.getByName("existingRelease")
+            buildConfigField("boolean", "GMA_ADS_ENABLED", liveGmaReady.toString())
+            buildConfigField("String", "GMA_APP_ID",
+                "\"" + (if (liveGmaReady) providedGmaAppId else testGmaAppId) + "\"")
+            buildConfigField("String", "GMA_BANNER_UNIT_ID",
+                "\"" + (if (liveGmaReady) providedGmaBanner else "") + "\"")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -115,8 +145,12 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.fragment:fragment:1.9.1")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("com.google.android.libraries.ads.mobile.sdk:ads-mobile-sdk:1.6.0")
+    implementation("com.google.android.ump:user-messaging-platform:4.0.0")
+    implementation("com.android.billingclient:billing-ktx:9.1.0")
     implementation(composeBom)
     androidTestImplementation(composeBom)
     implementation("androidx.compose.ui:ui")

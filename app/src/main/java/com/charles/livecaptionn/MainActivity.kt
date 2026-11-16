@@ -50,6 +50,8 @@ import com.charles.livecaptionn.ui.SplitAppPicker
 import com.charles.livecaptionn.ui.SplitScreenHelp
 import com.charles.livecaptionn.ui.canRequestAdjacentLaunch
 import com.charles.livecaptionn.ui.loadSplitAppChoices
+import com.charles.livecaptionn.monetization.SubscriptionController
+import com.charles.livecaptionn.monetization.AdsConsentController
 import com.charles.livecaptionn.ui.MainScreen
 import com.charles.livecaptionn.ui.MainViewModel
 import com.charles.livecaptionn.ui.MainViewModelFactory
@@ -77,6 +79,8 @@ class MainActivity : ComponentActivity() {
     private var completedAudioPermissionRequest = false
     private var audioPermissionSettingsRequired by mutableStateOf(false)
     private lateinit var mainViewModel: MainViewModel
+    private lateinit var subscriptionController: SubscriptionController
+    private lateinit var adsConsent: AdsConsentController
 
     private fun syncStartPending() { startPending = startGate.busy }
 
@@ -122,6 +126,10 @@ class MainActivity : ComponentActivity() {
         syncStartPending()
         val app = application as LiveCaptionApp
         mainViewModel = ViewModelProvider(this, MainViewModelFactory(app.container, application))[MainViewModel::class.java]
+        subscriptionController = SubscriptionController(applicationContext)
+        adsConsent = AdsConsentController(applicationContext)
+        subscriptionController.start()
+        adsConsent.refresh(this)
         lifecycleScope.launch {
             app.container.runtimeStore.state.collect { runtime ->
                 if (runtime.running || runtime.status == RecognitionStatus.ERROR) {
@@ -133,6 +141,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val vm = mainViewModel
             val ui by vm.state.collectAsStateWithLifecycle()
+            val subscription by subscriptionController.state.collectAsStateWithLifecycle()
+            val consent by adsConsent.state.collectAsStateWithLifecycle()
             val captionStateHolder = rememberSaveableStateHolder()
             val useDarkTheme = ui.settings.appThemeMode.useDarkColors(isSystemInDarkTheme())
             SideEffect {
@@ -213,6 +223,13 @@ class MainActivity : ComponentActivity() {
                                     onCancelModelPreparation = vm::cancelModelPreparation,
                                     startPending = startPending,
                                     audioPermissionSettingsRequired = audioPermissionSettingsRequired,
+                                    subscription = subscription,
+                                    consent = consent,
+                                    onMonthlySubscription = { subscriptionController.purchase(this@MainActivity, "monthly",
+                                        ui.runtime.running || ui.runtime.stopping) },
+                                    onYearlySubscription = { subscriptionController.purchase(this@MainActivity, "yearly",
+                                        ui.runtime.running || ui.runtime.stopping) },
+                                    onPrivacyOptions = { adsConsent.showPrivacyOptions(this@MainActivity) },
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -233,6 +250,11 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (startGate.checking) continueStartCaptioning()
+    }
+
+    override fun onDestroy() {
+        if (::subscriptionController.isInitialized) subscriptionController.close()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -270,6 +292,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (::subscriptionController.isInitialized) subscriptionController.refresh()
         refreshAudioPermissionAction()
         if (companionLaunchPending) {
             companionLaunchPending = false
