@@ -35,6 +35,7 @@ import com.charles.livecaptionn.MainActivity
 import com.charles.livecaptionn.R
 import com.charles.livecaptionn.data.applyGlossary
 import com.charles.livecaptionn.overlay.OverlayController
+import com.charles.livecaptionn.overlay.BubbleOverlayController
 import com.charles.livecaptionn.ui.l10n.KoreanUiStrings
 import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.AudioSource
@@ -71,6 +72,7 @@ class CaptionForegroundService : Service() {
     /** Owned here until an engine actually starts and takes responsibility for projection cleanup. */
     private var preparedMediaProjection: MediaProjection? = null
     private var overlayController: OverlayController? = null
+    private var bubbleOverlayController: BubbleOverlayController? = null
     private val pauseController = CaptionPauseController()
     private val paused: Boolean get() = pauseController.paused
     @Volatile private var failureMessage: String? = null
@@ -215,14 +217,16 @@ class CaptionForegroundService : Service() {
             if (sessionPlacement == CaptionPlacement.SPLIT_SCREEN) {
                 (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID, buildNotification())
             }
-            if (sessionPlacement == CaptionPlacement.POPUP) {
+            if (sessionPlacement != CaptionPlacement.SPLIT_SCREEN) {
                 if (!Settings.canDrawOverlays(this@CaptionForegroundService)) {
                     Log.e("CaptionService", "Overlay permission missing.")
                     failAndStop("다른 앱 위에 표시 권한을 허용한 뒤 다시 시작해 주세요.")
                     return@launch
                 }
-                // A new popup always begins with its caption body visible.
-                app.container.settingsRepository.update { it.copy(overlayMinimized = false) }
+                if (sessionPlacement == CaptionPlacement.POPUP) {
+                    // A new popup always begins with its caption body visible.
+                    app.container.settingsRepository.update { it.copy(overlayMinimized = false) }
+                }
             }
             stableCaptions = settings.stableCaptions
             observeCaptionUpdates()
@@ -430,6 +434,7 @@ class CaptionForegroundService : Service() {
             pauseController.attach(engine)
 
             if (sessionPlacement == CaptionPlacement.POPUP) showOverlay()
+            if (sessionPlacement == CaptionPlacement.BUBBLE) showBubble()
         }
     }
 
@@ -463,9 +468,10 @@ class CaptionForegroundService : Service() {
                 .collectLatest { (runtime, settings) ->
                     stableCaptions = settings.stableCaptions
                     if (settings.readingFocusMode) correctionJob?.cancel()
-                    val overlay = overlayController ?: return@collectLatest
+                    if (overlayController == null && bubbleOverlayController == null) return@collectLatest
                     val ui = buildOverlayUiState(runtime, settings)
-                    overlay.update(ui)
+                    overlayController?.update(ui)
+                    bubbleOverlayController?.update(ui, settings)
                 }
         }
     }
@@ -648,6 +654,29 @@ class CaptionForegroundService : Service() {
         }
     }
 
+    private fun showBubble() {
+        if (sessionPlacement != CaptionPlacement.BUBBLE || bubbleOverlayController != null ||
+            stopping || !captionSessionActive.get()) return
+        serviceScope.launch {
+            val settings = app.container.settingsRepository.settingsFlow.first()
+            if (stopping || !captionSessionActive.get() || sessionPlacement != CaptionPlacement.BUBBLE) return@launch
+            try {
+                bubbleOverlayController = BubbleOverlayController(
+                    sourceContext = this@CaptionForegroundService,
+                    scope = serviceScope,
+                    settingsRepository = app.container.settingsRepository,
+                    onPauseResume = { togglePause() },
+                    onStop = { stopFlow() }
+                ).apply { show(settings) }
+            } catch (_: RuntimeException) {
+                failAndStop("버블 자막을 표시하지 못했습니다. 다른 앱 위에 표시 권한을 확인해 주세요.")
+                return@launch
+            }
+            bubbleOverlayController?.update(buildOverlayUiState(app.container.runtimeStore.state.value, settings), settings)
+            overlayReady.value += 1
+        }
+    }
+
     private fun togglePause() {
         if (!captionSessionActive.get() || stopping) return
         pauseController.toggle()
@@ -692,7 +721,7 @@ class CaptionForegroundService : Service() {
                 stopSession = { stopFlow() },
                 openMain = {
                     // Split readers stay in their pane and use its explicit restart action.
-                    if (sessionPlacement == CaptionPlacement.POPUP) startActivity(Intent(this@CaptionForegroundService, MainActivity::class.java).apply {
+                    if (sessionPlacement != CaptionPlacement.SPLIT_SCREEN) startActivity(Intent(this@CaptionForegroundService, MainActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                         putExtra(MainActivity.EXTRA_OPEN_MAIN, true)
                     })
@@ -778,6 +807,8 @@ class CaptionForegroundService : Service() {
             windowLanguages.clear()
             overlayController?.hide()
             overlayController = null
+            bubbleOverlayController?.hide()
+            bubbleOverlayController = null
             overlayReady.value = 0
             MediaProjectionHolder.clear()
             app.container.runtimeStore.update {
@@ -812,6 +843,8 @@ class CaptionForegroundService : Service() {
         correctionJob = null
         overlayController?.hide()
         overlayController = null
+        bubbleOverlayController?.hide()
+        bubbleOverlayController = null
         beginCleanup()
         serviceScope.cancel()
         MediaProjectionHolder.clear()

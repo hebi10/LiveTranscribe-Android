@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.os.SystemClock
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.view.Display
@@ -24,7 +25,10 @@ import com.charles.livecaptionn.R
 import com.charles.livecaptionn.data.SettingsRepository
 import com.charles.livecaptionn.settings.BubbleSide
 import com.charles.livecaptionn.settings.CaptionSettings
+import com.charles.livecaptionn.settings.CorrectionHighlightPalette
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -50,6 +54,10 @@ class BubbleOverlayController(
     private var windowParams: WindowManager.LayoutParams? = null
     private var latestUi: OverlayUiState? = null
     private var latestSettings = CaptionSettings()
+    private val presentation = BubbleCaptionPresentationState()
+    private var captionVisible = false
+    private var timer: Job? = null
+    private var scheduledFor: Long? = null
 
     private val root = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -77,7 +85,14 @@ class BubbleOverlayController(
         addView(translatedView)
         addView(originalView)
     }
-    private val captionScroll = ScrollView(context).apply {
+    private val captionScroll = object : ScrollView(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val heightLimit = View.MeasureSpec.makeMeasureSpec(
+                (displayHeight() / 3).coerceAtLeast(dp(80)), View.MeasureSpec.AT_MOST
+            )
+            super.onMeasure(widthMeasureSpec, heightLimit)
+        }
+    }.apply {
         isVerticalScrollBarEnabled = true
         isFillViewport = false
         visibility = View.GONE
@@ -156,23 +171,41 @@ class BubbleOverlayController(
         latestSettings = settings
         translatedView.textSize = settings.bubbleTextSizeSp
         originalView.textSize = (settings.bubbleTextSizeSp - 2f).coerceAtLeast(12f)
-        val last = ui.messages.lastOrNull { it.translatedText.isNotBlank() &&
-            (!ui.stableCaptions || it.isFinal) }
-        translatedView.text = last?.translatedText.orEmpty()
+        val now = SystemClock.elapsedRealtime()
+        val state = presentation.reduce(ui, settings.bubbleHoldMs, now)
+        captionVisible = state.visible
+        val last = state.message
+        translatedView.text = if (last != null) correctionStyledCaption(
+            last.translatedText,
+            if (ui.correctionHighlightEnabled) last.correctionRanges else emptyList(),
+            last.correctionHighlightUntilMs,
+            CorrectionHighlightPalette.colorInt(ui.correctionColor, false),
+            now
+        ) else ""
         originalView.text = last?.originalText.orEmpty()
-        originalView.visibility = if (settings.bubbleShowOriginal &&
+        originalView.visibility = if (state.visible && settings.bubbleShowOriginal &&
             !ui.readingFocusMode && last != null && last.originalText.isNotBlank())
             View.VISIBLE else View.GONE
         statusText.text = when {
             ui.stopping -> "번역 종료 중"
             ui.status == com.charles.livecaptionn.speech.RecognitionStatus.PAUSED -> "일시정지"
             ui.status == com.charles.livecaptionn.speech.RecognitionStatus.ERROR -> "번역 오류"
+            ui.recognizing -> "음성 인식 중"
+            ui.translating -> "번역 중"
             else -> ui.phase.label
         }
         refreshView()
+        val highlightExpiry = last?.correctionHighlightUntilMs?.takeIf {
+            ui.correctionHighlightEnabled && it > now && last.correctionRanges.isNotEmpty()
+        }
+        scheduleRefresh(listOfNotNull(state.expiresAtMs, highlightExpiry).minOrNull(), now)
     }
 
     fun hide() {
+        timer?.cancel()
+        timer = null
+        scheduledFor = null
+        presentation.clear()
         if (attached) {
             attached = false
             try {
@@ -186,14 +219,13 @@ class BubbleOverlayController(
 
     private fun refreshView() {
         if (!attached) return
-        val hasCaption = !translatedView.text.isNullOrBlank() &&
+        val hasCaption = captionVisible &&
             latestUi?.stopping != true && !settingsOpen
         captionScroll.visibility = if (hasCaption) View.VISIBLE else View.GONE
         captionScroll.layoutParams = LinearLayout.LayoutParams(
             bubbleCaptionWidth(displayWidth(), density),
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        captionScroll.maximumHeight = (displayHeight() / 3).coerceAtLeast(dp(80))
         menu.visibility = if (settingsOpen) View.VISIBLE else View.GONE
         menu.layoutParams = LinearLayout.LayoutParams(
             bubbleCaptionWidth(displayWidth(), density),
@@ -201,6 +233,19 @@ class BubbleOverlayController(
         )
         bubbleButton.contentDescription = if (settingsOpen) "번역 버블 설정 닫기" else "번역 버블 설정 열기"
         fitAfterLayout()
+    }
+
+    private fun scheduleRefresh(deadline: Long?, now: Long) {
+        if (scheduledFor == deadline) return
+        timer?.cancel()
+        timer = null
+        scheduledFor = deadline
+        if (deadline == null) return
+        timer = scope.launch {
+            delay((deadline - now).coerceAtLeast(1L))
+            scheduledFor = null
+            latestUi?.let { update(it, latestSettings) }
+        }
     }
 
     private fun arrangeForSide() {
