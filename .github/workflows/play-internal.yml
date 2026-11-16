@@ -192,7 +192,8 @@ jobs:
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --no-build-cache --no-configuration-cache lintRelease bundleRelease assembleRelease
+          ./gradlew --no-daemon --no-build-cache --no-configuration-cache --max-workers=2 \
+            -Dorg.gradle.jvmargs='-Xmx4g -Dfile.encoding=UTF-8' lintRelease bundleRelease assembleRelease
       - name: Verify AAB and APK match the existing app certificate
         run: |
           python3 scripts/play/preflight.py verify-bundle --bundle app/build/outputs/bundle/release/app-release.aab
