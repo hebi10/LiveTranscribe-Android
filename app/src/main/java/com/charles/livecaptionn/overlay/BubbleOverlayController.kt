@@ -408,7 +408,9 @@ class BubbleOverlayController(
                 MotionEvent.ACTION_DOWN -> {
                     startRawX = event.rawX
                     startRawY = event.rawY
-                    startY = preferredY
+                    // The expanded settings menu may have clamped the window above its saved Y.
+                    // Start from its actual displayed location to prevent a jump on first move.
+                    startY = windowParams?.y ?: preferredY
                     startSide = side
                     dragging = false
                     return true
