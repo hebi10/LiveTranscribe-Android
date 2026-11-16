@@ -4,6 +4,7 @@
 import argparse
 import csv
 import json
+import math
 import re
 import statistics
 from pathlib import Path
@@ -99,9 +100,13 @@ def verify_row(row: dict[str, str], directory: Path) -> dict:
     caption = (directory / row["caption_json"].strip()).resolve()
     if directory.resolve() not in perf.parents or directory.resolve() not in caption.parents:
         raise ValueError("evidence paths must stay inside the manifest directory")
-    measures = summarize(read_run(perf))
-    if measures["duration_s"] < 270 or measures["samples"] < 30:
-        raise ValueError("PASS needs a near-five-minute telemetry recording")
+    raw_measurements = read_run(perf)
+    if any(not math.isfinite(value) for sample in raw_measurements
+           for value in sample.values() if value is not None):
+        raise ValueError("Telemetry values and timestamps must be finite")
+    measures = summarize(raw_measurements)
+    if not 270 <= measures["duration_s"] <= 330 or measures["samples"] < 30:
+        raise ValueError("PASS needs a five-minute telemetry recording (270-330 seconds)")
     if measures["pss_kb"]["count"] < 30 or measures["cpu_percent"]["count"] < 30:
         raise ValueError("PASS needs at least 30 valid CPU and PSS samples")
     with caption.open("r", encoding="utf-8") as stream:

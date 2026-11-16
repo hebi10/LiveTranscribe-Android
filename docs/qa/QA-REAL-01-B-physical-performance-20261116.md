@@ -67,7 +67,7 @@ python scripts/qa_real_01_b.py analyze --input measurements/qa-real-01-b/session
 python scripts/qa_real_01.py audit --results measurements/qa-real-01-b/scenario-results.csv --report measurements/qa-real-01-b/scenario-audit.json
 ~~~
 
-검증기는 9회 반복 및 소스/기기/입력/화면 조건 일치, 실제 수치가 있는 CPU·PSS 30개 이상, 약 5분 시간 범위, 읽기 결과 JSON 출처와 세션 일치를 확인합니다. 조건별 CPU/PSS·배터리 온도·최초 자막 표시 p95·누락률을 요약합니다.
+검증기는 9회 반복 및 소스/기기/입력/화면 조건 일치, 실제 수치가 있는 CPU·PSS 30개 이상, 270~330초의 5분 계측 구간, 읽기 결과 JSON 출처와 세션 일치를 확인합니다. 조건별 CPU/PSS·배터리 온도·최초 자막 표시 p95·누락률을 요약합니다.
 보고서에는 항상 physicalDeviceProven=false, releaseApproved=false가 기재됩니다. CSV 자체는 물리 기기와 AI 번역의 성공을 증명할 수 없기 때문에 **독립적인 원본 자료 확인이 필수**입니다.
 
 ## 종료 조건 및 후속

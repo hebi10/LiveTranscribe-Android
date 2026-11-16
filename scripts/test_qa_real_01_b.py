@@ -97,5 +97,39 @@ class QaReal01BTest(unittest.TestCase):
         self.assertEqual(result["first_caption_lag_p95_ms"], 2000)
 
 
+    def test_nonfinite_telemetry_is_not_valid(self):
+        row = self.rows()[0]
+        row.update({"status": "PASS", "device_alias": "DEVICE_A", "clip_id": "CLIP_A",
+                    "source_sha": FAKE_SHA, "layout": "popup", "input_mode": "video",
+                    "source_language": "en", "model_ready": "YES", "first_translation": "YES",
+                    "correction_behavior": "OFF", "evidence_reference": "PRIVATE_A",
+                    "performance_csv": "nan.csv", "caption_json": "not_needed.json"})
+        with (self.folder / "nan.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=(
+                "elapsed_s", "pss_kb", "cpu_percent", "battery_temp_c", "battery_level_percent"))
+            writer.writeheader()
+            for i in range(61):
+                writer.writerow({"elapsed_s": i * 5, "pss_kb": "nan", "cpu_percent": "inf",
+                                 "battery_temp_c": 33, "battery_level_percent": 80})
+        with self.assertRaisesRegex(ValueError, "finite"):
+            verify_row(row, self.folder)
+
+    def test_hour_long_telemetry_is_not_five_minutes(self):
+        row = self.rows()[0]
+        row.update({"status": "PASS", "device_alias": "DEVICE_A", "clip_id": "CLIP_A",
+                    "source_sha": FAKE_SHA, "layout": "popup", "input_mode": "video",
+                    "source_language": "en", "model_ready": "YES", "first_translation": "YES",
+                    "correction_behavior": "OFF", "evidence_reference": "PRIVATE_A",
+                    "performance_csv": "hour.csv", "caption_json": "not_needed.json"})
+        with (self.folder / "hour.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=(
+                "elapsed_s", "pss_kb", "cpu_percent", "battery_temp_c", "battery_level_percent"))
+            writer.writeheader()
+            for i in range(61):
+                writer.writerow({"elapsed_s": i * 60, "pss_kb": 10000, "cpu_percent": 12,
+                                 "battery_temp_c": 33, "battery_level_percent": 80})
+        with self.assertRaisesRegex(ValueError, "270-330 seconds"):
+            verify_row(row, self.folder)
+
 if __name__ == "__main__":
     unittest.main()
