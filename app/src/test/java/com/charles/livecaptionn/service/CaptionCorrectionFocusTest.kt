@@ -11,6 +11,13 @@ class CaptionCorrectionFocusTest {
         assertFalse(shouldRefineCaptionDuringReading(CaptionSettings(aiCorrectionEnabled = false)))
     }
 
+    @Test fun focusEnabledDuringFirstPassRejectsStaleCorrectionSetting() {
+        val initial = CaptionSettings(aiCorrectionEnabled = true, readingFocusMode = false)
+        val updatedWhileTranslating = initial.copy(readingFocusMode = true)
+        assertTrue(shouldRefineCaptionDuringReading(initial))
+        assertFalse(shouldRefineCaptionDuringReading(updatedWhileTranslating))
+    }
+
     @Test fun focusedViewingDisablesSecondPassWithoutMutatingSavedSetting() {
         val settings = CaptionSettings(readingFocusMode = true, aiCorrectionEnabled = true)
         assertFalse(shouldRefineCaptionDuringReading(settings))
