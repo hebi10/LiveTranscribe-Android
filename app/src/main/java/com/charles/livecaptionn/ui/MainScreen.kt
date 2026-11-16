@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -69,6 +70,7 @@ import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.AppThemeMode
 import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionDisplayMode
+import com.charles.livecaptionn.settings.BubbleCaptionOptions
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.translation.ModelSetupStage
@@ -96,8 +98,11 @@ fun MainScreen(
     val languageLabel = if (ui.settings.sourceLanguageCode == RecognitionLanguages.AUTO)
         "언어 자동 감지" else "${RecognitionLanguages.koreanLabel(ui.settings.sourceLanguageCode)} 고정"
     val inputLabel = if (ui.settings.audioSource == AudioSource.SYSTEM) "동영상 음성" else "마이크"
-    val placementLabel = if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN)
-        "분할 화면" else "팝업"
+    val placementLabel = when (ui.settings.captionPlacement) {
+        CaptionPlacement.SPLIT_SCREEN -> "분할 화면"
+        CaptionPlacement.POPUP -> "팝업"
+        CaptionPlacement.BUBBLE -> "버블 자막"
+    }
     val selectionLabel = "$placementLabel · $inputLabel · $languageLabel → 한국어"
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -239,11 +244,15 @@ fun MainScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     for ((placement, label) in listOf(
                         CaptionPlacement.SPLIT_SCREEN to "분할 화면",
-                        CaptionPlacement.POPUP to "팝업"
+                        CaptionPlacement.POPUP to "팝업",
+                        CaptionPlacement.BUBBLE to "버블 자막"
                     )) {
                         val selected = ui.settings.captionPlacement == placement
-                        val icon = if (placement == CaptionPlacement.SPLIT_SCREEN)
-                            Icons.Outlined.VerticalSplit else Icons.Outlined.PictureInPictureAlt
+                        val icon = when (placement) {
+                            CaptionPlacement.SPLIT_SCREEN -> Icons.Outlined.VerticalSplit
+                            CaptionPlacement.POPUP -> Icons.Outlined.PictureInPictureAlt
+                            CaptionPlacement.BUBBLE -> Icons.Outlined.ChatBubbleOutline
+                        }
                         val content: @Composable () -> Unit = {
                             Icon(icon, contentDescription = null)
                             Text(label, modifier = Modifier.padding(start = 8.dp))
@@ -262,9 +271,11 @@ fun MainScreen(
                         ) { content() }
                     }
                 }
-                Text(if (ui.settings.captionPlacement == CaptionPlacement.SPLIT_SCREEN)
-                    "영상 옆에 자막을 표시합니다. 화면 비율은 Android 구분선으로 조절합니다."
-                    else "영상 위에 자막창을 표시하며 위치·크기를 조절할 수 있습니다.",
+                Text(when (ui.settings.captionPlacement) {
+                    CaptionPlacement.SPLIT_SCREEN -> "영상 옆에 자막을 표시합니다. 화면 비율은 Android 구분선으로 조절합니다."
+                    CaptionPlacement.POPUP -> "영상 위에 자막창을 표시하며 위치·크기를 조절할 수 있습니다."
+                    CaptionPlacement.BUBBLE -> "화면 옆 원형 버튼에서 번역 자막이 펼쳐집니다. 버튼을 누르면 설정할 수 있습니다."
+                },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (sessionBusy) Text("화면 배치는 번역 종료 후 변경할 수 있습니다.",
@@ -475,6 +486,54 @@ fun MainScreen(
                     Text("기본값: 초록 · 1초. 강조가 끝나면 현재 자막 색상으로 복원합니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (ui.settings.captionPlacement == CaptionPlacement.BUBBLE) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text("버블 자막", style = MaterialTheme.typography.titleMedium)
+                        Text("화면 가장자리의 원형 버튼을 누르면 같은 설정을 영상 위에서도 변경할 수 있습니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("자막 유지 시간", style = MaterialTheme.typography.labelLarge)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (duration in BubbleCaptionOptions.durationsMs) {
+                                val selected = ui.settings.bubbleHoldMs == duration
+                                if (selected) FilledTonalButton(
+                                    shape = RectangleShape,
+                                    onClick = { viewModel.updateBubbleHoldMs(duration) },
+                                    modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
+                                ) { Text((duration / 1000).toString() + "초") }
+                                else OutlinedButton(
+                                    shape = RectangleShape,
+                                    onClick = { viewModel.updateBubbleHoldMs(duration) },
+                                    modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
+                                ) { Text((duration / 1000).toString() + "초") }
+                            }
+                        }
+                        Text("버블 글자 크기", style = MaterialTheme.typography.labelLarge)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (size in BubbleCaptionOptions.textSizesSp) {
+                                val selected = ui.settings.bubbleTextSizeSp == size
+                                if (selected) FilledTonalButton(
+                                    shape = RectangleShape,
+                                    onClick = { viewModel.updateBubbleTextSizeSp(size) },
+                                    modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
+                                ) { Text(size.toInt().toString() + "sp") }
+                                else OutlinedButton(
+                                    shape = RectangleShape,
+                                    onClick = { viewModel.updateBubbleTextSizeSp(size) },
+                                    modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
+                                ) { Text(size.toInt().toString() + "sp") }
+                            }
+                        }
+                        SettingToggle("원문 함께 표시", ui.settings.bubbleShowOriginal,
+                            viewModel::updateBubbleShowOriginal)
+                        OutlinedButton(
+                            shape = RectangleShape,
+                            onClick = viewModel::resetBubblePosition,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) { Text("버블 위치 초기화") }
+                    }
                     if (ui.settings.captionPlacement == CaptionPlacement.POPUP) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Text("팝업 자막창", style = MaterialTheme.typography.titleMedium)

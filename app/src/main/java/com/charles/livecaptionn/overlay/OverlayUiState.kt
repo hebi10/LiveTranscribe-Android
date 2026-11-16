@@ -24,6 +24,8 @@ data class OverlayUiState(
     val displayMode: CaptionDisplayMode = CaptionDisplayMode.CAPTIONS,
     val readingFocusMode: Boolean = false,
     val stableCaptions: Boolean = true,
+    val recognizing: Boolean = false,
+    val translating: Boolean = false,
     val controlsExpanded: Boolean = false,
     val status: RecognitionStatus = RecognitionStatus.IDLE,
     val phase: CaptionPhase = CaptionPhase.IDLE,

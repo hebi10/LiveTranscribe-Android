@@ -18,7 +18,7 @@ data class MainUiState(
     val modelReady: Boolean get() = RecognitionLanguages.isValidMode(settings.sourceLanguageCode) &&
         translationModel.stage == ModelSetupStage.READY
     val translationReady: Boolean get() = modelReady
-    val overlayPermissionRequired: Boolean get() = settings.captionPlacement == CaptionPlacement.POPUP
+    val overlayPermissionRequired: Boolean get() = settings.captionPlacement != CaptionPlacement.SPLIT_SCREEN
     val placementSelectionEnabled: Boolean get() = !runtime.running && !runtime.stopping
     val canStart: Boolean get() =
         modelReady && translationReady && (!overlayPermissionRequired || overlayPermissionGranted) && micPermissionGranted

@@ -21,6 +21,28 @@ class CaptionSettingsTest {
         assertEquals(CaptionPlacement.POPUP, CaptionPlacement.fromName(null))
         assertEquals(CaptionPlacement.POPUP, CaptionPlacement.fromName("future-mode"))
         assertEquals(CaptionPlacement.SPLIT_SCREEN, CaptionPlacement.fromName("SPLIT_SCREEN"))
+        assertEquals(CaptionPlacement.BUBBLE, CaptionPlacement.fromName("BUBBLE"))
+    }
+
+    @Test fun bubbleSettings_areSeparateFromExistingPopup() {
+        val existing = CaptionSettings()
+        val bubble = existing.copy(captionPlacement = CaptionPlacement.BUBBLE, bubbleY = 520,
+            bubbleSide = com.charles.livecaptionn.settings.BubbleSide.LEFT)
+        assertEquals(CaptionPlacement.POPUP, existing.captionPlacement)
+        assertEquals(24, bubble.overlayX)
+        assertEquals(260, bubble.overlayY)
+        assertEquals(520, bubble.bubbleY)
+        assertEquals(com.charles.livecaptionn.settings.BubbleSide.LEFT, bubble.bubbleSide)
+    }
+
+    @Test fun bubblePreferencesRejectUnknownValues() {
+        val config = com.charles.livecaptionn.settings.BubbleCaptionOptions
+        assertEquals(5000, config.duration(999))
+        assertEquals(3000, config.duration(3000))
+        assertEquals(16f, config.textSize(Float.NaN))
+        assertEquals(20f, config.textSize(20f))
+        assertEquals(com.charles.livecaptionn.settings.BubbleSide.RIGHT,
+            com.charles.livecaptionn.settings.BubbleSide.fromName("unknown"))
     }
 
     @Test fun defaults_captureVideoAudio() {

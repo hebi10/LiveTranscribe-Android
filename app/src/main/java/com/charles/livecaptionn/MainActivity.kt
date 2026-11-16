@@ -330,7 +330,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             if (!startGate.busy) return@launch
             val settings = app.container.settingsRepository.settingsFlow.first()
-            if (settings.captionPlacement == CaptionPlacement.POPUP &&
+            if (settings.captionPlacement != CaptionPlacement.SPLIT_SCREEN &&
                 !Settings.canDrawOverlays(this@MainActivity)) {
                 setError("다른 앱 위에 표시 권한을 먼저 허용해 주세요.")
                 return@launch

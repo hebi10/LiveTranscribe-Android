@@ -150,6 +150,8 @@ internal fun buildOverlayUiState(runtime: CaptionRuntimeState, settings: Caption
         displayMode = settings.captionDisplayMode,
         readingFocusMode = settings.readingFocusMode,
         stableCaptions = settings.stableCaptions,
+        recognizing = runtime.recognizing,
+        translating = runtime.translating,
         controlsExpanded = settings.overlayControlsExpanded,
         status = runtime.status,
         phase = runtime.phase,

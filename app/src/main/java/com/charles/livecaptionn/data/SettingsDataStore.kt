@@ -12,6 +12,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.AppThemeMode
 import com.charles.livecaptionn.settings.CaptionSettings
+import com.charles.livecaptionn.settings.BubbleSide
+import com.charles.livecaptionn.settings.BubbleCaptionOptions
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionDisplayMode
@@ -45,6 +47,11 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
                 overlayX = p[OVERLAY_X] ?: defaults.overlayX,
                 overlayY = p[OVERLAY_Y] ?: defaults.overlayY,
                 overlayMinimized = p[OVERLAY_MIN] ?: defaults.overlayMinimized,
+                bubbleSide = BubbleSide.fromName(p[BUBBLE_SIDE]),
+                bubbleY = (p[BUBBLE_Y] ?: defaults.bubbleY).coerceAtLeast(0),
+                bubbleHoldMs = BubbleCaptionOptions.duration(p[BUBBLE_HOLD_MS]),
+                bubbleTextSizeSp = BubbleCaptionOptions.textSize(p[BUBBLE_TEXT_SIZE_SP]),
+                bubbleShowOriginal = p[BUBBLE_SHOW_ORIGINAL] ?: defaults.bubbleShowOriginal,
                 audioSource = AudioSource.fromName(p[AUDIO_SOURCE] ?: defaults.audioSource.name),
                 overlayWidthDp = p[OVERLAY_W] ?: defaults.overlayWidthDp,
                 overlayHeightDp = p[OVERLAY_H] ?: defaults.overlayHeightDp,
@@ -75,6 +82,11 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
             p[OVERLAY_X] = next.overlayX
             p[OVERLAY_Y] = next.overlayY
             p[OVERLAY_MIN] = next.overlayMinimized
+            p[BUBBLE_SIDE] = next.bubbleSide.name
+            p[BUBBLE_Y] = next.bubbleY.coerceAtLeast(0)
+            p[BUBBLE_HOLD_MS] = BubbleCaptionOptions.duration(next.bubbleHoldMs)
+            p[BUBBLE_TEXT_SIZE_SP] = BubbleCaptionOptions.textSize(next.bubbleTextSizeSp)
+            p[BUBBLE_SHOW_ORIGINAL] = next.bubbleShowOriginal
             p[AUDIO_SOURCE] = next.audioSource.name
             p[OVERLAY_W] = next.overlayWidthDp.coerceAtLeast(CaptionSettings.MIN_OVERLAY_WIDTH_DP)
             p[OVERLAY_H] = next.overlayHeightDp.coerceAtLeast(CaptionSettings.MIN_OVERLAY_HEIGHT_DP)
@@ -101,6 +113,11 @@ class SettingsDataStore(private val context: Context) : SettingsRepository {
         private val OVERLAY_X = intPreferencesKey("overlay_x")
         private val OVERLAY_Y = intPreferencesKey("overlay_y")
         private val OVERLAY_MIN = booleanPreferencesKey("overlay_min")
+        private val BUBBLE_SIDE = stringPreferencesKey("bubble_side")
+        private val BUBBLE_Y = intPreferencesKey("bubble_y")
+        private val BUBBLE_HOLD_MS = intPreferencesKey("bubble_hold_ms")
+        private val BUBBLE_TEXT_SIZE_SP = floatPreferencesKey("bubble_text_size_sp")
+        private val BUBBLE_SHOW_ORIGINAL = booleanPreferencesKey("bubble_show_original")
         private val AUDIO_SOURCE = stringPreferencesKey("audio_source")
         private val OVERLAY_W = intPreferencesKey("overlay_w")
         private val OVERLAY_H = intPreferencesKey("overlay_h")

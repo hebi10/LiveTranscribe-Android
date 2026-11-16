@@ -17,6 +17,8 @@ import com.charles.livecaptionn.settings.AudioSource
 import com.charles.livecaptionn.settings.AppThemeMode
 import com.charles.livecaptionn.settings.CaptionPlacement
 import com.charles.livecaptionn.settings.CaptionDisplayMode
+import com.charles.livecaptionn.settings.BubbleSide
+import com.charles.livecaptionn.settings.BubbleCaptionOptions
 import com.charles.livecaptionn.settings.RecognitionLanguages
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -144,6 +146,32 @@ class MainViewModel(
             container.settingsRepository.update {
                 if (container.runtimeStore.state.value.running) it else it.copy(audioSource = source)
             }
+        }
+    }
+
+    fun updateBubbleHoldMs(durationMs: Int) {
+        val duration = BubbleCaptionOptions.duration(durationMs)
+        viewModelScope.launch {
+            container.settingsRepository.update { it.copy(bubbleHoldMs = duration) }
+        }
+    }
+
+    fun updateBubbleTextSizeSp(size: Float) {
+        val normalized = BubbleCaptionOptions.textSize(size)
+        viewModelScope.launch {
+            container.settingsRepository.update { it.copy(bubbleTextSizeSp = normalized) }
+        }
+    }
+
+    fun updateBubbleShowOriginal(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsRepository.update { it.copy(bubbleShowOriginal = enabled) }
+        }
+    }
+
+    fun resetBubblePosition() {
+        viewModelScope.launch {
+            container.settingsRepository.update { it.copy(bubbleSide = BubbleSide.RIGHT, bubbleY = 260) }
         }
     }
 
