@@ -17,7 +17,8 @@
 ### 4. 독립된 배포 요청
 1. CI: 자동 lint·테스트·디버그 빌드 가능. Play 변경 없음.
 2. 최종 릴리스 빌드: 계획 전체·최종 QA 완료 후 사용자 요청으로 검증된 main SHA에서 서명 AAB·SHA-256·매니페스트 생성. Play 업로드 없음.
-3. 내부 테스트: 별도 요청으로 동일 검증 AAB를 internal에 제출. 임의 재빌드 금지.
+3. 내부 테스트: 별도 요청으로 검증한 AAB를 internal에 제출. 기존 OPS-04는 동일 산출물 재사용, 기존 play-internal.yml의 deploy는 동일 main SHA에서 새 서명 빌드·검증·내부 제출로 한정한다.
+   - 2026-11-16 사용자 승인 예외: ARM64 실기기 QA를 내부 테스터 설치 이후 수행한다. latest main 빌드/정책 CI 성공 및 별도 명시적 승인일 때만 수동 Play internal release의 mode=deploy, internal_qa_approved=true, final_release_approved=false를 허용한다. 기기 QA 통과를 주장하지 않으며 폐쇄·프로덕션 자동 승격은 금지한다.
 4. 비공개 테스트: 또 다른 별도 요청으로 실제 내부 완료 상태를 확인한 동일 versionCode를 앱의 정확한 비공개 트랙에 승격. 새 AAB 업로드 금지.
 5. 정식 출시: 별도 명시적 승인 없이는 수행 금지.
 - 위 단계의 워크플로 분리가 OPS-03~05에서 아직 구현되지 않았다면 완료라고 보고하지 말고 기존 승인 게이트를 준수한다.
