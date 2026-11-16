@@ -36,8 +36,8 @@ class ReleaseFreezeTests(unittest.TestCase):
     def test_internal_qa_override_is_manual_internal_only(self):
         raw = workflow("play-internal.yml")
         self.assertIn("      internal_qa_approved:", raw)
-        self.assertIn('INTERNAL_QA_APPROVED: \${{ inputs.internal_qa_approved }}', raw)
-        self.assertIn('RELEASE_MODE: \${{ inputs.mode }}', raw)
+        self.assertIn('INTERNAL_QA_APPROVED: ${{ inputs.internal_qa_approved }}', raw)
+        self.assertIn('RELEASE_MODE: ${{ inputs.mode }}', raw)
         self.assertNotIn("  push:", raw.split("\npermissions:", 1)[0])
         approval = raw.split(
             "      - name: Require explicit final batch release approval before any Play binary upload\n", 1
