@@ -59,6 +59,7 @@ class BubbleOverlayController(
     private var latestSettings = CaptionSettings()
     private val presentation = BubbleCaptionPresentationState()
     private var captionVisible = false
+    private var visibleMessageId: Long? = null
     private var draggingBubble = false
     private var timer: Job? = null
     private var scheduledFor: Long? = null
@@ -247,6 +248,10 @@ class BubbleOverlayController(
         val state = presentation.reduce(ui, settings.bubbleHoldMs, now)
         captionVisible = state.visible
         val last = state.message
+        if (last != null && last.id != visibleMessageId) {
+            visibleMessageId = last.id
+            captionScroll.post { if (attached && visibleMessageId == last.id) captionScroll.scrollTo(0, 0) }
+        }
         translatedView.text = if (last != null) correctionStyledCaption(
             last.translatedText,
             if (ui.correctionHighlightEnabled) last.correctionRanges else emptyList(),
@@ -278,6 +283,7 @@ class BubbleOverlayController(
         timer = null
         scheduledFor = null
         presentation.clear()
+        visibleMessageId = null
         if (attached) {
             attached = false
             try {
