@@ -51,6 +51,22 @@ class PurchaseVerificationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 service.verification_result(bad)
 
+    def test_metadata_token_requests_android_publisher_scope(self):
+        from urllib.parse import parse_qs, urlsplit
+
+        with patch.object(service, "urlopen") as fetch:
+            fetch.return_value.__enter__.return_value.read.return_value = (
+                b'{"access_token":"test-access-token"}'
+            )
+            self.assertEqual(service.access_token(), "test-access-token")
+
+        request = fetch.call_args.args[0]
+        self.assertEqual(request.get_header("Metadata-flavor"), "Google")
+        self.assertEqual(
+            parse_qs(urlsplit(request.full_url).query),
+            {"scopes": ["https://www.googleapis.com/auth/androidpublisher"]},
+        )
+
     def test_unknown_google_status_must_not_grant_access(self):
         with patch.object(service, "fetch_subscription", side_effect=service.VerificationUnavailable):
             with self.assertRaises(service.VerificationUnavailable):
