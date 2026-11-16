@@ -252,11 +252,6 @@ class MainActivity : ComponentActivity() {
         if (startGate.checking) continueStartCaptioning()
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (::subscriptionController.isInitialized) subscriptionController.refresh()
-    }
-
     override fun onDestroy() {
         if (::subscriptionController.isInitialized) subscriptionController.close()
         super.onDestroy()
@@ -297,6 +292,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (::subscriptionController.isInitialized) subscriptionController.refresh()
         refreshAudioPermissionAction()
         if (companionLaunchPending) {
             companionLaunchPending = false
