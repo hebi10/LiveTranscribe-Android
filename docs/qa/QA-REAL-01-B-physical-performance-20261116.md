@@ -58,7 +58,7 @@ python scripts/device_perf_probe.py --package com.hebi.livetranslate.debug --dur
 python scripts/read_ux_00.py analyze --input measurements/qa-real-01-b/correction_off-1-events.csv --output measurements/qa-real-01-b/correction_off-1-caption.json --session-id correction_off-1 --source-sha $sha --layout popup
 ~~~
 
-9회 모두 동일한 명령의 세션 ID와 출력명을 변경해 실행합니다.
+9회 모두 동일한 명령의 세션 ID와 출력명을 변경해 실행합니다. 각 회차에 고유한 비공개 녹화 증빙, 성능 CSV 및 자막 측정 JSON이 필요하며 파일·파일 내용·증빙 참조를 재사용할 수 없습니다.
 sessions.csv의 각 PASS 행에는 다음을 수동 작성합니다: source_sha, device_alias(예: DEVICE_A), clip_id(예: CLIP_A), layout=popup, input_mode=video, source_language=en, model_ready=YES, first_translation=YES, correction_behavior, performance_csv, caption_json, evidence_reference.
 performance_csv와 caption_json은 sessions.csv가 있는 폴더 안의 상대 경로로 기재하며, correction_behavior는 OFF / ON_CHANGED / ON_UNCHANGED / FOCUS_SKIPPED 중 실제 확인한 값만 기록합니다.
 

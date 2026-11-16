@@ -2,6 +2,7 @@
 """Validate operator-supplied, non-identifying Android QA evidence. Never certifies real inference."""
 
 import argparse
+import hashlib
 import csv
 import json
 import math
@@ -63,6 +64,8 @@ def verify_row(row: dict[str, str], directory: Path) -> dict:
         raise ValueError("unknown condition or attempt")
     if status not in STATUSES:
         raise ValueError("invalid status")
+    if name != f"{condition}-{attempt}":
+        raise ValueError("session ID must match the condition and attempt")
     result = {"condition": condition, "attempt": int(attempt), "status": status,
               "session_id": name}
     if status != "PASS":
@@ -138,8 +141,21 @@ def verify_row(row: dict[str, str], directory: Path) -> dict:
         "missing_rate": rate,
         "revisions": timed["counts"].get("total_revisions"),
         "correction_behavior": behavior,
+        "_performance_path": str(perf), "_caption_path": str(caption),
+        "_performance_digest": hashlib.sha256(perf.read_bytes()).hexdigest(),
+        "_caption_digest": hashlib.sha256(caption.read_bytes()).hexdigest(),
+        "_evidence_ref": row["evidence_reference"].strip(),
     })
     return result
+
+
+def evidence_reuse_errors(passing: list[dict]) -> list[str]:
+    errors = []
+    for field in ("_performance_path", "_caption_path", "_performance_digest", "_caption_digest", "_evidence_ref"):
+        values = [row[field] for row in passing]
+        if len(set(values)) != len(values):
+            errors.append(f"Reused {field} across separate PASS sessions")
+    return errors
 
 
 def analyze(manifest: Path) -> dict:
@@ -165,6 +181,8 @@ def analyze(manifest: Path) -> dict:
     identity = ("source_sha", "device_alias", "layout", "input_mode", "source_language", "clip_id")
     if passing and any(len({s[key] for s in passing}) > 1 for key in identity):
         errors.append("PASS sessions have mismatched SHA, device, input, layout, language or clip")
+    if passing:
+        errors.extend(evidence_reuse_errors(passing))
     summary = {}
     for cond in CONDITIONS:
         values = [s for s in passing if s["condition"] == cond]

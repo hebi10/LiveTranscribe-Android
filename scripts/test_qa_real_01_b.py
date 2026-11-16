@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from qa_real_01_b import COLUMNS, analyze, create_template, verify_row
+from qa_real_01_b import COLUMNS, analyze, create_template, evidence_reuse_errors, verify_row
 
 FAKE_SHA = "a" * 40
 
@@ -130,6 +130,22 @@ class QaReal01BTest(unittest.TestCase):
                                  "battery_temp_c": 33, "battery_level_percent": 80})
         with self.assertRaisesRegex(ValueError, "270-330 seconds"):
             verify_row(row, self.folder)
+
+    def test_mismatched_session_id_is_invalid(self):
+        rows = self.rows()
+        rows[0]["session_id"] = "correction_off-2"
+        self.save(rows)
+        self.assertTrue(any("session ID must match" in error for error in analyze(self.manifest)["validationErrors"]))
+
+    def test_reused_files_or_recordings_are_invalid(self):
+        first = {"_performance_path": "same.csv", "_caption_path": "same.json",
+                 "_performance_digest": "a" * 64, "_caption_digest": "b" * 64,
+                 "_evidence_ref": "video-01"}
+        self.assertTrue(evidence_reuse_errors([first, first.copy()]))
+        second = {"_performance_path": "new.csv", "_caption_path": "new.json",
+                  "_performance_digest": "a" * 64, "_caption_digest": "c" * 64,
+                  "_evidence_ref": "video-02"}
+        self.assertTrue(any("digest" in error for error in evidence_reuse_errors([first, second])))
 
 if __name__ == "__main__":
     unittest.main()
