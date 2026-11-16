@@ -9,7 +9,7 @@ manifest = (app / "src/main/AndroidManifest.xml").read_text(encoding="utf-8")
 build = (app / "build.gradle.kts").read_text(encoding="utf-8")
 blocked_dependencies = (
     "firebase", "play-services-ads", "retrofit", "okhttp",
-    "billingclient", "work-runtime", "google-services", "mlkit", "play-services"
+    "work-runtime", "google-services", "mlkit", "play-services"
 )
 for item in blocked_dependencies:
     if item in build.lower():
@@ -60,12 +60,21 @@ bad_patterns = (
     r'\bokhttp3\.',
     r'\bretrofit2\.',
     r'\bFirebaseApp\b',
-    r'\bMobileAds\b',
     r'\bIntent\.ACTION_SEND\b',
     r'\bBuildConfig\.UPDATE_REPO_OWNER\b',
     r'\bHttpLoggingInterceptor\b'
 )
 transport = app / "src/main/java/com/charles/livecaptionn/models/ModelDownloadTransport.kt"
+monetization_root = app / "src/main/java/com/charles/livecaptionn/monetization"
+purchase_transport = monetization_root / "PurchaseVerifier.kt"
+if not all(value in build for value in (
+    "com.google.android.libraries.ads.mobile.sdk:ads-mobile-sdk:1.6.0",
+    "com.google.android.ump:user-messaging-platform:4.0.0",
+    "com.android.billingclient:billing-ktx:9.1.0",
+    "GMA_ADS_ENABLED", "BILLING_VERIFIER_URL",
+)):
+    raise SystemExit("Expected fail-closed monetization dependencies/config missing")
+
 network_pattern = r'\b(?:java\.net\.(?:URL|HttpURLConnection|Socket)|javax\.net\.ssl\.HttpsURLConnection)\b'
 for path in (app / "src/main/java").rglob("*.kt"):
     text = path.read_text(encoding="utf-8")
@@ -74,8 +83,20 @@ for path in (app / "src/main/java").rglob("*.kt"):
             raise SystemExit("Model transport must use GET without a request body")
         if re.search(r'\b(?:getOutputStream|outputStream|Socket)\b|doOutput\s*=\s*true|requestMethod\s*=\s*"(?:POST|PUT|PATCH|DELETE)"', text):
             raise SystemExit("Model transport cannot upload a request body")
+    elif path == purchase_transport:
+        if "HttpsURLConnection" not in text or "BuildConfig.BILLING_VERIFIER_URL" not in text:
+            raise SystemExit("Billing verification must use configured HTTPS endpoint")
+        if any(s in text for s in ("transcriptLines", "originalText", "translatedText", "RECORD_AUDIO")):
+            raise SystemExit("Billing client cannot access speech or translated content")
     elif re.search(network_pattern, text):
         raise SystemExit(f"Forbidden behavior in {path.relative_to(root)}: direct network access")
+    if path.is_relative_to(monetization_root):
+        if any(s in text for s in ("MediaProjection", "transcriptLines", "translatedText", "originalText", "AudioRecord")):
+            raise SystemExit(f"Monetization cannot access captions or audio: {path}")
+    elif any(s in text for s in ("com.google.android.libraries.ads.mobile.sdk.",
+                                  "com.android.billingclient.api.", "com.google.android.ump.",
+                                  "MobileAds.initialize(")):
+        raise SystemExit(f"Monetization SDK must stay in isolated package: {path}")
     if "Intent.ACTION_VIEW" in text:
         policy_intent = r'Intent\(Intent\.ACTION_VIEW,\s*Uri\.parse\("https://hebi10\.github\.io/LiveTranscribe-Android/privacy-policy\.html"\)\)'
         if (path.name != "MainScreen.kt" or text.count("Intent.ACTION_VIEW") != 1
