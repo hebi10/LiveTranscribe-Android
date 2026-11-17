@@ -33,6 +33,17 @@ class MonetizationContractTests(unittest.TestCase):
         self.assertIn("!verifier.configured", purchase)
         self.assertIn("offerId == null", purchase)
 
+    def test_stale_billing_callbacks_cannot_override_newer_checks(self):
+        purchase = (M / "SubscriptionController.kt").read_text()
+        self.assertIn("val requestRevision = ++refreshRevision", purchase)
+        self.assertIn(
+            "if (closed || requestRevision != refreshRevision) return@queryPurchasesAsync",
+            purchase,
+        )
+        self.assertIn("val current = ++refreshRevision", purchase)
+        self.assertIn("if (closed || current != refreshRevision) return@launch", purchase)
+        self.assertIn("message = \"활성 광고 제거 구독이 없습니다.\"", purchase)
+
     def test_real_ads_require_real_ids_and_privacy_consent(self):
         gradle = self.read("app/build.gradle.kts")
         self.assertIn("liveGmaReady = Regex", gradle)

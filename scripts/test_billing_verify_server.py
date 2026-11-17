@@ -32,10 +32,21 @@ class PurchaseVerificationTests(unittest.TestCase):
             self.data(state="SUBSCRIPTION_STATE_PENDING"),
             self.data(product="unrelated"),
             self.data(expires="not-a-date"),
+            {"subscriptionState": "SUBSCRIPTION_STATE_ACTIVE", "lineItems": None},
+            {"subscriptionState": "SUBSCRIPTION_STATE_ACTIVE", "lineItems": {}},
+            {"subscriptionState": "SUBSCRIPTION_STATE_ACTIVE", "lineItems": "not-a-list"},
             {},
         ):
             with self.subTest(item=item):
                 self.assertFalse(service.is_active(item, NOW))
+
+    def test_malformed_play_line_items_fail_closed(self):
+        payload = {"productId": service.PRODUCT, "purchaseToken": "Token_1234567890"}
+        with patch.object(service, "fetch_subscription", return_value={
+            "subscriptionState": "SUBSCRIPTION_STATE_ACTIVE", "lineItems": None
+        }):
+            self.assertEqual({"productId": service.PRODUCT, "active": False},
+                             service.verification_result(payload))
 
     def test_purchase_proof_accepts_only_configured_product(self):
         payload = {"productId": service.PRODUCT, "purchaseToken": "Token_1234567890"}

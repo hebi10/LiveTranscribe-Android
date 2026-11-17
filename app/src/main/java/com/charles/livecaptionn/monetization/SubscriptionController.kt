@@ -44,6 +44,7 @@ internal class SubscriptionController(context: Context) {
             if (result.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
                 verifyPurchases(purchases)
             } else if (result.responseCode != BillingClient.BillingResponseCode.USER_CANCELED) {
+                ++refreshRevision
                 mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
                     message = "Google Play 결제 상태를 다시 확인해 주세요.")
             }
@@ -59,6 +60,9 @@ internal class SubscriptionController(context: Context) {
             return
         }
         if (connecting) return
+        ++refreshRevision
+        mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
+            purchaseReady = false, message = "Google Play 구독 연결을 확인 중입니다.")
         connecting = true
         billing.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {
@@ -68,6 +72,8 @@ internal class SubscriptionController(context: Context) {
                     connected = true
                     refresh()
                 } else {
+                    ++refreshRevision
+                    connected = false
                     mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
                         purchaseReady = false, message = "Google Play 구독 연결을 확인할 수 없습니다.")
                 }
@@ -75,8 +81,11 @@ internal class SubscriptionController(context: Context) {
             override fun onBillingServiceDisconnected() {
                 connected = false
                 connecting = false
-                if (!closed) mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
-                    purchaseReady = false, message = "Google Play 연결이 끊겼습니다.")
+                if (!closed) {
+                    ++refreshRevision
+                    mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
+                        purchaseReady = false, message = "Google Play 연결이 끊겼습니다.")
+                }
             }
         })
     }
@@ -86,11 +95,14 @@ internal class SubscriptionController(context: Context) {
             start()
             return
         }
+        val requestRevision = ++refreshRevision
+        mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
+            message = "구독 상태를 다시 확인 중입니다.")
         loadPlans()
         billing.queryPurchasesAsync(
             QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.SUBS).build()
         ) { result, purchases ->
-            if (closed) return@queryPurchasesAsync
+            if (closed || requestRevision != refreshRevision) return@queryPurchasesAsync
             if (result.responseCode != BillingClient.BillingResponseCode.OK) {
                 mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
                     message = "구독 상태를 확인하지 못했습니다.")
@@ -162,7 +174,8 @@ internal class SubscriptionController(context: Context) {
             return
         }
         if (purchased.isEmpty()) {
-            mutable.value = mutable.value.copy(status = AdFreeStatus.INACTIVE)
+            mutable.value = mutable.value.copy(status = AdFreeStatus.INACTIVE,
+                message = "활성 광고 제거 구독이 없습니다.")
             return
         }
         mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,

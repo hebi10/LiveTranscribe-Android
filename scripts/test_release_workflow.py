@@ -26,6 +26,19 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertNotIn("app-debug.apk", release)
         self.assertNotIn("app-release-unsigned.apk", release)
 
+    def test_internal_signed_build_keeps_native_heap_guard_and_no_automatic_release(self):
+        workflow = (ROOT / ".github/workflows/play-internal.yml").read_text()
+        build_step = workflow.split(
+            "- name: Build release AAB and APK with the existing release signer", 1
+        )[1].split("- name: Verify AAB and APK match the existing app certificate", 1)[0]
+        self.assertIn("--max-workers=2", build_step)
+        self.assertIn("-Dorg.gradle.jvmargs='-Xmx4g -Dfile.encoding=UTF-8'", build_step)
+        self.assertIn("lintRelease bundleRelease assembleRelease", build_step)
+        self.assertIn("final_release_approved", workflow)
+        self.assertIn("internal_qa_approved", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotIn("workflow_run:", workflow.split("permissions:", 1)[0])
+
     def test_debug_package_is_separate_and_release_has_no_debug_signer_fallback(self):
         gradle = (ROOT / "app/build.gradle.kts").read_text()
         self.assertIn('applicationIdSuffix = ".debug"', gradle)

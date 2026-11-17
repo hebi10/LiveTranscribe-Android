@@ -31,7 +31,10 @@ def is_active(subscription: dict, now: dt.datetime | None = None) -> bool:
     if not isinstance(subscription, dict) or subscription.get("subscriptionState") not in ACTIVE_STATES:
         return False
     now = now or dt.datetime.now(dt.timezone.utc)
-    for item in subscription.get("lineItems", []):
+    line_items = subscription.get("lineItems")
+    if not isinstance(line_items, list):
+        return False
+    for item in line_items:
         if not isinstance(item, dict) or item.get("productId") != PRODUCT:
             continue
         expires = item.get("expiryTime")
