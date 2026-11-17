@@ -1,4 +1,5 @@
 """Pure offline tests for the proposed operator-hosted Play token verifier."""
+from collections import deque
 import datetime as dt
 import importlib.util
 from pathlib import Path
@@ -84,6 +85,19 @@ class PurchaseVerificationTests(unittest.TestCase):
                 service.verification_result({
                     "productId": "remove_ads", "purchaseToken": "Token_1234567890"
                 })
+
+    def test_rate_limit_blocks_google_calls_until_window_expires(self):
+        payload = {"productId": service.PRODUCT, "purchaseToken": "Token_1234567890"}
+        with (patch.object(service, "verification_requests", deque()),
+              patch.object(service, "VERIFICATIONS_PER_WINDOW", 1),
+              patch.object(service, "monotonic", side_effect=[100, 101, 160]),
+              patch.object(service, "fetch_subscription", return_value={}) as fetch):
+            service.verification_result(payload)
+            with self.assertRaises(service.VerificationRateLimited):
+                service.verification_result(payload)
+            fetch.assert_called_once()
+            service.verification_result(payload)
+            self.assertEqual(2, fetch.call_count)
 
 
 if __name__ == "__main__":

@@ -187,6 +187,7 @@ jobs:
       - name: Build release AAB and APK with the existing release signer
         env:
           ANDROID_VERSION_CODE: ${{ steps.version.outputs.version_code || inputs.version_code || '14' }}
+          BILLING_VERIFIER_URL: ${{ vars.BILLING_VERIFIER_URL }}
           ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}

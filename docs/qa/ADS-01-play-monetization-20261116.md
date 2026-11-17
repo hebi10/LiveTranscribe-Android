@@ -15,6 +15,12 @@
 - 디버그 공식 테스트 광고는 요청 시에만 `-PenableTestAds=true`; 실기기 테스트에는 테스트 광고만 사용.
 - 상품 생성은 Billing SDK 포함 AAB를 내부 테스트에 먼저 배포한 후 Console에서 구독·기본 요금제를 등록하고 활성화.
 
+## Cloud Run 연결
+
+- `server/`를 빌드 컨텍스트로 사용합니다. 컨테이너는 Cloud Run의 `PORT`에서 수신하며 `/healthz`와 `/verify`를 제공합니다.
+- Cloud Run에는 이 앱의 구독 조회에 필요한 권한만 부여한 런타임 서비스 계정을 지정합니다. 검증기는 인스턴스당 60초에 최대 120건의 Play 검증을 허용하므로 초기 검증 시 최대 인스턴스 수를 1로 설정하고 429 응답을 모니터링합니다.
+- 검증된 HTTPS `/verify` URL을 GitHub `google-play` 환경의 `BILLING_VERIFIER_URL` 변수로 설정합니다. 서명 AAB 빌드가 이 값을 Gradle에 전달하며, 기존 내부 테스트 설치본에는 다음 빌드가 필요합니다.
+
 ## 광고 정책 및 개인정보 검증
 1. UMP 동의 갱신 후 `canRequestAds()`가 허용이고, Play 구독 확인 결과가 INACTIVE일 때만 홈에서 광고 요청.
 2. ACTIVE/PENDING/UNKNOWN 구독 또는 녹음·인식·번역 중에는 광고 없음.
