@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Cloud Run purchase-verification endpoint. Deploy separately with a scoped service account."""
+from collections import deque
 import datetime as dt
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import re
+from threading import Lock
+from time import monotonic
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -15,16 +18,35 @@ GOOGLE = "https://androidpublisher.googleapis.com/androidpublisher/v3/applicatio
 METADATA = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
 PLAY_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
 MAX_BODY = 2048
+VERIFICATION_WINDOW_SECONDS = 60
+VERIFICATIONS_PER_WINDOW = 120
 TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._:/-]{10,1500}$")
 ACTIVE_STATES = frozenset({
     "SUBSCRIPTION_STATE_ACTIVE",
     "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
     "SUBSCRIPTION_STATE_CANCELED",
 })
+verification_requests: deque[float] = deque()
+verification_lock = Lock()
 
 
 class VerificationUnavailable(Exception):
     pass
+
+
+class VerificationRateLimited(Exception):
+    pass
+
+
+def reserve_verification() -> None:
+    with verification_lock:
+        now = monotonic()
+        expires_before = now - VERIFICATION_WINDOW_SECONDS
+        while verification_requests and verification_requests[0] <= expires_before:
+            verification_requests.popleft()
+        if len(verification_requests) >= VERIFICATIONS_PER_WINDOW:
+            raise VerificationRateLimited
+        verification_requests.append(now)
 
 
 def is_active(subscription: dict, now: dt.datetime | None = None) -> bool:
@@ -88,6 +110,7 @@ def verification_result(payload: dict) -> dict:
     token = payload.get("purchaseToken")
     if not isinstance(token, str) or not TOKEN_PATTERN.fullmatch(token):
         raise ValueError("Invalid purchase proof")
+    reserve_verification()
     return {"productId": PRODUCT, "active": is_active(fetch_subscription(token))}
 
 
@@ -131,6 +154,9 @@ class Handler(BaseHTTPRequestHandler):
             reply = verification_result(payload)
         except (UnicodeError, ValueError, KeyError):
             self.respond(400, {"error": "bad_request"})
+            return
+        except VerificationRateLimited:
+            self.respond(429, {"error": "verification_rate_limited"})
             return
         except VerificationUnavailable:
             self.respond(503, {"error": "verification_unavailable"})
