@@ -29,3 +29,9 @@
 
 ### 앱별 보존 지침
 - 마이크·음성·실시간 자막·번역 데이터의 동의·권한·개인정보 보호 정책을 보존한다. `.github/workflows/build.yml` 및 `play-internal.yml`·`play-promote.yml`의 수동 승인·정확한 버전 검증을 유지한다.
+
+## CI-DEDUP-20261119 — 배치 종료 후 반응형 기기 QA
+- PR/main은 `build.yml`의 Android 빌드, 단위·Lint, 개인정보 및 오프라인 모델 계약 검증을 유지한다.
+- `responsive-qa.yml`은 PR/main에서 장시간 에뮬레이터 자동 실행하지 않으며, 최종 main SHA 고정 후 수동 1회 실행한다.
+- 기존 API 35 큰 글꼴 160%, 가로 화면, 태블릿, 실제 PNG 6장과 SHA 증빙 및 실패 차단 조건을 유지한다.
+- `release-build.yml`은 같은 main SHA의 Private Android APK 및 Android responsive UI QA 성공 없이는 서명 빌드를 차단한다. 마이크·음성·권한 관련 고위험 사전 검증과 실기기 QA는 별도 유지한다.
