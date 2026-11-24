@@ -263,14 +263,7 @@ class BubbleOverlayController(
         originalView.visibility = if (state.visible && settings.bubbleShowOriginal &&
             !ui.readingFocusMode && last != null && last.originalText.isNotBlank())
             View.VISIBLE else View.GONE
-        statusText.text = when {
-            ui.stopping -> "번역 종료 중"
-            ui.status == com.charles.livecaptionn.speech.RecognitionStatus.PAUSED -> "일시정지"
-            ui.status == com.charles.livecaptionn.speech.RecognitionStatus.ERROR -> "번역 오류"
-            ui.recognizing -> "음성 인식 중"
-            ui.translating -> "번역 중"
-            else -> ui.phase.label
-        }
+        statusText.text = bubbleStatusLabel(ui)
         refreshView()
         val highlightExpiry = last?.correctionHighlightUntilMs?.takeIf {
             ui.correctionHighlightEnabled && it > now && last.correctionRanges.isNotEmpty()

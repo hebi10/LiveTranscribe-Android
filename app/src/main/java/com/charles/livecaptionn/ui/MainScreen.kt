@@ -130,9 +130,9 @@ fun MainScreen(
     val action = ui.homeAction(startPending)
     var showAdvancedSettings by rememberSaveable { mutableStateOf(false) }
     val statusLabel = when {
-        ui.runtime.stopping -> ui.runtime.phase.label
+        ui.runtime.stopping -> ui.runtime.phaseLabel
         startPending -> "권한 확인 및 시작 준비 중"
-        ui.runtime.running || ui.runtime.status == RecognitionStatus.ERROR -> ui.runtime.phase.label
+        ui.runtime.running || ui.runtime.status == RecognitionStatus.ERROR -> ui.runtime.phaseLabel
         ui.canStart -> "시작 가능"
         else -> "시작 준비 필요"
     }

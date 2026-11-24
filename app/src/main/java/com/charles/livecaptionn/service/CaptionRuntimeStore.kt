@@ -86,6 +86,8 @@ data class CaptionRuntimeState(
         else -> CaptionPhase.IDLE
     }
 
+    val phaseLabel: String get() = captionPhaseLabel(phase, recognizing, translating)
+
     /** Only actionable capture hints/errors need space in the collapsed overlay. */
     val actionableNotice: String? get() = lastError?.takeIf { it.isNotBlank() }
         ?: captureHint?.takeIf { !stopping && !paused && it.isNotBlank() }
@@ -143,6 +145,15 @@ enum class CaptionPhase(val label: String) {
     IDLE("대기"), PREPARING("음성 인식 준비 중"), WAITING("음성 대기 중"),
     PROCESSING("자막 처리 중"), PAUSED("일시정지"), STOPPING("종료 중 · 남은 자막 처리 중"), ERROR("실행 오류")
 }
+
+/** Separate recognition and translation while preserving error, pause and stop precedence. */
+internal fun captionPhaseLabel(phase: CaptionPhase, recognizing: Boolean, translating: Boolean): String =
+    if (phase != CaptionPhase.PROCESSING) phase.label else when {
+        recognizing && translating -> "음성 인식·번역 중"
+        translating -> "한국어로 번역 중"
+        recognizing -> "음성 인식 중"
+        else -> phase.label
+    }
 
 internal fun stoppingCaptionSession(runtime: CaptionRuntimeState, error: String? = null): CaptionRuntimeState =
     runtime.copy(running = true, stopping = true, lastError = error ?: runtime.lastError, captureHint = null,
