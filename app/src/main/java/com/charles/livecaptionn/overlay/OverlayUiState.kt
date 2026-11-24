@@ -2,6 +2,7 @@ package com.charles.livecaptionn.overlay
 
 import com.charles.livecaptionn.speech.RecognitionStatus
 import com.charles.livecaptionn.service.CaptionPhase
+import com.charles.livecaptionn.service.captionPhaseLabel
 import com.charles.livecaptionn.settings.CaptionDisplayMode
 import com.charles.livecaptionn.settings.CorrectionHighlightPalette
 import com.charles.livecaptionn.service.CaptionCorrectionRange
@@ -58,13 +59,16 @@ internal fun overlayStatusLabel(ui: OverlayUiState): String {
         "ja" -> "일본어 전환 추천"
         else -> null
     }
-    return when {
-        ui.stopping -> ui.phase.label
-        suggestion != null -> "$suggestion · ${ui.phase.label}"
-        ui.skippedTranslations > 0 || ui.skippedSpeechSegments > 0 -> "${ui.phase.label} · 일부 자막 생략"
-        else -> ui.phase.label
-    }
+    val phase = captionPhaseLabel(ui.phase, ui.recognizing, ui.translating)
+    if (ui.stopping) return phase
+    val skipped = ui.skippedTranslations > 0 || ui.skippedSpeechSegments > 0
+    return listOfNotNull(suggestion, phase, "일부 자막 생략".takeIf { skipped }).joinToString(" · ")
 }
+
+/** A bubble menu exposes actionable notices without changing the caption itself. */
+internal fun bubbleStatusLabel(ui: OverlayUiState): String =
+    listOfNotNull(overlayStatusLabel(ui), ui.statusDetail?.takeIf { it.isNotBlank() })
+        .joinToString("\n")
 
 /** Expansion is presentation-only; never save it as the user's preferred popup height. */
 internal fun overlayExpandedMinHeightDp(ui: OverlayUiState?): Int? = when {

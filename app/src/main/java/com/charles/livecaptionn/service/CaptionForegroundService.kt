@@ -433,8 +433,10 @@ class CaptionForegroundService : Service() {
             observeEngineStatus(engine.status)
             pauseController.attach(engine)
 
-            if (sessionPlacement == CaptionPlacement.POPUP) showOverlay()
-            if (sessionPlacement == CaptionPlacement.BUBBLE) showBubble()
+            if (!stopping && captionSessionActive.get()) {
+                if (sessionPlacement == CaptionPlacement.POPUP) showOverlay()
+                if (sessionPlacement == CaptionPlacement.BUBBLE) showBubble()
+            }
         }
     }
 
@@ -566,7 +568,7 @@ class CaptionForegroundService : Service() {
             val before = app.container.runtimeStore.state.value
             val target = before.transcriptLines.firstOrNull { it.id == lineId }
             if (!captionSessionActive.get() || before.sessionId != captionSessionId ||
-                !before.running || before.stopping || before.translating ||
+                !before.running || before.stopping || before.paused || before.recognizing || before.translating ||
                 translationQueue?.pendingFinalCount != 0 ||
                 target?.translatedText != firstTranslation || !target.finalTranslationCommitted) return@launch
             val polished = try {
@@ -762,6 +764,12 @@ class CaptionForegroundService : Service() {
         }
         if (error != null) failureMessage = error
         captionSessionActive.set(false)
+        // Dismiss overlays immediately; the existing cleanup owner still drains native work safely.
+        overlayController?.hide()
+        overlayController = null
+        bubbleOverlayController?.hide()
+        bubbleOverlayController = null
+        overlayReady.value = 0
         beginCleanup(error, completionMessage)
     }
 

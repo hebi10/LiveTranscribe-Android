@@ -20,6 +20,12 @@ class BubbleGeometryTest {
         assertEquals(300, fittedBubbleY(300, 1000, 50, 100, 80))
     }
 
+    @Test fun menuFitsReducedFoldedAndLandscapeHeights() {
+        assertEquals(736, com.charles.livecaptionn.overlay.bubbleMenuHeightLimit(900, 50, 50, 48, 16))
+        assertEquals(36, com.charles.livecaptionn.overlay.bubbleMenuHeightLimit(160, 30, 30, 48, 16))
+        assertEquals(1, com.charles.livecaptionn.overlay.bubbleMenuHeightLimit(80, 30, 30, 48, 16))
+    }
+
     @Test fun captionWidthNeverOverflowsTinyScreen() {
         assertEquals(1, bubbleCaptionWidth(20, 1f))
         assertTrue(bubbleCaptionWidth(1080, 3f) <= 840)

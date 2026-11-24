@@ -53,14 +53,14 @@ class PlayStoreCaptureTest {
         compose.onNodeWithText("음성 캡처 권한 허용").assertIsDisplayed()
         compose.onNodeWithText("동영상 음성·마이크 번역에는 Android 마이크 권한이 필요합니다.")
             .assertIsDisplayed()
-        compose.onNodeWithText("2. 다른 앱 위에 팝업 표시").assertDoesNotExist()
+        compose.onNodeWithText("2. 다른 앱 위에 자막 표시").assertDoesNotExist()
         capture(directory, "01-home-preparation.png")
 
         compose.onNodeWithText("전체 준비 항목 보기").performScrollTo().performClick()
-        compose.onNodeWithText("2. 다른 앱 위에 팝업 표시").assertExists()
+        compose.onNodeWithText("2. 다른 앱 위에 자막 표시").assertExists()
         compose.onNodeWithText("3. 음성·번역 모델").assertExists()
         compose.onNodeWithText("전체 준비 항목 접기").performScrollTo().performClick()
-        compose.onNodeWithText("2. 다른 앱 위에 팝업 표시").assertDoesNotExist()
+        compose.onNodeWithText("2. 다른 앱 위에 자막 표시").assertDoesNotExist()
 
         instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.RECORD_AUDIO)
         compose.activityRule.scenario.recreate()
@@ -70,6 +70,7 @@ class PlayStoreCaptureTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("모델 다운로드 (약 2.1GB)").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("2. 다른 앱 위에 자막 표시").assertDoesNotExist()
         compose.onNodeWithText("처음 사용할 때 약 2.1GB를 다운로드합니다. Wi-Fi와 충분한 저장 공간을 확인해 주세요. 모바일 데이터 사용 시 요금이 발생할 수 있습니다.")
             .assertExists()
         capture(directory, "02-model-preparation.png")

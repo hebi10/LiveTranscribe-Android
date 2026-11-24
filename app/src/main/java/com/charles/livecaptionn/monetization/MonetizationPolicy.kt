@@ -9,7 +9,8 @@ data class SubscriptionUiState(
     val monthly: SubscriptionPlan? = null,
     val yearly: SubscriptionPlan? = null,
     val purchaseReady: Boolean = false,
-    val message: String = "Google Play 구독 정보를 확인 중입니다."
+    val message: String = "Google Play 구독 정보를 확인 중입니다.",
+    val planMessage: String = ""
 )
 
 data class ConsentUiState(

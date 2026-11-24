@@ -16,6 +16,15 @@ class BubblePresentationTest {
     private fun ui(vararg messages: OverlayCaptionMessage) =
         OverlayUiState(messages = messages.toList(), status = RecognitionStatus.LISTENING)
 
+    @Test fun bubbleStatusShowsSkippedCaptionsAndActionableNotice() {
+        val ui = OverlayUiState(phase = com.charles.livecaptionn.service.CaptionPhase.PROCESSING,
+            translating = true, skippedSpeechSegments = 1, statusDetail = "음성 입력을 확인해 주세요.")
+        val label = com.charles.livecaptionn.overlay.bubbleStatusLabel(ui)
+        assertTrue(label.contains("한국어로 번역 중"))
+        assertTrue(label.contains("일부 자막 생략"))
+        assertTrue(label.contains("음성 입력을 확인해 주세요."))
+    }
+
     @Test fun repeatedFlowEmissionsDoNotRestartTimer() {
         val state = BubbleCaptionPresentationState()
         val row = ui(caption())

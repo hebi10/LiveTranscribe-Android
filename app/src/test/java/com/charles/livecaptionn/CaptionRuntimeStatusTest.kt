@@ -50,6 +50,15 @@ class CaptionRuntimeStatusTest {
         assertEquals(CaptionPhase.PREPARING, listening.copy(status = RecognitionStatus.IDLE).phase)
     }
 
+    @Test fun displayLabelDistinguishesRecognitionTranslationAndPause() {
+        assertEquals("음성 대기 중", listening.phaseLabel)
+        assertEquals("음성 인식 중", listening.copy(recognizing = true).phaseLabel)
+        assertEquals("한국어로 번역 중", listening.copy(translating = true).phaseLabel)
+        assertEquals("음성 인식·번역 중", listening.copy(recognizing = true, translating = true).phaseLabel)
+        assertEquals("일시정지", listening.copy(translating = true, paused = true).phaseLabel)
+        assertEquals(CaptionPhase.ERROR.label, listening.copy(recognizing = true, lastError = "error").phaseLabel)
+    }
+
     @Test fun failedOrUntranslatedLinesCannotKeepProcessingStatusForever() {
         val pending = applyTranscriptResult(listening, "untranslated", true, 1)
         assertEquals(CaptionPhase.WAITING, pending.phase)

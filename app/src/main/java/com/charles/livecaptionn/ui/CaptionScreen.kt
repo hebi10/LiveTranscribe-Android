@@ -108,7 +108,7 @@ fun CaptionScreen(
     val status = when {
         startPending -> "시작 준비 중"
         !running && messages.isNotEmpty() && ui.runtime.lastError == null -> "번역 완료"
-        else -> ui.runtime.phase.label
+        else -> ui.runtime.phaseLabel
     }
     val foreground = MaterialTheme.colorScheme.onSurface.toArgb()
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()

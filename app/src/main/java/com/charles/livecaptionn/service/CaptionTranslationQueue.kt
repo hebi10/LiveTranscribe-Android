@@ -48,12 +48,14 @@ internal class CaptionTranslationQueue<T : Any>(
                 val hasPartial = synchronized(lock) { partial != null }
                 val remaining = (nextPartialAt - nowMs()).coerceAtLeast(0)
                 if (hasPartial && remaining == 0L) {
-                    val snapshot = synchronized(lock) { partial.also { partial = null } }
-                    nextPartialAt = nowMs() + partialIntervalMillis
-                    if (snapshot != null) {
-                        coroutineContext.ensureActive()
-                        translate(snapshot)
+                    val snapshot = synchronized(lock) {
+                        if (!accepting || finals.isNotEmpty()) null
+                        else partial.also { partial = null }
                     }
+                    if (snapshot == null) continue
+                    nextPartialAt = nowMs() + partialIntervalMillis
+                    coroutineContext.ensureActive()
+                    translate(snapshot)
                 } else if (hasPartial) {
                     withTimeoutOrNull(remaining.coerceAtLeast(1)) { signal.receive() }
                 } else {
@@ -92,7 +94,10 @@ internal class CaptionTranslationQueue<T : Any>(
     suspend fun finish(timeoutMillis: Long = 46_000): Boolean {
         synchronized(lock) { accepting = false; partial = null }
         signal.trySend(Unit)
-        val drained = withTimeoutOrNull(timeoutMillis) { worker.join(); true } ?: false
+        val drained = withTimeoutOrNull(timeoutMillis) {
+            worker.join()
+            !worker.isCancelled
+        } ?: false
         if (!drained) {
             cancel()
             worker.join()

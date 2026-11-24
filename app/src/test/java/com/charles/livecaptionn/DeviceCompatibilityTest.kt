@@ -23,7 +23,7 @@ class DeviceCompatibilityTest {
     }
  
     @Test
-    fun kindleTablet_evaluatesToBorderline() {
+    fun kindleTablet_evaluatesToUnsupported() {
         // Amazon Fire HD 8 spec: 2783 MB RAM, 4 cores, 32-bit (armeabi-v7a), 2800 MB free storage
         val (tier, reasons) = DeviceCompatibilityChecker.evaluateTier(
             totalRamMb = 2783L,
@@ -31,7 +31,7 @@ class DeviceCompatibilityTest {
             is64Bit = false,
             freeStorageMb = 2800L
         )
-        assertEquals(CompatibilityTier.BORDERLINE, tier)
+        assertEquals(CompatibilityTier.UNSUPPORTED, tier)
         assertTrue(reasons.any { it.contains("2.5 GB minimum") || it.contains("4 GB+ is recommended") })
         assertTrue(reasons.any { it.contains("32-bit") })
         assertTrue(reasons.any { it.contains("4 cores") })
@@ -108,10 +108,18 @@ class DeviceCompatibilityTest {
     }
 
     @Test
+    fun otherwiseCapable32BitDeviceIsStillUnsupported() {
+        val (tier, reasons) = DeviceCompatibilityChecker.evaluateTier(
+            8000L, 8, false, 5000L, modelsAlreadyVerified = true)
+        assertEquals(CompatibilityTier.UNSUPPORTED, tier)
+        assertTrue(reasons.any { it.contains("ARM64") })
+    }
+
+    @Test
     fun deviceSpecs_helperProperties() {
         val (passedTier, _) = DeviceCompatibilityChecker.evaluateTier(8000L, 8, true, 5000L)
         val (unsupportedTier, _) = DeviceCompatibilityChecker.evaluateTier(1500L, 2, false, 100L)
-        val (borderlineTier, _) = DeviceCompatibilityChecker.evaluateTier(3000L, 4, false, 3000L)
+        val (borderlineTier, _) = DeviceCompatibilityChecker.evaluateTier(3000L, 4, true, 3000L)
  
         val passedSpecs = com.charles.livecaptionn.compatibility.DeviceSpecs(
             8000L, 8, true, 5000L, "Pixel 8", "Android 14", passedTier, emptyList()
@@ -126,7 +134,7 @@ class DeviceCompatibilityTest {
         assertFalse(unsupportedSpecs.requiresWarning)
  
         val borderlineSpecs = com.charles.livecaptionn.compatibility.DeviceSpecs(
-            3000L, 4, false, 500L, "Kindle", "Android 9", borderlineTier, listOf("reasons")
+            3000L, 4, true, 3000L, "Resource-limited tablet", "Android 10", borderlineTier, listOf("reasons")
         )
         assertTrue(borderlineSpecs.canRunOnDevice)
         assertTrue(borderlineSpecs.requiresWarning)

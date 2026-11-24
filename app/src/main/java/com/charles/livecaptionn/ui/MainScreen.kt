@@ -100,6 +100,7 @@ fun MainScreen(
     onMonthlySubscription: () -> Unit = {},
     onYearlySubscription: () -> Unit = {},
     onPrivacyOptions: () -> Unit = {},
+    onRestoreSubscription: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -130,9 +131,9 @@ fun MainScreen(
     val action = ui.homeAction(startPending)
     var showAdvancedSettings by rememberSaveable { mutableStateOf(false) }
     val statusLabel = when {
-        ui.runtime.stopping -> ui.runtime.phase.label
+        ui.runtime.stopping -> ui.runtime.phaseLabel
         startPending -> "권한 확인 및 시작 준비 중"
-        ui.runtime.running || ui.runtime.status == RecognitionStatus.ERROR -> ui.runtime.phase.label
+        ui.runtime.running || ui.runtime.status == RecognitionStatus.ERROR -> ui.runtime.phaseLabel
         ui.canStart -> "시작 가능"
         else -> "시작 준비 필요"
     }
@@ -605,7 +606,7 @@ fun MainScreen(
                         Text("광고 제거 구독이 활성화되어 있습니다.",
                             style = MaterialTheme.typography.bodyMedium)
                     } else {
-                        Text("월 1,000원 · 연 9,900원(한국 출시 예정 금액). 실제 결제 가격은 Google Play에 표시된 금액이 적용됩니다.",
+                        Text("홈 화면의 광고를 제거합니다. 실제 가격과 갱신 조건은 Google Play에서 확인해 주세요.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -626,10 +627,22 @@ fun MainScreen(
                                 Text("연간 " + (subscription.yearly?.price ?: "준비 중"))
                             }
                         }
-                        Text(subscription.message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (subscription.planMessage.isNotBlank()) {
+                            Text(subscription.planMessage,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
+                    Text(subscription.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedButton(onClick = onRestoreSubscription, enabled = !sessionBusy,
+                        shape = RectangleShape, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text("구매 내역 다시 확인")
+                    }
+                    Text("구매에 사용한 Google Play 계정에서 확인해 주세요. 구독 관리·취소는 Google Play에서 할 수 있습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (consent.privacyOptionsRequired) {
                         TextButton(onClick = onPrivacyOptions) { Text("광고 개인정보 선택 변경") }
                     }
@@ -725,7 +738,7 @@ private fun StartSetupGuidance(
             if (SetupStep.OVERLAY_PERMISSION in visibleSteps) {
                 val overlayNext = setup.nextStep == SetupStep.OVERLAY_PERMISSION
                 SetupChecklistItem(
-                    title = "2. 다른 앱 위에 팝업 표시",
+                    title = "2. 다른 앱 위에 자막 표시",
                     status = if (setup.overlayPermissionNeeded) "허용 필요" else "허용 완료",
                     completed = !setup.overlayPermissionNeeded,
                     next = overlayNext
@@ -895,6 +908,10 @@ private fun ModelDownloadProgress(setup: MainSetupState) {
     Text(setup.modelProgressSummary(),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant)
+    setup.modelRemainingLabel()?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     val progress = setup.downloadProgress
     if (progress != null) {
         LinearProgressIndicator(

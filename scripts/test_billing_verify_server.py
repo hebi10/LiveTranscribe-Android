@@ -2,6 +2,7 @@
 from collections import deque
 import datetime as dt
 import importlib.util
+import io
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -85,6 +86,38 @@ class PurchaseVerificationTests(unittest.TestCase):
                 service.verification_result({
                     "productId": "remove_ads", "purchaseToken": "Token_1234567890"
                 })
+
+    def test_gateway_proof_fails_closed(self):
+        proof = "x" * 32
+        self.assertEqual(503, service.gateway_status("", proof))
+        self.assertEqual(503, service.gateway_status("short", "short"))
+        self.assertEqual(403, service.gateway_status(proof, None))
+        self.assertEqual(403, service.gateway_status(proof, "y" * 32))
+        self.assertEqual(200, service.gateway_status(proof, proof))
+
+    def test_bounded_google_response_requires_json_object(self):
+        self.assertEqual({"ok": True}, service.read_bounded_json(io.BytesIO(b'{"ok":true}'), 20))
+        for raw, limit in [(b'{"ok":true}', 5), (b'[]', 20), (b'not-json', 20)]:
+            with self.assertRaises(ValueError):
+                service.read_bounded_json(io.BytesIO(raw), limit)
+
+    def test_saturated_verifier_does_not_call_google(self):
+        from threading import BoundedSemaphore
+        slots = BoundedSemaphore(1)
+        slots.acquire()
+        with (patch.object(service, "in_flight", slots),
+              patch.object(service, "fetch_subscription") as fetch):
+            with self.assertRaises(service.VerificationRateLimited):
+                service.verification_result({"productId": service.PRODUCT,
+                                             "purchaseToken": "Token_1234567890"})
+            fetch.assert_not_called()
+
+    def test_extra_private_fields_are_rejected(self):
+        with patch.object(service, "fetch_subscription") as fetch:
+            with self.assertRaises(ValueError):
+                service.verification_result({"productId": service.PRODUCT,
+                    "purchaseToken": "Token_1234567890", "unexpected": "ignored"})
+            fetch.assert_not_called()
 
     def test_rate_limit_blocks_google_calls_until_window_expires(self):
         payload = {"productId": service.PRODUCT, "purchaseToken": "Token_1234567890"}

@@ -1,6 +1,8 @@
 package com.charles.livecaptionn.overlay
 
+import android.content.ComponentCallbacks
 import android.content.Context
+import android.content.res.Configuration
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -47,7 +49,7 @@ class BubbleOverlayController(
 ) {
     private val context = bubbleWindowContext(sourceContext)
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    private val density = context.resources.displayMetrics.density
+    private var density = context.resources.displayMetrics.density
     private var side = BubbleSide.RIGHT
     private var preferredY = 260
     private var storedSide = BubbleSide.RIGHT
@@ -131,7 +133,7 @@ class BubbleOverlayController(
     private val menu = object : ScrollView(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val (top, bottom) = insets()
-            val available = (displayHeight() - top - bottom - dp(48) - dp(16)).coerceAtLeast(dp(80))
+            val available = bubbleMenuHeightLimit(displayHeight(), top, bottom, dp(48), dp(16))
             super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(
                 available, View.MeasureSpec.AT_MOST))
         }
@@ -190,6 +192,35 @@ class BubbleOverlayController(
         text = "번역 대기 중"
     }
 
+    private val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+        fitAfterLayout()
+    }
+    private val configurationCallbacks = object : ComponentCallbacks {
+        override fun onConfigurationChanged(newConfig: Configuration) {
+            root.post {
+                if (!attached) return@post
+                density = context.resources.displayMetrics.density
+                bubbleButton.minimumHeight = dp(48)
+                bubbleButton.minimumWidth = dp(48)
+                bubbleButton.setPadding(dp(10), dp(10), dp(10), dp(10))
+                captionContent.setPadding(dp(12), dp(8), dp(12), dp(8))
+                captionScroll.setPadding(dp(4), 0, dp(4), 0)
+                menuContent.setPadding(dp(8), dp(8), dp(8), dp(8))
+                for (action in listOf(durationAction, textSizeAction, originalAction,
+                    focusAction, resetAction, pauseAction, stopAction)) {
+                    action.minHeight = dp(48)
+                    action.setPadding(dp(8), dp(4), dp(8), dp(4))
+                }
+                // Keep the user's stored position; fit the window to the new display only.
+                if (!draggingBubble) arrangeForSide()
+                refreshView()
+                root.requestLayout()
+            }
+        }
+
+        override fun onLowMemory() = Unit
+    }
+
     init {
         captionRow.addView(captionScroll)
         captionRow.addView(bubbleButton, LinearLayout.LayoutParams(dp(48), dp(48)))
@@ -228,7 +259,8 @@ class BubbleOverlayController(
         windowManager.addView(root, lp)
         windowParams = lp
         attached = true
-        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitAfterLayout() }
+        context.registerComponentCallbacks(configurationCallbacks)
+        root.addOnLayoutChangeListener(layoutListener)
         refreshView()
     }
 
@@ -263,14 +295,7 @@ class BubbleOverlayController(
         originalView.visibility = if (state.visible && settings.bubbleShowOriginal &&
             !ui.readingFocusMode && last != null && last.originalText.isNotBlank())
             View.VISIBLE else View.GONE
-        statusText.text = when {
-            ui.stopping -> "번역 종료 중"
-            ui.status == com.charles.livecaptionn.speech.RecognitionStatus.PAUSED -> "일시정지"
-            ui.status == com.charles.livecaptionn.speech.RecognitionStatus.ERROR -> "번역 오류"
-            ui.recognizing -> "음성 인식 중"
-            ui.translating -> "번역 중"
-            else -> ui.phase.label
-        }
+        statusText.text = bubbleStatusLabel(ui)
         refreshView()
         val highlightExpiry = last?.correctionHighlightUntilMs?.takeIf {
             ui.correctionHighlightEnabled && it > now && last.correctionRanges.isNotEmpty()
@@ -286,6 +311,8 @@ class BubbleOverlayController(
         visibleMessageId = null
         if (attached) {
             attached = false
+            context.unregisterComponentCallbacks(configurationCallbacks)
+            root.removeOnLayoutChangeListener(layoutListener)
             try {
                 windowManager.removeViewImmediate(root)
             } catch (_: IllegalArgumentException) { }
@@ -353,10 +380,20 @@ class BubbleOverlayController(
         val lp = windowParams ?: return
         val fitted = fittedY(preferredY)
         val gravity = Gravity.TOP or if (side == BubbleSide.RIGHT) Gravity.END else Gravity.START
-        if (lp.y != fitted || lp.gravity != gravity) {
+        val horizontalMargin = dp(8)
+        if (lp.y != fitted || lp.gravity != gravity || lp.x != horizontalMargin) {
             lp.y = fitted
             lp.gravity = gravity
-            windowManager.updateViewLayout(root, lp)
+            lp.x = horizontalMargin
+            try {
+                windowManager.updateViewLayout(root, lp)
+            } catch (_: IllegalArgumentException) {
+                hide()
+                onStop()
+            } catch (_: SecurityException) {
+                hide()
+                onStop()
+            }
         }
     }
 
