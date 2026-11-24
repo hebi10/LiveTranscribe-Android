@@ -18,10 +18,10 @@
 Firebase Analytics/Crashlytics/Performance와 원격 오류 제보·피드백·자동 업데이트 SDK는 추가하지 않았습니다.
 2026-11-16 ADS-01에서는 Google Mobile Ads Next-Gen, UMP 및 Play Billing을 별도 `monetization/` 경계로 추가했습니다.
 광고 요청은 실제 AdMob ID·UMP 동의·현재 확인된 비구독 상태·번역 유휴 홈 화면일 때만 허용하며,
-구독 검증용 HTTPS 전송은 구매 토큰·정해진 상품 ID로 제한합니다.
+구독 검증용 HTTPS 전송은 구매 토큰·정해진 상품 ID 및 요청에 결합된 Play Integrity 증명으로 제한합니다.
 실제 운영 광고 ID 및 검증 서버 설정은 아직 미확인/미배포이므로 이 문서는 운영 광고 게재 완료나 유료 결제 성공을 주장하지 않습니다. ML Kit 제거로 과거 문서의 ML Kit 진단 수집 안내는 현재 실행 경로에 해당하지 않습니다. 원문을 남기는 텍스트 로그, 기록 공유 인텐트, 클립보드 복사 기능도 사용하지 않습니다.
 
-결제 검증 `PurchaseVerifier`는 보호된 게이트웨이 HTTPS URL로 준비 확인 GET(구매 토큰 없음)과 구매 검증 POST(구매 토큰·상품 ID)를 수행하며, 음성·자막·번역 텍스트는 입력받지 않습니다. LT-FIX-07/08의 게이트웨이 인증 증명은 서버 간 전용이며 앱에는 포함하지 않습니다. 게이트웨이 앱 인증·무결성 연동, 실제 네트워크/로그 보관 범위 및 Data Safety는 운영 전 추가 검증이 필요합니다.
+결제 검증 `PurchaseVerifier`는 보호된 게이트웨이 HTTPS URL로 준비 확인 GET(구매 토큰 없음)과 구매 검증 POST(구매 토큰·상품 ID)를 수행하며, 음성·자막·번역 텍스트는 입력받지 않습니다. LT-FIX-07/08의 게이트웨이 인증 증명은 서버 간 전용이며 앱에는 포함하지 않습니다. 게이트웨이 코드에서는 Google Play Integrity 판정과 요청 해시를 검증하고 서비스 계정 IAM 인증으로 내부 검증기를 호출합니다. Play Integrity 프로젝트 연결, 실제 네트워크/로그 보관 범위 및 Data Safety는 운영 전 추가 검증이 필요합니다.
 Google SDK 내부 데이터 흐름은 정적 검사만으로 확인할 수 없으므로 Play Data Safety·AdMob 개인정보 설정을 실제 Console에서 점검해야 합니다.
 
 ## 기록과 백업

@@ -1,5 +1,6 @@
 package com.charles.livecaptionn.monetization
 
+import android.content.Context
 import com.charles.livecaptionn.BuildConfig
 import java.io.InputStream
 import java.net.URL
@@ -10,13 +11,16 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
- * Only a Play purchase token and fixed product ID leave the device, over configured TLS.
+ * A Play purchase token and fixed product ID, plus an integrity proof bound to the request,
+ * are sent only to the configured HTTPS billing gateway.
  * No audio, transcripts, language metadata or device identifiers are accepted here.
  * A backend must validate subscriptionsv2, expiry, and refunds before returning active.
  */
-internal class PurchaseVerifier {
-    val configured: Boolean get() = BuildConfig.BILLING_VERIFIER_URL.matches(
-        Regex("""https://[A-Za-z0-9][A-Za-z0-9.-]*(?:/[A-Za-z0-9/_-]*)?""")
+internal class PurchaseVerifier(context: Context) {
+    private val integrity = BillingIntegrityProof(context.applicationContext)
+    val configured: Boolean get() = !BuildConfig.DEBUG &&
+        BuildConfig.PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER > 0L && BuildConfig.BILLING_VERIFIER_URL.matches(
+        Regex("""https://[A-Za-z0-9][A-Za-z0-9.-]*/verify""")
     ) && !BuildConfig.BILLING_VERIFIER_URL.contains("localhost", ignoreCase = true)
 
     /** A URL alone is not sufficient to offer checkout. GET checks the protected route. */
@@ -24,10 +28,12 @@ internal class PurchaseVerifier {
         if (!configured) return@withContext false
         var connection: HttpsURLConnection? = null
         try {
+            val proof = integrity.tokenFor("GET", byteArrayOf()) ?: return@withContext false
             connection = URL(BuildConfig.BILLING_VERIFIER_URL).openConnection() as HttpsURLConnection
             connection.requestMethod = "GET"
+            connection.setRequestProperty("X-LiveTranscribe-Integrity", proof)
             connection.connectTimeout = 4000
-            connection.readTimeout = 5000
+            connection.readTimeout = 40_000
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Cache-Control", "no-store")
             if (connection.responseCode != 200) return@withContext false
@@ -49,19 +55,21 @@ internal class PurchaseVerifier {
         if (!configured || token.isBlank() || token.length > 1500) return@withContext null
         var connection: HttpsURLConnection? = null
         try {
-            val address = URL(BuildConfig.BILLING_VERIFIER_URL)
-            connection = address.openConnection() as HttpsURLConnection
-            connection.requestMethod = "POST"
-            connection.connectTimeout = 6000
-            connection.readTimeout = 9000
-            connection.doOutput = true
-            connection.instanceFollowRedirects = false
-            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            connection.setRequestProperty("Cache-Control", "no-store")
             val body = JSONObject()
                 .put("productId", AdPlacementPolicy.PRODUCT_ID)
                 .put("purchaseToken", token)
                 .toString().toByteArray(Charsets.UTF_8)
+            val proof = integrity.tokenFor("POST", body) ?: return@withContext null
+            val address = URL(BuildConfig.BILLING_VERIFIER_URL)
+            connection = address.openConnection() as HttpsURLConnection
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("X-LiveTranscribe-Integrity", proof)
+            connection.connectTimeout = 6000
+            connection.readTimeout = 40_000
+            connection.doOutput = true
+            connection.instanceFollowRedirects = false
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            connection.setRequestProperty("Cache-Control", "no-store")
             connection.setFixedLengthStreamingMode(body.size)
             connection.outputStream.use { it.write(body) }
             if (connection.responseCode != 200) return@withContext null

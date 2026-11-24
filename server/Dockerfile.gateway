@@ -1,0 +1,7 @@
+FROM python:3.12-slim-bookworm
+
+WORKDIR /app
+COPY billing_verify.py billing_gateway.py ./
+USER 65532:65532
+
+CMD ["python", "-B", "billing_gateway.py"]

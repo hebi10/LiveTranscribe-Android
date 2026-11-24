@@ -40,6 +40,10 @@ val verifierEndpoint = providers.gradleProperty("billingVerifierUrl")
 val trustedVerifierEndpoint = Regex("""https://[A-Za-z0-9][A-Za-z0-9.-]*(?:/[A-Za-z0-9/_-]*)?""")
     .matches(verifierEndpoint) && !verifierEndpoint.contains("localhost", ignoreCase = true)
 val subscriptionId = "remove_ads"
+// Public project number, not a credential. Missing or invalid configuration disables checkout.
+val integrityProjectNumber = providers.gradleProperty("playIntegrityCloudProjectNumber")
+    .orElse(providers.environmentVariable("PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER")).orElse("0")
+    .get().trim().toLongOrNull()?.takeIf { it > 0L } ?: 0L
 
 android {
     namespace = "com.charles.livecaptionn"
@@ -57,6 +61,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         manifestPlaceholders["gmaApplicationId"] = if (liveGmaReady) providedGmaAppId else testGmaAppId
+        buildConfigField("long", "PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER", "${integrityProjectNumber}L")
         buildConfigField("String", "REMOVE_ADS_SUBSCRIPTION_ID", "\"" + subscriptionId + "\"")
         buildConfigField("String", "BILLING_VERIFIER_URL",
             "\"" + (if (trustedVerifierEndpoint) verifierEndpoint else "") + "\"")
@@ -151,6 +156,7 @@ dependencies {
     implementation("com.google.android.libraries.ads.mobile.sdk:ads-mobile-sdk:1.6.0")
     implementation("com.google.android.ump:user-messaging-platform:4.0.0")
     implementation("com.android.billingclient:billing-ktx:9.1.0")
+    implementation("com.google.android.play:integrity:1.6.0")
     implementation(composeBom)
     androidTestImplementation(composeBom)
     implementation("androidx.compose.ui:ui")

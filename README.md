@@ -10,9 +10,9 @@ Google Play 최초 등록 정보, 개인정보·권한 신고 초안과 배포 �
 - Next-Gen Mobile Ads SDK, UMP 동의 및 Play Billing Library를 사용하며, 미승인/미확인 구매는 절대 광고 제거 권한으로 간주하지 않습니다.
 - 구독 상품 ID `remove_ads`, 기본 요금제 `monthly`(한국 월 1,000원), `yearly`(한국 연 9,900원)를 Play Console에 등록해야 합니다. 가격은 코드에서 결제하지 않으며 Play 응답 가격을 표시합니다.
 - 운영 AdMob App ID/배너 ID가 없으면 릴리스 광고는 꺼져 있습니다. 디버그 빌드도 기본 꺼짐이며, 공식 테스트 광고가 필요한 경우에만 `-PenableTestAds=true`로 켭니다.
-- 구매 검증 게이트웨이 HTTPS URL(`BILLING_VERIFIER_URL`)이 설정되고 보호된 GET `/verify` 준비 확인이 성공한 경우에만 결제 버튼을 활성화합니다. 직접 공개된 Cloud Run 검증기는 사용하지 않습니다. 확인된 PURCHASED 토큰에 대해 서버에서 Google Play 구독 상태·만료를 확인한 후에만 광고를 제거합니다.
+- 구매 검증 게이트웨이 HTTPS URL(`BILLING_VERIFIER_URL`)과 Play Integrity에 연결된 공개 Cloud 프로젝트 번호(`PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER`)가 설정되고, 공식 Play 설치의 무결성 증명 및 보호된 GET `/verify` 준비 확인이 성공한 릴리스에서만 결제 버튼을 활성화합니다. 직접 공개된 Cloud Run 검증기는 사용하지 않습니다. 확인된 PURCHASED 토큰에 대해 서버에서 Google Play 구독 상태·만료를 확인한 후에만 광고를 제거합니다.
 - AdMob 및 데이터 보안 신고, 정기 결제 상품 등록, 서버 운영 구성, 라이선스 테스터 검증은 코드 PR 외 별도 단계입니다. 결제·환불과 Play 릴리스/승격은 자동 실행하지 않습니다.
-- 자세한 안내: [ADS-01 운영·검증 문서](docs/qa/ADS-01-play-monetization-20261116.md).
+- 자세한 안내: [ADS-01 운영·검증 문서](docs/qa/ADS-01-play-monetization-20261116.md), [구매 검증 게이트웨이 배포 전 점검](docs/qa/LT-BILLING-01-20261124.md).
 
 ## 현재 엔진
 - **음성 인식:** Qwen3-ASR 0.6B int8 + Silero VAD, sherpa-onnx 1.13.8. **자동 감지 / 일본어 / 영어** 중 선택합니다. 고정 모드는 선택 언어를 실제 인식 스트림에 지정합니다.

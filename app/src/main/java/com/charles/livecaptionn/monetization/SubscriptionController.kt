@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
  */
 internal class SubscriptionController(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val verifier = PurchaseVerifier()
+    private val verifier = PurchaseVerifier(context.applicationContext)
     private val mutable = MutableStateFlow(SubscriptionUiState())
     val state: StateFlow<SubscriptionUiState> = mutable.asStateFlow()
     private var product: ProductDetails? = null
