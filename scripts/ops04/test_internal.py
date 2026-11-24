@@ -30,6 +30,7 @@ class Ops04SafetyTests(unittest.TestCase):
             "DEPLOY_MODE": mode,
             "FINAL_RELEASE_APPROVED": "false",
             "APPROVAL_PHRASE": "",
+            "BUILD_WORKFLOW_FILE": ".github/workflows/play-internal.yml",
         }
 
     def test_publish_requires_separate_approval_before_network(self):
@@ -56,6 +57,78 @@ class Ops04SafetyTests(unittest.TestCase):
                 with self.assertRaises(internal.GateError):
                     internal.guard()
                 api.assert_not_called()
+
+    def valid_run(self, data):
+        return {
+            "id": int(data["BUILD_RUN_ID"]), "head_sha": data["EXPECTED_MAIN_SHA"],
+            "head_branch": "main", "event": "workflow_dispatch",
+            "status": "completed", "conclusion": "success",
+            "repository": {"full_name": data["GITHUB_REPOSITORY"]},
+            "path": data["BUILD_WORKFLOW_FILE"],
+        }
+
+    def artifact_inventory(self, data):
+        return {"total_count": 1, "artifacts": [
+            {"name": data["ARTIFACT_NAME"], "expired": False, "size_in_bytes": 196392699}]}
+
+    def test_real_eleven_digit_actions_id_passes_exact_source_guards(self):
+        data = self.environment()
+        data.update(BUILD_RUN_ID="45338752575", FINAL_RELEASE_APPROVED="true",
+                    APPROVAL_PHRASE="PUBLISH_VERIFIED_INTERNAL_AAB")
+        repo = data["GITHUB_REPOSITORY"]
+        with patch.dict(os.environ, data, clear=True), patch.object(internal, "github", side_effect=[
+            {"object": {"sha": data["EXPECTED_MAIN_SHA"]}},
+            self.valid_run(data), self.artifact_inventory(data),
+        ]) as api:
+            internal.guard()
+            self.assertEqual([c.args[0] for c in api.call_args_list], [
+                f"repos/{repo}/git/ref/heads/main",
+                f"repos/{repo}/actions/runs/45338752575",
+                f"repos/{repo}/actions/runs/45338752575/artifacts?per_page=100",
+            ])
+
+    def test_invalid_or_unbounded_run_ids_rejected_before_network(self):
+        for value in ("", "0", "01", "-1", "1/2", "1e11", "１２", "9223372036854775808", "1" * 20):
+            data = self.environment(mode="check")
+            data["BUILD_RUN_ID"] = value
+            with self.subTest(value=value), patch.dict(os.environ, data, clear=True), \
+                    patch.object(internal, "github") as api:
+                with self.assertRaisesRegex(internal.GateError, "Invalid source run ID"):
+                    internal.guard()
+                api.assert_not_called()
+
+    def test_widened_id_never_accepts_wrong_run_or_source_or_incomplete_inventory(self):
+        data = self.environment(mode="check")
+        data["BUILD_RUN_ID"] = "45338752575"
+        for change in ({"id": 45338752576}, {"id": True}, {"head_sha": "c" * 40},
+                       {"event": "push"}, {"conclusion": "failure"}, {"path": ".github/workflows/other.yml"}):
+            run = dict(self.valid_run(data), **change)
+            with self.subTest(change=change), patch.dict(os.environ, data, clear=True), \
+                    patch.object(internal, "github", side_effect=[
+                        {"object": {"sha": data["EXPECTED_MAIN_SHA"]}}, run
+                    ]) as api:
+                with self.assertRaises(internal.GateError):
+                    internal.guard()
+                self.assertEqual(api.call_count, 2)
+        inventory = self.artifact_inventory(data)
+        inventory["total_count"] = 2
+        with patch.dict(os.environ, data, clear=True), patch.object(internal, "github", side_effect=[
+            {"object": {"sha": data["EXPECTED_MAIN_SHA"]}}, self.valid_run(data), inventory
+        ]):
+            with self.assertRaisesRegex(internal.GateError, "Unique, unexpired"):
+                internal.guard()
+
+    def test_existing_upload_certificate_is_available_in_both_verification_jobs(self):
+        source = (ROOT / ".github" / "workflows" / "play-internal-release.yml").read_text(encoding="utf-8")
+        header, verify_and_publish = source.split("\njobs:\n", 1)
+        verify, publish = verify_and_publish.split("\n  publish:\n", 1)
+        self.assertNotIn("secrets.ANDROID_RELEASE_CERT_SHA256", header)
+        for job in (verify, publish):
+            self.assertIn("environment: google-play", job)
+            self.assertIn("PINNED_UPLOAD_CERT: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}", job)
+            self.assertIn("ANDROID_RELEASE_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}", job)
+        self.assertNotIn("id-token: write", verify)
+        self.assertNotIn("google-github-actions/auth@", verify)
 
     def test_missing_bundle_fails_closed(self):
         with tempfile.TemporaryDirectory() as folder:

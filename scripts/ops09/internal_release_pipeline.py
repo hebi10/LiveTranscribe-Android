@@ -29,7 +29,7 @@ CONFIG = {
     "homecrew": ("ui-r09-device-matrix.yml", "Android CI", 6, True),
     "talksullae": ("qa-2d.yml", "Android verification", 7, False),
     "tripcanvas": ("final-device-qa.yml", "TripCanvas Android CI", 7, True),
-    "livetranscribe-android": ("responsive-qa.yml", "Private Android APK", 2, False),
+    "livetranscribe-android": ("responsive-qa.yml", "Private Android APK", 2, True),
     "pushoffice_app": ("final-device-qa.yml", "Push Office UI validation", 4, False),
     "petworld": ("final-device-qa.yml", "Android CI", 9, True),
     "subtitle-workbench": ("android-emulator-smoke.yml", "Verify web and Android", 2, True),
@@ -73,6 +73,8 @@ def initial_settings(environ):
     require(not code or (re.fullmatch("[1-9][0-9]{0,9}", code) and int(code) <= 2100000000),
             "Invalid requested versionCode")
     require(not needs_code or bool(code), "This app requires the unused build-only versionCode")
+    if name == "livetranscribe-android":
+        require(int(code) >= 14, "LiveTranscribe versionCode must be at least 14")
     tag = environ.get("RELEASE_TAG", "")
     if name == "gallipick":
         require(re.fullmatch(r"v[0-9]+(?:\.[0-9]+){1,3}(?:[-.][A-Za-z0-9]+)*", tag),
