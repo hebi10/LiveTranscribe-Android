@@ -141,15 +141,26 @@ internal class SubscriptionController(context: Context) {
             mutable.value = mutable.value.copy(
                 monthly = monthly,
                 yearly = yearly,
-                purchaseReady = verifier.configured && (monthly != null || yearly != null),
+                purchaseReady = false,
                 planMessage = if (!verifier.configured)
                     "구매 검증 서버 연결 후 구독을 사용할 수 있습니다."
                 else if (result.responseCode != BillingClient.BillingResponseCode.OK)
                     "Google Play 요금제를 확인하지 못했습니다. 다시 확인해 주세요."
                 else if (monthly == null && yearly == null)
                     "구매 가능한 광고 제거 요금제가 없습니다."
-                else "Google Play에 표시된 실제 가격으로 결제합니다."
+                else "구매 검증 서버를 확인 중입니다."
             )
+            if (verifier.configured && (monthly != null || yearly != null)) {
+                scope.launch {
+                    val ready = verifier.ready()
+                    if (closed || revision != plansRevision || !billing.isReady) return@launch
+                    mutable.value = mutable.value.copy(
+                        purchaseReady = ready,
+                        planMessage = if (ready) "Google Play에 표시된 실제 가격으로 결제합니다."
+                        else "구매 검증 서버에 연결할 수 없어 결제를 시작할 수 없습니다."
+                    )
+                }
+            }
         }
     }
 

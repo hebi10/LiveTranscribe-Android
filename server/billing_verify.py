@@ -168,9 +168,22 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def require_gateway(self) -> bool:
+        proof = self.headers.get_all(GATEWAY_HEADER, [])
+        auth_status = gateway_status(os.getenv("BILLING_GATEWAY_AUTH_TOKEN", ""),
+                                     proof[0] if len(proof) == 1 else None)
+        if auth_status != 200:
+            self.respond(auth_status, {"error": "verification_unavailable" if auth_status == 503 else "forbidden"})
+            return False
+        return True
+
     def do_GET(self):
         if self.path == "/healthz":
             self.respond(200, {"ok": True})
+        elif self.path == "/verify":
+            if self.require_gateway():
+                # No purchase token or Play API request for this configuration check.
+                self.respond(200, {"productId": PRODUCT, "ready": True})
         else:
             self.respond(404, {"error": "not_found"})
 
@@ -178,11 +191,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/verify":
             self.respond(404, {"error": "not_found"})
             return
-        proof = self.headers.get_all(GATEWAY_HEADER, [])
-        auth_status = gateway_status(os.getenv("BILLING_GATEWAY_AUTH_TOKEN", ""),
-                                     proof[0] if len(proof) == 1 else None)
-        if auth_status != 200:
-            self.respond(auth_status, {"error": "verification_unavailable" if auth_status == 503 else "forbidden"})
+        if not self.require_gateway():
             return
         sizes = self.headers.get_all("Content-Length", [])
         try:

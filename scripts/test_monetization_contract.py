@@ -79,6 +79,8 @@ class MonetizationContractTests(unittest.TestCase):
         service = self.read("server/billing_verify.py")
         self.assertIn('gateway_status(os.getenv("BILLING_GATEWAY_AUTH_TOKEN", "")', service)
         self.assertIn("in_flight.acquire(blocking=False)", service)
+        self.assertIn('self.respond(200, {"productId": PRODUCT, "ready": True})', service)
+        self.assertIn("val ready = verifier.ready()", (M / "SubscriptionController.kt").read_text())
         self.assertIn("self.request.settimeout(5)", service)
         client = (M / "PurchaseVerifier.kt").read_text()
         self.assertIn("readBoundedVerifierResponse(it)", client)
