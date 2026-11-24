@@ -19,11 +19,11 @@
 
 - `server/`를 빌드 컨텍스트로 사용합니다. 컨테이너는 Cloud Run의 `PORT`에서 수신하며 `/healthz`와 `/verify`를 제공합니다.
 - Cloud Run에는 이 앱의 구독 조회에 필요한 권한만 부여한 런타임 서비스 계정을 지정합니다. 검증기는 인스턴스당 60초에 최대 120건의 Play 검증을 허용하므로 초기 검증 시 최대 인스턴스 수를 1로 설정하고 429 응답을 모니터링합니다.
-- LT-FIX-07/08: 검증기는 직접 공개하지 않고 IAM 보호된 Cloud Run 서비스로 배포합니다. 신뢰된 게이트웨이가 앱 요청의 인증·무결성 검증(예: Play Integrity 연동) 및 호출자별 속도 제한을 담당하고, 기존 요청에 포함된 임의 내부 인증 헤더를 제거한 뒤 서버 간 인증 증명을 주입해야 합니다. 게이트웨이와 Android 무결성 연동은 운영 전 별도 구현/설정 및 검증이 필요한 항목입니다.
+- LT-FIX-07/08: 검증기는 직접 공개하지 않고 IAM 보호된 Cloud Run 서비스로 배포합니다. 신뢰된 게이트웨이가 앱 요청의 인증·무결성 검증(예: Play Integrity 연동) 및 호출자별 속도 제한을 담당하고, 기존 요청에 포함된 임의 내부 인증 헤더를 제거한 뒤 서버 간 인증 증명을 주입해야 합니다. LT-BILLING-01에서는 Android 표준 Play Integrity 요청 및 공개 게이트웨이 코드를 구현합니다. Cloud 프로젝트/Play Console 연결, Cloud Run IAM 설정, 실제 라이선스 기기 및 운영 요청 제한 검증은 별도 승인 후 수행합니다.
 - 내부 검증기의 `BILLING_GATEWAY_AUTH_TOKEN`은 최소 32자 이상 서버 전용 Secret Manager 값으로 설정합니다. APK, Gradle, 저장소, 클라이언트 요청에는 포함하지 않습니다. 누락 시 503, 불일치 시 403이며 Play API 호출 전 차단합니다. Cloud Run IAM, ingress 제한, 최대 인스턴스 및 동시성 제한을 함께 적용합니다.
 - 게이트웨이는 GET /verify 준비 확인과 POST /verify 구매 검증을 전달합니다. GET 200 및 올바른 상품 ID/ready=true가 확인되기 전에는 구매 UI가 비활성화됩니다. 이 확인은 게이트웨이 연결 확인일 뿐 Play API 실구매 성공을 증명하지 않습니다.
 - 서버는 요청 2KB, Google 응답 최대 크기, 읽기 시간 및 동시 Play 검증 8건을 제한하고 기존 분당 120건 한도를 유지합니다. Android 역시 응답 2048바이트 초과 또는 Boolean이 아닌 active 값을 거부합니다.
-- 게이트웨이의 HTTPS /verify URL을 GitHub google-play 환경의 BILLING_VERIFIER_URL 변수로 설정합니다. 서명 AAB 빌드가 이 값을 Gradle에 전달합니다. 게이트웨이 검증·실제 구매 테스트 및 현재 Console 확인 전에는 새 서버 또는 구매 UI의 운영 준비를 완료로 기록하지 않습니다.
+- 게이트웨이의 HTTPS /verify URL과 Play Integrity에 연결된 공개 Cloud 프로젝트 번호를 GitHub google-play 환경의 BILLING_VERIFIER_URL, PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER 변수로 설정합니다. 서명 AAB 빌드가 이 값을 Gradle에 전달합니다. 게이트웨이 검증·실제 구매 테스트 및 현재 Console 확인 전에는 새 서버 또는 구매 UI의 운영 준비를 완료로 기록하지 않습니다.
 
 ## 광고 정책 및 개인정보 검증
 1. UMP 동의 갱신 후 `canRequestAds()`가 허용이고, Play 구독 확인 결과가 INACTIVE일 때만 홈에서 광고 요청.

@@ -111,6 +111,6 @@ assert (root / "scripts/prepare_language_id.py").exists(), "Language ID model in
 assert (root / "app/src/main/java/com/charles/livecaptionn/speech/OfflineSpokenLanguageIdentifier.kt").exists()
 assert (root / "app/src/main/java/com/charles/livecaptionn/translation/TranslationModelSetup.kt").exists()
 assert (root / "app/src/main/java/com/charles/livecaptionn/speech/LanguageRecommendationTracker.kt").exists()
-print("OK: model GET and isolated HTTPS purchase-token verification only; caption/audio isolation and backup exclusions checked")
+print("OK: model GET and isolated HTTPS purchase-token verification / Play Integrity only; caption/audio isolation and backup exclusions checked")
 print("Static source audit only: SDK internals/telemetry, merged manifest and device traffic unverified")
 
