@@ -566,7 +566,7 @@ class CaptionForegroundService : Service() {
             val before = app.container.runtimeStore.state.value
             val target = before.transcriptLines.firstOrNull { it.id == lineId }
             if (!captionSessionActive.get() || before.sessionId != captionSessionId ||
-                !before.running || before.stopping || before.translating ||
+                !before.running || before.stopping || before.paused || before.recognizing || before.translating ||
                 translationQueue?.pendingFinalCount != 0 ||
                 target?.translatedText != firstTranslation || !target.finalTranslationCommitted) return@launch
             val polished = try {

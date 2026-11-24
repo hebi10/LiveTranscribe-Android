@@ -99,6 +99,15 @@ class CaptionTranslationQueueTest {
         }
     }
 
+    @Test fun cancelledQueueCannotReportSuccessfulDrain() = runTest {
+        val queue = CaptionTranslationQueue<String>(this) { delay(100) }
+        queue.submitFinal("active")
+        runCurrent()
+        queue.cancel()
+        assertFalse(queue.finish())
+        assertNoBufferedWork(queue)
+    }
+
     @Test fun finishRejectsNewWorkWhileDrainingRetainedFinals() = runTest {
         val translated = mutableListOf<String>()
         val queue = CaptionTranslationQueue<String>(this, nowMs = { testScheduler.currentTime }) {
