@@ -31,9 +31,8 @@ data class DeviceSpecs(
 }
 
 object DeviceCompatibilityChecker {
-    // Thresholds:
-    // Minimum RAM required for Vosk + ML Kit combined: 2.5 GB (2560 MB)
-    // Recommended RAM for smooth streaming + large models: 4 GB (3840 MB)
+    // Provisional RAM screening thresholds (MiB), not measured guarantees for Qwen3-ASR + Hy-MT2.
+    // Actual minimum/recommended RAM and sustained latency require ARM64 device measurements.
     const val MIN_RAM_MB = 2560L
     const val REC_RAM_MB = 3840L
 
@@ -106,7 +105,7 @@ object DeviceCompatibilityChecker {
             reasons.add("Total RAM ($totalRamMb MB) is below the 2.5 GB minimum required for on-device AI.")
         } else if (totalRamMb < REC_RAM_MB) {
             isBorderline = true
-            reasons.add("RAM ($totalRamMb MB) meets minimum reqs, but 4 GB+ is recommended for optimal latency.")
+            reasons.add("RAM ($totalRamMb MB) meets minimum reqs, but 4 GB+ is recommended as a provisional resource screen; real latency depends on the device.")
         }
 
         if (cpuCores < MIN_CPU_CORES) {
@@ -118,8 +117,8 @@ object DeviceCompatibilityChecker {
         }
 
         if (!is64Bit) {
-            isBorderline = true
-            reasons.add("Device runs 32-bit architecture ($abi). High-capacity models are restricted.")
+            isUnsupported = true
+            reasons.add("Device runs 32-bit architecture ($abi). The production app requires ARM64.")
         }
 
         if (!modelsAlreadyVerified) {
@@ -153,9 +152,10 @@ object DeviceCompatibilityChecker {
 
     private fun getFreeStorageMb(context: Context): Long {
         return try {
-            val path = context.filesDir
+            val path = context.noBackupFilesDir
             val stat = StatFs(path.path)
-            (stat.availableBlocksLong * stat.blockSizeLong) / (1024 * 1024)
+            // Match MIN_STORAGE_MB and the download UI's decimal MB units.
+            stat.availableBytes / 1_000_000L
         } catch (_: Exception) {
             -1L
         }
