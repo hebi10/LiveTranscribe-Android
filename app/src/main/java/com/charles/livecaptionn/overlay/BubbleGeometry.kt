@@ -20,3 +20,9 @@ internal fun bubbleCaptionWidth(screenWidth: Int, density: Float): Int {
     val limit = (280f * scale).toInt()
     return (screenWidth - button - padding).coerceAtLeast(1).coerceAtMost(limit)
 }
+
+/** On a short or folded display the scrollable menu must shrink below its normal minimum. */
+internal fun bubbleMenuHeightLimit(screenHeight: Int, topInset: Int, bottomInset: Int,
+                                   buttonHeight: Int, margin: Int): Int =
+    (screenHeight - topInset.coerceAtLeast(0) - bottomInset.coerceAtLeast(0) -
+        buttonHeight.coerceAtLeast(1) - margin.coerceAtLeast(0)).coerceAtLeast(1)
