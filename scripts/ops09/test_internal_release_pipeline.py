@@ -67,9 +67,16 @@ class InternalReleaseSafetyTests(unittest.TestCase):
 
     def test_missing_required_build_version_is_blocked(self):
         for name in ("quickcut", "focuslock", "homecrew", "tripcanvas",
-                     "petworld", "subtitle-workbench"):
+                     "petworld", "subtitle-workbench", "livetranscribe-android"):
             with self.subTest(app=name), self.assertRaises(RuntimeError):
                 initial_settings(settings("hebi10/" + name, VERSION_CODE=""))
+
+    def test_livetranscribe_build_code_is_validated_before_long_qa(self):
+        for code in ("", "13", "2100000001"):
+            with self.subTest(code=code), self.assertRaises(RuntimeError):
+                initial_settings(settings("hebi10/LiveTranscribe-Android", VERSION_CODE=code))
+        self.assertEqual(initial_settings(settings("hebi10/LiveTranscribe-Android", VERSION_CODE="32"))[1],
+                         "livetranscribe-android")
 
     def test_dispatch_requires_an_exact_run_id_without_fallback_guessing(self):
         with tempfile.TemporaryDirectory() as tmp:

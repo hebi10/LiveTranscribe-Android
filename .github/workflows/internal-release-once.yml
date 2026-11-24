@@ -13,10 +13,9 @@ on:
         required: true
         default: false
       version_code:
-        description: 'Unused versionCode; required for QuickCut/FocusLock/HomeCrew/TripCanvas/PetWorld/Subtitle Workbench'
+        description: 'LiveTranscribe: unused versionCode (at least 14; verify against Play inventory)'
         type: string
-        required: false
-        default: ''
+        required: true
       release_tag:
         description: 'GalliPick only: version matching source and bundle, e.g. v0.2.20'
         type: string

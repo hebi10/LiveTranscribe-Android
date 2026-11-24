@@ -6,6 +6,9 @@ from pathlib import Path
 import sys
 from threading import BoundedSemaphore
 import unittest
+from http.client import HTTPConnection
+from threading import Thread
+from http.server import ThreadingHTTPServer
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
@@ -194,6 +197,73 @@ class BillingGatewayTest(unittest.TestCase):
             with patch.object(gateway.OPENER, "open", side_effect=HTTPError(ORIGIN, status, "test", None, None)):
                 with self.assertRaises(error):
                     gateway.forward_verified("GET", None, ORIGIN, PROOF)
+
+
+class BillingHttpRouteTests(unittest.TestCase):
+    """Exercise actual HTTP routing over loopback; external API and IAM are not exercised."""
+
+    def server(self, handler):
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        worker = Thread(target=srv.serve_forever, daemon=True)
+        worker.start()
+        def stop():
+            srv.shutdown()
+            srv.server_close()
+            worker.join(timeout=5)
+        self.addCleanup(stop)
+        return srv.server_port
+
+    def request(self, port, method, path, body=None, headers=None):
+        connection = HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            connection.request(method, path, body=body, headers=headers or {})
+            response = connection.getresponse()
+            raw = response.read(4096)
+            self.assertEqual("no-store", response.getheader("Cache-Control"))
+            return response.status, json.loads(raw)
+        finally:
+            connection.close()
+
+    def test_public_routes_cannot_bypass_integrity_or_forward_internal_headers(self):
+        port = self.server(gateway.Handler)
+        with patch.object(gateway, "protected_request") as verify:
+            self.assertEqual((200, {"ok": True}), self.request(port, "GET", "/healthz"))
+            self.assertEqual(403, self.request(port, "GET", "/verify")[0])
+            self.assertEqual(403, self.request(port, "POST", "/verify", BODY,
+                {gateway.GATEWAY_HEADER: PROOF, gateway.INTEGRITY_HEADER: ATTESTATION,
+                 "Content-Type": "application/json"})[0])
+            self.assertEqual(403, self.request(port, "GET", "/verify", headers={
+                gateway.INTEGRITY_HEADER: ATTESTATION, "X-Serverless-Authorization": "untrusted"})[0])
+            self.assertEqual(404, self.request(port, "GET", "/verify?extra=1")[0])
+            self.assertEqual(400, self.request(port, "POST", "/verify", b"x" * 2049,
+                {gateway.INTEGRITY_HEADER: ATTESTATION, "Content-Type": "application/json"})[0])
+            verify.assert_not_called()
+
+    def test_public_route_propagates_uncertain_and_limited_results_without_entitlement(self):
+        port = self.server(gateway.Handler)
+        headers = {gateway.INTEGRITY_HEADER: ATTESTATION, "Content-Type": "application/json"}
+        with patch.object(gateway, "protected_request", side_effect=[
+            gateway.Denied(), gateway.RateLimited(), gateway.Unavailable(),
+            {"productId": gateway.PRODUCT, "active": False},
+        ]):
+            for expected in (403, 429, 503):
+                status, reply = self.request(port, "POST", "/verify", BODY, headers)
+                self.assertEqual(expected, status)
+                self.assertNotIn("active", reply)
+            self.assertEqual((200, {"productId": gateway.PRODUCT, "active": False}),
+                             self.request(port, "POST", "/verify", BODY, headers))
+
+    def test_private_verifier_rejects_missing_or_wrong_server_proof(self):
+        import billing_verify as verifier
+        port = self.server(verifier.Handler)
+        with patch.dict("os.environ", {"BILLING_GATEWAY_AUTH_TOKEN": PROOF}, clear=True), \
+             patch.object(verifier, "fetch_subscription") as fetch:
+            self.assertEqual(403, self.request(port, "GET", "/verify")[0])
+            self.assertEqual(403, self.request(port, "POST", "/verify", BODY,
+                {verifier.GATEWAY_HEADER: "y" * 32, "Content-Type": "application/json"})[0])
+            self.assertEqual((200, {"productId": verifier.PRODUCT, "ready": True}),
+                self.request(port, "GET", "/verify", headers={verifier.GATEWAY_HEADER: PROOF}))
+            fetch.assert_not_called()
 
 
 if __name__ == "__main__":

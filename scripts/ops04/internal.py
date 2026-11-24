@@ -61,7 +61,9 @@ def guard():
             and env.get("GITHUB_REF") == "refs/heads/main", "Manual main-only dispatch required")
     require(full_sha(source) and source == env.get("GITHUB_SHA"), "Approved source SHA differs from workflow SHA")
     require(bool(re.fullmatch(r"20\d{2}-\d{2}-\d{2}-[a-z0-9-]{2,48}", batch)), "Invalid release batch")
-    require(bool(re.fullmatch("[1-9][0-9]{0,9}", run_id)), "Invalid source run ID")
+    # Actions run IDs are not Android versionCodes; GitHub now returns 11+ digit IDs.
+    require(bool(re.fullmatch(r"[1-9][0-9]{0,18}", run_id))
+            and int(run_id) <= 2**63 - 1, "Invalid source run ID")
     require(bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{1,160}", artifact)), "Invalid artifact name")
     require(bool(re.fullmatch(r"[1-9][0-9]{0,9}", version)) and int(version) <= 2100000000, "Invalid version code")
     require(bool(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9]+)*", release_name)), "Invalid version name")
@@ -74,7 +76,8 @@ def guard():
     repo = env["GITHUB_REPOSITORY"]
     require(github("repos/" + repo + "/git/ref/heads/main")["object"]["sha"] == source, "Main advanced")
     run = github("repos/" + repo + "/actions/runs/" + run_id)
-    require(run.get("head_sha") == source and run.get("head_branch") == "main"
+    require(type(run.get("id")) is int and run["id"] == int(run_id)
+            and run.get("head_sha") == source and run.get("head_branch") == "main"
             and run.get("event") == "workflow_dispatch"
             and run.get("status") == "completed" and run.get("conclusion") == "success"
             and run.get("repository", {}).get("full_name") == repo, "Build run source or status differs")
@@ -85,8 +88,9 @@ def guard():
     records = github("repos/" + repo + "/actions/runs/" + run_id + "/artifacts?per_page=100")
     artifacts = records.get("artifacts", [])
     matches = [a for a in artifacts if a.get("name") == artifact and a.get("expired") is False]
-    require(len(matches) == 1 and records.get("total_count", 0) <= 100
-            and matches[0].get("size_in_bytes", 0) > 0, "Unique, unexpired signed-build artifact required")
+    require(len(matches) == 1 and records.get("total_count", -1) == len(artifacts)
+            and len(artifacts) <= 100 and matches[0].get("size_in_bytes", 0) > 0,
+            "Unique, unexpired signed-build artifact required")
     print("Trusted build run and exact unexpired artifact verified", run_id, artifact)
 
 def verify():
