@@ -65,6 +65,17 @@ class MonetizationContractTests(unittest.TestCase):
         self.assertNotIn("originalText", service)
         self.assertNotIn("translatedText", service)
 
+    def test_verifier_requires_gateway_proof_and_bounds_response(self):
+        service = self.read("server/billing_verify.py")
+        self.assertIn('gateway_status(os.getenv("BILLING_GATEWAY_AUTH_TOKEN", "")', service)
+        self.assertIn("in_flight.acquire(blocking=False)", service)
+        self.assertIn("self.request.settimeout(5)", service)
+        client = (M / "PurchaseVerifier.kt").read_text()
+        self.assertIn("readBoundedVerifierResponse(it)", client)
+        self.assertIn('data.opt("active") as? Boolean', client)
+        self.assertNotIn("BILLING_GATEWAY_AUTH_TOKEN", client)
+        self.assertNotIn("reader.readText()", client)
+
     def test_privacy_policy_is_not_silently_auto_published(self):
         workflow = self.read(".github/workflows/privacy-pages.yml")
         self.assertIn("  workflow_dispatch:", workflow)

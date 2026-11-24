@@ -1,7 +1,9 @@
 package com.charles.livecaptionn.monetization
 
 import com.charles.livecaptionn.BuildConfig
+import java.io.InputStream
 import java.net.URL
+import kotlinx.coroutines.CancellationException
 import javax.net.ssl.HttpsURLConnection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,18 +37,35 @@ internal class PurchaseVerifier {
                 .put("productId", AdPlacementPolicy.PRODUCT_ID)
                 .put("purchaseToken", token)
                 .toString().toByteArray(Charsets.UTF_8)
+            connection.setFixedLengthStreamingMode(body.size)
             connection.outputStream.use { it.write(body) }
             if (connection.responseCode != 200) return@withContext null
-            val response = connection.inputStream.bufferedReader(Charsets.UTF_8)
-                .use { reader -> reader.readText().take(2048) }
+            val response = connection.inputStream.use { readBoundedVerifierResponse(it) }
+                ?: return@withContext null
             val data = JSONObject(response)
-            if (data.optString("productId") != AdPlacementPolicy.PRODUCT_ID ||
-                !data.has("active")) return@withContext null
-            data.getBoolean("active")
+            if (data.optString("productId") != AdPlacementPolicy.PRODUCT_ID) return@withContext null
+            data.opt("active") as? Boolean
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             null
         } finally {
             connection?.disconnect()
         }
     }
+}
+
+/** Limit bytes before decoding; reject rather than truncate oversized responses. */
+internal fun readBoundedVerifierResponse(input: InputStream, limit: Int = 2048): String? {
+    require(limit in 1..8192)
+    val bytes = ByteArray(limit + 1)
+    var offset = 0
+    while (offset < bytes.size) {
+        val count = input.read(bytes, offset, bytes.size - offset)
+        if (count < 0) break
+        if (count == 0) return null
+        offset += count
+    }
+    if (offset > limit) return null
+    return bytes.copyOf(offset).toString(Charsets.UTF_8)
 }

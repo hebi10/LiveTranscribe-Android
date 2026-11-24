@@ -3,10 +3,11 @@
 from collections import deque
 import datetime as dt
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hmac
 import json
 import os
 import re
-from threading import Lock
+from threading import BoundedSemaphore, Lock
 from time import monotonic
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
@@ -18,6 +19,9 @@ GOOGLE = "https://androidpublisher.googleapis.com/androidpublisher/v3/applicatio
 METADATA = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
 PLAY_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
 MAX_BODY = 2048
+MAX_GOOGLE_RESPONSE = 200_000
+GATEWAY_HEADER = "X-LiveTranscribe-Gateway-Proof"
+MAX_IN_FLIGHT = 8
 VERIFICATION_WINDOW_SECONDS = 60
 VERIFICATIONS_PER_WINDOW = 120
 TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._:/-]{10,1500}$")
@@ -28,6 +32,7 @@ ACTIVE_STATES = frozenset({
 })
 verification_requests: deque[float] = deque()
 verification_lock = Lock()
+in_flight = BoundedSemaphore(MAX_IN_FLIGHT)
 
 
 class VerificationUnavailable(Exception):
@@ -47,6 +52,27 @@ def reserve_verification() -> None:
         if len(verification_requests) >= VERIFICATIONS_PER_WINDOW:
             raise VerificationRateLimited
         verification_requests.append(now)
+
+
+def gateway_status(expected: str, provided: str | None) -> int:
+    """The private verifier is called only by a trusted, app-attesting gateway.
+    Never embed the server-to-server proof in the Android client.
+    """
+    if len(expected) < 32:
+        return 503
+    if not provided or len(provided) != len(expected):
+        return 403
+    return 200 if hmac.compare_digest(expected.encode("utf-8"), provided.encode("utf-8")) else 403
+
+
+def read_bounded_json(response, limit: int) -> dict:
+    raw = response.read(limit + 1)
+    if len(raw) > limit:
+        raise ValueError("Response exceeds configured limit")
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("Expected a JSON object")
+    return data
 
 
 def is_active(subscription: dict, now: dt.datetime | None = None) -> bool:
@@ -76,7 +102,7 @@ def access_token() -> str:
     request = Request(f"{METADATA}?{query}", headers={"Metadata-Flavor": "Google"})
     try:
         with urlopen(request, timeout=4) as response:
-            data = json.loads(response.read(4096))
+            data = read_bounded_json(response, 4096)
     except (OSError, ValueError, KeyError) as exc:
         raise VerificationUnavailable("Google service credentials unavailable") from exc
     token = data.get("access_token")
@@ -92,9 +118,7 @@ def fetch_subscription(token: str) -> dict:
                                      "Accept": "application/json"})
     try:
         with urlopen(request, timeout=8) as response:
-            data = json.loads(response.read(200_000))
-        if not isinstance(data, dict):
-            raise VerificationUnavailable("Invalid Google response")
+            data = read_bounded_json(response, MAX_GOOGLE_RESPONSE)
         return data
     except HTTPError as exc:
         if exc.code in (404, 410):
@@ -105,18 +129,28 @@ def fetch_subscription(token: str) -> dict:
 
 
 def verification_result(payload: dict) -> dict:
-    if not isinstance(payload, dict) or payload.get("productId") != PRODUCT:
+    if (not isinstance(payload, dict) or set(payload) != {"productId", "purchaseToken"}
+            or payload.get("productId") != PRODUCT):
         raise ValueError("Unsupported product")
     token = payload.get("purchaseToken")
     if not isinstance(token, str) or not TOKEN_PATTERN.fullmatch(token):
         raise ValueError("Invalid purchase proof")
-    reserve_verification()
-    return {"productId": PRODUCT, "active": is_active(fetch_subscription(token))}
+    if not in_flight.acquire(blocking=False):
+        raise VerificationRateLimited
+    try:
+        reserve_verification()
+        return {"productId": PRODUCT, "active": is_active(fetch_subscription(token))}
+    finally:
+        in_flight.release()
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "PurchaseVerifier"
     sys_version = ""
+
+    def setup(self):
+        self.request.settimeout(5)
+        super().setup()
 
     def log_message(self, format_string: str, *args: object) -> None:
         # Never print receipt bodies, tokens, raw Play responses, or client identifiers.
@@ -129,6 +163,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.close_connection = True
         self.end_headers()
         self.wfile.write(data)
 
@@ -142,17 +178,28 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/verify":
             self.respond(404, {"error": "not_found"})
             return
+        proof = self.headers.get_all(GATEWAY_HEADER, [])
+        auth_status = gateway_status(os.getenv("BILLING_GATEWAY_AUTH_TOKEN", ""),
+                                     proof[0] if len(proof) == 1 else None)
+        if auth_status != 200:
+            self.respond(auth_status, {"error": "verification_unavailable" if auth_status == 503 else "forbidden"})
+            return
+        sizes = self.headers.get_all("Content-Length", [])
         try:
-            size = int(self.headers.get("Content-Length", "-1"))
+            size = int(sizes[0]) if len(sizes) == 1 else -1
         except ValueError:
             size = -1
-        if size <= 0 or size > MAX_BODY or self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+        if (size <= 0 or size > MAX_BODY or self.headers.get("Transfer-Encoding")
+                or self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json"):
             self.respond(400, {"error": "bad_request"})
             return
         try:
-            payload = json.loads(self.rfile.read(size))
+            raw = self.rfile.read(size)
+            if len(raw) != size:
+                raise ValueError("Incomplete request")
+            payload = json.loads(raw)
             reply = verification_result(payload)
-        except (UnicodeError, ValueError, KeyError):
+        except (UnicodeError, ValueError, KeyError, TimeoutError):
             self.respond(400, {"error": "bad_request"})
             return
         except VerificationRateLimited:
