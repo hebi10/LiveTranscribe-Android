@@ -71,6 +71,7 @@ if not all(value in build for value in (
     "com.google.android.libraries.ads.mobile.sdk:ads-mobile-sdk:1.6.0",
     "com.google.android.ump:user-messaging-platform:4.0.0",
     "com.android.billingclient:billing-ktx:9.1.0",
+    "com.google.android.play:integrity:1.6.0", "PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER",
     "GMA_ADS_ENABLED", "BILLING_VERIFIER_URL",
 )):
     raise SystemExit("Expected fail-closed monetization dependencies/config missing")
@@ -95,6 +96,7 @@ for path in (app / "src/main/java").rglob("*.kt"):
             raise SystemExit(f"Monetization cannot access captions or audio: {path}")
     elif any(s in text for s in ("com.google.android.libraries.ads.mobile.sdk.",
                                   "com.android.billingclient.api.", "com.google.android.ump.",
+                                  "com.google.android.play.core.integrity.",
                                   "MobileAds.initialize(")):
         raise SystemExit(f"Monetization SDK must stay in isolated package: {path}")
     if "Intent.ACTION_VIEW" in text:

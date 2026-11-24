@@ -39,6 +39,13 @@ class PrivacyAuditTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("Forbidden runtime dependency", result.stderr)
 
+    def test_integrity_sdk_cannot_be_used_outside_monetization(self):
+        path = self.root / "app/src/main/java/com/charles/livecaptionn/IntegrityLeak.kt"
+        path.write_text("import com.google.android.play.core.integrity.IntegrityManagerFactory\n")
+        result = self.audit()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("isolated package", result.stderr)
+
     def test_fixed_model_get_transport_is_permitted(self):
         path = self.root / "app/src/main/java/com/charles/livecaptionn/models/ModelDownloadTransport.kt"
         path.parent.mkdir(parents=True, exist_ok=True)
