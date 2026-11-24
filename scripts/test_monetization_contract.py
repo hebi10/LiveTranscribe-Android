@@ -88,6 +88,19 @@ class MonetizationContractTests(unittest.TestCase):
         self.assertNotIn("BILLING_GATEWAY_AUTH_TOKEN", client)
         self.assertNotIn("reader.readText()", client)
 
+    def test_integrity_checkout_is_fail_closed_and_isolated(self):
+        client = (M / "PurchaseVerifier.kt").read_text()
+        self.assertIn("!BuildConfig.DEBUG", client)
+        self.assertIn("BuildConfig.PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER > 0L", client)
+        self.assertIn('integrity.tokenFor("GET", byteArrayOf()) ?: return@withContext false', client)
+        self.assertIn('integrity.tokenFor("POST", body) ?: return@withContext null', client)
+        self.assertIn('connection.instanceFollowRedirects = false', client)
+        integrity = (M / "BillingIntegrityProof.kt").read_text()
+        self.assertIn("setRequestHash(hash)", integrity)
+        self.assertNotIn("BILLING_GATEWAY_AUTH_TOKEN", integrity)
+        self.assertIn("PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER", self.read(".github/workflows/play-internal.yml"))
+        self.assertIn("Play Integrity", self.read("docs/privacy-policy.html"))
+
     def test_privacy_policy_is_not_silently_auto_published(self):
         workflow = self.read(".github/workflows/privacy-pages.yml")
         self.assertIn("  workflow_dispatch:", workflow)
