@@ -37,13 +37,16 @@ internal class SubscriptionController(context: Context) {
     private var connecting = false
     private var closed = false
     private var refreshRevision = 0L
+    private var plansRevision = 0L
 
     private val billing = BillingClient.newBuilder(context.applicationContext)
         .setListener(PurchasesUpdatedListener { result, purchases ->
             if (closed) return@PurchasesUpdatedListener
             if (result.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
                 verifyPurchases(purchases)
-            } else if (result.responseCode != BillingClient.BillingResponseCode.USER_CANCELED) {
+            } else if (result.responseCode == BillingClient.BillingResponseCode.USER_CANCELED) {
+                refresh()
+            } else {
                 ++refreshRevision
                 mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
                     message = "Google Play 결제 상태를 다시 확인해 주세요.")
@@ -61,8 +64,11 @@ internal class SubscriptionController(context: Context) {
         }
         if (connecting) return
         ++refreshRevision
+        ++plansRevision
+        product = null
         mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
-            purchaseReady = false, message = "Google Play 구독 연결을 확인 중입니다.")
+            purchaseReady = false, monthly = null, yearly = null, planMessage = "",
+            message = "Google Play 구독 연결을 확인 중입니다.")
         connecting = true
         billing.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {
@@ -73,6 +79,8 @@ internal class SubscriptionController(context: Context) {
                     refresh()
                 } else {
                     ++refreshRevision
+                    ++plansRevision
+                    product = null
                     connected = false
                     mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
                         purchaseReady = false, message = "Google Play 구독 연결을 확인할 수 없습니다.")
@@ -83,8 +91,11 @@ internal class SubscriptionController(context: Context) {
                 connecting = false
                 if (!closed) {
                     ++refreshRevision
+                    ++plansRevision
+                    product = null
                     mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
-                        purchaseReady = false, message = "Google Play 연결이 끊겼습니다.")
+                        purchaseReady = false, monthly = null, yearly = null, planMessage = "",
+                        message = "Google Play 연결이 끊겼습니다.")
                 }
             }
         })
@@ -97,7 +108,7 @@ internal class SubscriptionController(context: Context) {
         }
         val requestRevision = ++refreshRevision
         mutable.value = mutable.value.copy(status = AdFreeStatus.UNKNOWN,
-            message = "구독 상태를 다시 확인 중입니다.")
+            purchaseReady = false, message = "구독 상태를 다시 확인 중입니다.")
         loadPlans()
         billing.queryPurchasesAsync(
             QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.SUBS).build()
@@ -113,25 +124,30 @@ internal class SubscriptionController(context: Context) {
     }
 
     private fun loadPlans() {
+        val revision = ++plansRevision
         val params = QueryProductDetailsParams.newBuilder().setProductList(
             listOf(QueryProductDetailsParams.Product.newBuilder()
                 .setProductId(AdPlacementPolicy.PRODUCT_ID)
                 .setProductType(BillingClient.ProductType.SUBS).build())
         ).build()
         billing.queryProductDetailsAsync(params) { result, details ->
-            if (closed) return@queryProductDetailsAsync
+            if (closed || revision != plansRevision || !billing.isReady) return@queryProductDetailsAsync
             product = if (result.responseCode == BillingClient.BillingResponseCode.OK)
                 details.productDetailsList.firstOrNull {
                     it.productId == AdPlacementPolicy.PRODUCT_ID
                 } else null
+            val monthly = plan(AdPlacementPolicy.MONTHLY_BASE_PLAN, "월간")
+            val yearly = plan(AdPlacementPolicy.YEARLY_BASE_PLAN, "연간")
             mutable.value = mutable.value.copy(
-                monthly = plan(AdPlacementPolicy.MONTHLY_BASE_PLAN, "월간"),
-                yearly = plan(AdPlacementPolicy.YEARLY_BASE_PLAN, "연간"),
-                purchaseReady = verifier.configured && product != null,
-                message = if (!verifier.configured)
+                monthly = monthly,
+                yearly = yearly,
+                purchaseReady = verifier.configured && (monthly != null || yearly != null),
+                planMessage = if (!verifier.configured)
                     "구매 검증 서버 연결 후 구독을 사용할 수 있습니다."
-                else if (product == null)
-                    "Google Play에 광고 제거 구독 상품이 아직 등록되지 않았습니다."
+                else if (result.responseCode != BillingClient.BillingResponseCode.OK)
+                    "Google Play 요금제를 확인하지 못했습니다. 다시 확인해 주세요."
+                else if (monthly == null && yearly == null)
+                    "구매 가능한 광고 제거 요금제가 없습니다."
                 else "Google Play에 표시된 실제 가격으로 결제합니다."
             )
         }
@@ -149,7 +165,8 @@ internal class SubscriptionController(context: Context) {
     }
 
     fun purchase(activity: Activity, basePlanId: String, recording: Boolean) {
-        if (closed || !billing.isReady || recording || !verifier.configured) return
+        if (closed || !billing.isReady || recording || !verifier.configured ||
+            !mutable.value.purchaseReady || mutable.value.status != AdFreeStatus.INACTIVE) return
         val details = product ?: return
         val offer = basePlan(basePlanId) ?: return
         if (basePlanId !in listOf(AdPlacementPolicy.MONTHLY_BASE_PLAN,
@@ -158,9 +175,12 @@ internal class SubscriptionController(context: Context) {
             listOf(BillingFlowParams.ProductDetailsParams.newBuilder()
                 .setProductDetails(details).setOfferToken(offer.offerToken).build())
         ).build()
+        // Disable repeat taps while Play owns the checkout UI; refresh on resume/result.
+        mutable.value = mutable.value.copy(purchaseReady = false)
         val response = billing.launchBillingFlow(activity, params)
         if (response.responseCode != BillingClient.BillingResponseCode.OK) {
-            mutable.value = mutable.value.copy(message = "Google Play 결제창을 열지 못했습니다.")
+            mutable.value = mutable.value.copy(purchaseReady = true,
+                message = "Google Play 결제창을 열지 못했습니다.")
         }
     }
 

@@ -65,6 +65,16 @@ class MonetizationContractTests(unittest.TestCase):
         self.assertNotIn("originalText", service)
         self.assertNotIn("translatedText", service)
 
+    def test_plan_callbacks_are_revision_checked_and_separate_from_entitlement(self):
+        purchase = (M / "SubscriptionController.kt").read_text()
+        self.assertIn("val revision = ++plansRevision", purchase)
+        self.assertIn("revision != plansRevision || !billing.isReady", purchase)
+        self.assertIn("planMessage = if (!verifier.configured)", purchase)
+        self.assertIn("mutable.value.status != AdFreeStatus.INACTIVE", purchase)
+        home = (APP / "ui/MainScreen.kt").read_text()
+        self.assertIn("onClick = onRestoreSubscription", home)
+        self.assertIn("subscription.planMessage", home)
+
     def test_verifier_requires_gateway_proof_and_bounds_response(self):
         service = self.read("server/billing_verify.py")
         self.assertIn('gateway_status(os.getenv("BILLING_GATEWAY_AUTH_TOKEN", "")', service)

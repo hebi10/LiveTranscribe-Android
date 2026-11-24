@@ -230,6 +230,7 @@ class MainActivity : ComponentActivity() {
                                     onYearlySubscription = { subscriptionController.purchase(this@MainActivity, "yearly",
                                         ui.runtime.running || ui.runtime.stopping) },
                                     onPrivacyOptions = { adsConsent.showPrivacyOptions(this@MainActivity) },
+                                    onRestoreSubscription = subscriptionController::refresh,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
