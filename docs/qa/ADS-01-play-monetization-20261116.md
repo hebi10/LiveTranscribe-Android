@@ -10,8 +10,8 @@
 ## 운영에 필요한 값
 - `GMA_APP_ID` (AdMob **앱 ID**, 형식 ca-app-pub-...~...)
 - `GMA_BANNER_UNIT_ID` (홈 배너 광고 단위, 형식 ca-app-pub-.../...)
-- `BILLING_VERIFIER_URL` (HTTPS 검증 API /verify 경로; Google Play Publisher API로 유효성 검증)
-- 값이 없으면 **운영 광고 요청 OFF**, **구독 구매 버튼 OFF**로 빌드. 공개 테스트 ID가 실제 광고 요청에 사용되지 않도록 릴리스 구성 검증.
+- `BILLING_VERIFIER_URL` (기기 요청을 인증·제한하는 공개 HTTPS 게이트웨이의 /verify 경로; 보호된 내부 검증기가 Google Play Publisher API로 유효성 확인)
+- 광고 ID가 없으면 운영 광고 OFF, 검증 URL 또는 보호된 GET `/verify` 준비 확인이 없으면 구매 버튼 OFF. 공개 테스트 ID가 실제 광고 요청에 사용되지 않도록 릴리스 구성 검증.
 - 디버그 공식 테스트 광고는 요청 시에만 `-PenableTestAds=true`; 실기기 테스트에는 테스트 광고만 사용.
 - 상품 생성은 Billing SDK 포함 AAB를 내부 테스트에 먼저 배포한 후 Console에서 구독·기본 요금제를 등록하고 활성화.
 
@@ -19,7 +19,11 @@
 
 - `server/`를 빌드 컨텍스트로 사용합니다. 컨테이너는 Cloud Run의 `PORT`에서 수신하며 `/healthz`와 `/verify`를 제공합니다.
 - Cloud Run에는 이 앱의 구독 조회에 필요한 권한만 부여한 런타임 서비스 계정을 지정합니다. 검증기는 인스턴스당 60초에 최대 120건의 Play 검증을 허용하므로 초기 검증 시 최대 인스턴스 수를 1로 설정하고 429 응답을 모니터링합니다.
-- 검증된 HTTPS `/verify` URL을 GitHub `google-play` 환경의 `BILLING_VERIFIER_URL` 변수로 설정합니다. 서명 AAB 빌드가 이 값을 Gradle에 전달하며, 기존 내부 테스트 설치본에는 다음 빌드가 필요합니다.
+- LT-FIX-07/08: 검증기는 직접 공개하지 않고 IAM 보호된 Cloud Run 서비스로 배포합니다. 신뢰된 게이트웨이가 앱 요청의 인증·무결성 검증(예: Play Integrity 연동) 및 호출자별 속도 제한을 담당하고, 기존 요청에 포함된 임의 내부 인증 헤더를 제거한 뒤 서버 간 인증 증명을 주입해야 합니다. 게이트웨이와 Android 무결성 연동은 운영 전 별도 구현/설정 및 검증이 필요한 항목입니다.
+- 내부 검증기의 `BILLING_GATEWAY_AUTH_TOKEN`은 최소 32자 이상 서버 전용 Secret Manager 값으로 설정합니다. APK, Gradle, 저장소, 클라이언트 요청에는 포함하지 않습니다. 누락 시 503, 불일치 시 403이며 Play API 호출 전 차단합니다. Cloud Run IAM, ingress 제한, 최대 인스턴스 및 동시성 제한을 함께 적용합니다.
+- 게이트웨이는 GET /verify 준비 확인과 POST /verify 구매 검증을 전달합니다. GET 200 및 올바른 상품 ID/ready=true가 확인되기 전에는 구매 UI가 비활성화됩니다. 이 확인은 게이트웨이 연결 확인일 뿐 Play API 실구매 성공을 증명하지 않습니다.
+- 서버는 요청 2KB, Google 응답 최대 크기, 읽기 시간 및 동시 Play 검증 8건을 제한하고 기존 분당 120건 한도를 유지합니다. Android 역시 응답 2048바이트 초과 또는 Boolean이 아닌 active 값을 거부합니다.
+- 게이트웨이의 HTTPS /verify URL을 GitHub google-play 환경의 BILLING_VERIFIER_URL 변수로 설정합니다. 서명 AAB 빌드가 이 값을 Gradle에 전달합니다. 게이트웨이 검증·실제 구매 테스트 및 현재 Console 확인 전에는 새 서버 또는 구매 UI의 운영 준비를 완료로 기록하지 않습니다.
 
 ## 광고 정책 및 개인정보 검증
 1. UMP 동의 갱신 후 `canRequestAds()`가 허용이고, Play 구독 확인 결과가 INACTIVE일 때만 홈에서 광고 요청.
