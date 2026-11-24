@@ -54,6 +54,15 @@ class SetupPresentationTest {
             downloadedBytes = 120, totalBytes = 100).modelProgressSummary())
     }
 
+    @Test fun remainingTransferSizeDoesNotOverstateReadiness() {
+        val downloading = MainSetupState(modelStage = ModelSetupStage.DOWNLOADING,
+            downloadedBytes = 500_000_001L, totalBytes = 2_000_000_000L)
+        assertEquals("남은 다운로드: 약 1500MB", downloading.modelRemainingLabel())
+        assertNull(downloading.copy(modelStage = ModelSetupStage.READY).modelRemainingLabel())
+        assertNull(downloading.copy(totalBytes = 0).modelRemainingLabel())
+        assertNull(downloading.copy(downloadedBytes = downloading.totalBytes).modelRemainingLabel())
+    }
+
     @Test fun activeFileNameOnlyAppearsForDownloads() {
         val state = MainSetupState(modelStage = ModelSetupStage.DOWNLOADING,
             currentFile = "models/translate/weights.bin")
@@ -79,7 +88,8 @@ class SetupPresentationTest {
         val popup = MainSetupState(isVisible = true, overlayPermissionRequired = true,
             overlayPermissionNeeded = true)
         assertEquals(SetupStep.OVERLAY_PERMISSION, popup.nextStep)
-        assertTrue(popup.overlayPermissionGuidance().contains("팝업 자막에서만"))
+        assertTrue(popup.overlayPermissionGuidance().contains("팝업·버블 자막"))
+        assertTrue(popup.overlayPermissionGuidance().contains("분할 화면은 이 권한 없이"))
         assertEquals(SetupStep.MODELS, popup.copy(overlayPermissionRequired = false).nextStep)
     }
 

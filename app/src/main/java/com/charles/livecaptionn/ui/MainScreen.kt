@@ -725,7 +725,7 @@ private fun StartSetupGuidance(
             if (SetupStep.OVERLAY_PERMISSION in visibleSteps) {
                 val overlayNext = setup.nextStep == SetupStep.OVERLAY_PERMISSION
                 SetupChecklistItem(
-                    title = "2. 다른 앱 위에 팝업 표시",
+                    title = "2. 다른 앱 위에 자막 표시",
                     status = if (setup.overlayPermissionNeeded) "허용 필요" else "허용 완료",
                     completed = !setup.overlayPermissionNeeded,
                     next = overlayNext
@@ -895,6 +895,10 @@ private fun ModelDownloadProgress(setup: MainSetupState) {
     Text(setup.modelProgressSummary(),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant)
+    setup.modelRemainingLabel()?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     val progress = setup.downloadProgress
     if (progress != null) {
         LinearProgressIndicator(

@@ -38,6 +38,16 @@ internal fun MainSetupState.modelProgressSummary(): String {
     }
 }
 
+/** Remaining transfer size, not an estimate of installation or verification time. */
+internal fun MainSetupState.modelRemainingLabel(): String? {
+    if (totalBytes <= 0 || modelStage == ModelSetupStage.READY ||
+        modelStage == ModelSetupStage.CHECKING) return null
+    val remaining = totalBytes - downloadedBytes.coerceIn(0L, totalBytes)
+    if (remaining <= 0) return null
+    val mb = remaining / 1_000_000L + if (remaining % 1_000_000L != 0L) 1 else 0
+    return "남은 다운로드: 약 ${mb}MB"
+}
+
 internal fun MainSetupState.activeModelFileLabel(): String? =
     if (modelStage == ModelSetupStage.DOWNLOADING)
         currentFile?.takeIf { it.isNotBlank() }?.substringAfterLast('/')?.take(72)
@@ -53,7 +63,7 @@ internal fun MainSetupState.audioPermissionGuidance(): String = when (audioPermi
 }
 
 internal fun MainSetupState.overlayPermissionGuidance(): String =
-    "팝업 자막에서만 '다른 앱 위에 표시' 권한이 필요합니다. 설정에서 허용하고 앱으로 돌아오세요."
+    "팝업·버블 자막에는 '다른 앱 위에 표시' 권한이 필요합니다. 분할 화면은 이 권한 없이 사용할 수 있습니다. 설정에서 허용하고 앱으로 돌아오세요."
 
 /** The message never presents a download as installed until integrity verification succeeds. */
 internal fun MainSetupState.modelStageGuidance(): String? = when (modelStage) {
