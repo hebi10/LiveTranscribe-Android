@@ -33,7 +33,7 @@ def definitions(bundle_path, dexdump):
             if not re.fullmatch(r'base/dex/classes(?:\d+)?\.dex', name):
                 continue
             dex_path = bundle.extract(name, temp)
-            process = subprocess.Popen([dexdump, dex_path], stdout=subprocess.PIPE, text=True)
+            process = subprocess.Popen([dexdump, dex_path], stdout=subprocess.PIPE, encoding='utf-8', errors='replace')
             owner = None
             member = None
             for line in process.stdout:
