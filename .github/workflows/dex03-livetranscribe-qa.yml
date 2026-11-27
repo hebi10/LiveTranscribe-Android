@@ -35,13 +35,13 @@ jobs:
       - name: Compile candidate and baseline release bundles with one QA signer
         env:
           BASE_SHA: 5c866c76492ae80aeb2c24edf459a983ebd61651
-          CANDIDATE_SHA: 61958762e26582f0f07e931468785c111da13eb8
+          CANDIDATE_SHA: d1461108980b2a68c8dc0266b416711b3eefd2cd
           ANDROID_VERSION_CODE: '32'
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$CANDIDATE_SHA" HEAD
-          [[ "$(git diff --name-only "$CANDIDATE_SHA" HEAD)" == $'.github/qa/dex03-live-smoke.py\n.github/workflows/dex03-livetranscribe-qa.yml' ]]
-          [[ "$(git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA")" == $'app/build.gradle.kts\nsettings.gradle.kts' ]]
+          [[ "$(git diff --name-only "$CANDIDATE_SHA" HEAD)" == $'.github/qa/dex03-live-jni.py\n.github/qa/dex03-live-smoke.py\n.github/workflows/dex03-livetranscribe-qa.yml' ]]
+          [[ "$(git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA")" == $'app/build.gradle.kts\napp/proguard-rules.pro\nsettings.gradle.kts' ]]
           output="$GITHUB_WORKSPACE/dex03-evidence"
           mkdir -p "$output"
           export ANDROID_RELEASE_KEYSTORE_PATH="$RUNNER_TEMP/dex03-live-qa.jks"
@@ -69,6 +69,7 @@ jobs:
           cp "$bundle" "$RUNNER_TEMP/dex03-optimized.aab"
           git show "$BASE_SHA:app/build.gradle.kts" > app/build.gradle.kts
           git show "$BASE_SHA:settings.gradle.kts" > settings.gradle.kts
+          git show "$BASE_SHA:app/proguard-rules.pro" > app/proguard-rules.pro
           "${gradle[@]}" bundleRelease
           python3 - "$bundle" "$RUNNER_TEMP/dex03-optimized.aab" "$output" <<'PY'
           import json
@@ -101,6 +102,7 @@ jobs:
           bridge = re.search(r'^com\.charles\.livecaptionn\.translation\.NativeTranslationBridge -> ([^:]+):', mapping, re.M)
           assert bridge and bridge.group(1) == 'com.charles.livecaptionn.translation.NativeTranslationBridge', 'Exported JNI bridge name changed'
           PY
+          python3 .github/qa/dex03-live-jni.py "$RUNNER_TEMP/dex03-optimized.aab" "$ANDROID_HOME/build-tools/36.0.0/dexdump" | tee "$output/jni.txt"
       - name: Enable KVM on the emulator runner
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-dex03-kvm.rules
