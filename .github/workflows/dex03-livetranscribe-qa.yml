@@ -54,12 +54,13 @@ jobs:
           ANDROID_RELEASE_CERT_SHA256="$(keytool -exportcert -keystore "$ANDROID_RELEASE_KEYSTORE_PATH" \
             -alias "$ANDROID_RELEASE_KEY_ALIAS" -storepass:env ANDROID_RELEASE_STORE_PASSWORD | sha256sum | cut -d ' ' -f 1)"
           export ANDROID_RELEASE_CERT_SHA256
-          gradle=(./gradlew --no-daemon --no-configuration-cache --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8')
+          gradle=(bash ./gradlew --no-daemon --no-build-cache --no-configuration-cache --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8')
           "${gradle[@]}" lintRelease bundleRelease assembleRelease
           bundle=app/build/outputs/bundle/release/app-release.aab
           apk=app/build/outputs/apk/release/app-release.apk
           mapping=app/build/outputs/mapping/release/mapping.txt
           test -s "$mapping"
+          python3 scripts/play/preflight.py verify-bundle --bundle "$bundle"
           python3 scripts/release_signing.py verify-apk --apk "$apk" --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner"
           python3 scripts/verify_apk_assets.py "$apk"
           python3 scripts/play/verify_native.py --bundle "$bundle" --apk "$apk" --bundletool "$RUNNER_TEMP/bundletool.jar" --zipalign "$ANDROID_HOME/build-tools/36.0.0/zipalign" --report "$output/native.json"
