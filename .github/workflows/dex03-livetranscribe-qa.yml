@@ -102,6 +102,23 @@ jobs:
           bridge = re.search(r'^com\.charles\.livecaptionn\.translation\.NativeTranslationBridge -> ([^:]+):', mapping, re.M)
           assert bridge and bridge.group(1) == 'com.charles.livecaptionn.translation.NativeTranslationBridge', 'Exported JNI bridge name changed'
           PY
+      - name: Preserve exact QA-signed release binaries and mapping before smoke
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: livetranscribe-dex03-qa-release
+          path: |
+            ${{ runner.temp }}/dex03-optimized.aab
+            ${{ runner.temp }}/dex03-optimized.apk
+            dex03-evidence/mapping.txt
+            dex03-evidence/dex.json
+            dex03-evidence/native.json
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Verify JNI lookup definitions in the APK bundle DEX
+        run: |
+          set -euo pipefail
+          output="$GITHUB_WORKSPACE/dex03-evidence"
           python3 .github/qa/dex03-live-jni.py "$RUNNER_TEMP/dex03-optimized.aab" "$ANDROID_HOME/build-tools/36.0.0/dexdump" | tee "$output/jni.txt"
       - name: Enable KVM on the emulator runner
         run: |
