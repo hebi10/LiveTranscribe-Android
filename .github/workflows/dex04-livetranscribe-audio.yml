@@ -1,4 +1,4 @@
-name: DEX-04 LiveTranscribe exact-main audio and overlay QA
+name: DEX-04 LiveTranscribe pre-R8 Android playback crash comparison
 
 on:
   push:
@@ -53,9 +53,10 @@ jobs:
           done
           provenance="$(find "$RUNNER_TEMP/dex04-binaries" -type f -name dex.json -print -quit)"
           [[ -n "$provenance" && "$(jq -r .candidate_sha "$provenance")" == "$MAIN_SHA" ]]
-          optimized="$(find "$RUNNER_TEMP/dex04-binaries" -type f -name dex03-optimized.apk -print -quit)"
+          optimized="$(find "$RUNNER_TEMP/dex04-binaries" -type f -name dex04-baseline.apk -print -quit)"
           [[ -n "$optimized" ]]
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$optimized" | sed -n '1p' | grep -F "versionCode='33'"
+          [[ "$(jq -r .baseline_sha "$provenance")" == "5c866c76492ae80aeb2c24edf459a983ebd61651" ]]
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$optimized" | sed -n '1p' | grep -F "versionCode='32'"
           cp "$optimized" "$RUNNER_TEMP/dex04-exact-main.apk"
           sha256sum "$RUNNER_TEMP/dex04-exact-main.apk" > dex04-audio-evidence/apk-sha256.txt
       - name: Enable KVM for ARM64 translation on the Android emulator
@@ -79,7 +80,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: livetranscribe-dex04-audio-consent-and-overlay
+          name: livetranscribe-dex04-before-r8-audio-evidence
           path: dex04-audio-evidence/
           retention-days: 14
           if-no-files-found: warn

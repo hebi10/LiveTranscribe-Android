@@ -54,6 +54,14 @@ def project_active():
     return APP in adb('shell', 'dumpsys', 'media_projection')
 
 
+def active_projection_without_process_exit():
+    try:
+        assert adb('shell', 'pidof', APP).strip(), 'App exited after granting screen capture'
+    except subprocess.CalledProcessError as exit_error:
+        raise RuntimeError('App exited after granting screen capture') from exit_error
+    return project_active()
+
+
 def wait_for_consent(button):
     allowed = button == 'allow'
     suffix = 'button1' if allowed else 'button2'
@@ -125,7 +133,7 @@ def run(apk, audio_fixture, models, output):
     allow = wait_for_consent('allow')
     evidence(output, '04-Android-capture-consent-allow')
     tap(allow)
-    wait_until(project_active, bool, 'active app MediaProjection after consent', timeout=90)
+    wait_until(active_projection_without_process_exit, bool, 'active app MediaProjection after consent', timeout=90)
     found = wait_until(overlay_windows, bool, 'visible app WindowManager overlay', timeout=180)
     (output / 'overlay-windows.txt').write_text(found, encoding='utf-8')
     assert 'Status: ok' in adb('shell', 'am', 'start', '-W', '-n', f'{PLAYER}/.PlayerActivity')
@@ -157,7 +165,9 @@ if __name__ == '__main__':
     except Exception:
         for filename, command in [('logcat.txt', ('logcat', '-d', '-t', '800')),
                                   ('audio-routing.txt', ('shell', 'dumpsys', 'media.audio_policy')),
-                                  ('projection.txt', ('shell', 'dumpsys', 'media_projection'))]:
+                                  ('projection.txt', ('shell', 'dumpsys', 'media_projection')),
+                                  ('native-crash.txt', ('logcat', '-d', '-b', 'crash')),
+                                  ('tombstone.txt', ('exec-out', 'cat', '/data/tombstones/tombstone_00'))]:
             try:
                 (destination / filename).write_text(adb(*command), encoding='utf-8')
             except Exception:
