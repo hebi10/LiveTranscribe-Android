@@ -1,0 +1,85 @@
+name: DEX-04 LiveTranscribe exact-main Android 15 audio and overlay QA
+
+on:
+  push:
+    branches: [qa/dex04-livetranscribe-api35]
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  MAIN_SHA: 9cbed7c20afafc326316ed643c2f46bfe7d4e166
+  BUILD_RUN_ID: '45966102420'
+
+jobs:
+  exact-main-playback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify unchanged source, prepare player and download pinned offline models
+        run: |
+          set -euo pipefail
+          mkdir -p dex04-audio-evidence
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$MAIN_SHA" ]]
+          git merge-base --is-ancestor "$MAIN_SHA" HEAD
+          [[ "$(git diff --name-only "$MAIN_SHA" HEAD)" == $'.github/qa/dex04-live-audio.py\n.github/qa/dex04-live-models.py\n.github/qa/dex04-live-player.sh\n.github/qa/dex04-live-upgrade.py\n.github/workflows/dex04-livetranscribe-audio-api35.yml' ]]
+          if ! command -v espeak-ng >/dev/null && ! command -v espeak >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y espeak-ng
+          fi
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-36' 'build-tools;36.0.0'
+          bash .github/qa/dex04-live-player.sh "$RUNNER_TEMP/dex04-player"
+          python3 .github/qa/dex04-live-models.py app/src/main/java/com/charles/livecaptionn/models/OfflineModelCatalog.kt "$RUNNER_TEMP/dex04-offline-models" | tee dex04-audio-evidence/model-verification.txt
+      - name: Obtain the verified disposable release APK and confirm exact provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dex04-binaries"
+          for attempt in {1..35}; do
+            if gh run download "$BUILD_RUN_ID" --repo "$GITHUB_REPOSITORY" --name livetranscribe-dex04-qa-release --dir "$RUNNER_TEMP/dex04-binaries"; then
+              break
+            fi
+            sleep 20
+          done
+          provenance="$(find "$RUNNER_TEMP/dex04-binaries" -type f -name dex.json -print -quit)"
+          [[ -n "$provenance" && "$(jq -r .candidate_sha "$provenance")" == "$MAIN_SHA" ]]
+          optimized="$(find "$RUNNER_TEMP/dex04-binaries" -type f -name dex03-optimized.apk -print -quit)"
+          [[ -n "$optimized" ]]
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$optimized" | sed -n '1p' | grep -F "versionCode='33'"
+          cp "$optimized" "$RUNNER_TEMP/dex04-exact-main.apk"
+          sha256sum "$RUNNER_TEMP/dex04-exact-main.apk" > dex04-audio-evidence/apk-sha256.txt
+      - name: Enable KVM for ARM64 translation on the Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-dex04-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify Android capture consent, offline inference and popup lifecycle
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          SDL_AUDIODRIVER: dummy
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_5
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -memory 5896 -partition-size 12500
+          script: python3 .github/qa/dex04-live-audio.py "$RUNNER_TEMP/dex04-exact-main.apk" "$RUNNER_TEMP/dex04-player/playback.apk" "$RUNNER_TEMP/dex04-offline-models" dex04-audio-evidence
+      - name: Preserve output from the disposable local speech and translation fixture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: livetranscribe-dex04-android15-audio-evidence
+          path: dex04-audio-evidence/
+          retention-days: 14
+          if-no-files-found: warn
