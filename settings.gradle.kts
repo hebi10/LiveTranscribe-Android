@@ -1,4 +1,14 @@
 pluginManagement {
+    buildscript {
+        repositories {
+            google()
+            mavenCentral()
+        }
+        dependencies {
+            // Kotlin 2.2 metadata requires R8 8.10.21 or newer.
+            classpath("com.android.tools:r8:8.10.21")
+        }
+    }
     repositories {
         google()
         maven {

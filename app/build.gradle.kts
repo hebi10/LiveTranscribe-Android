@@ -92,7 +92,8 @@ android {
                 "\"" + (if (liveGmaReady) providedGmaAppId else testGmaAppId) + "\"")
             buildConfigField("String", "GMA_BANNER_UNIT_ID",
                 "\"" + (if (liveGmaReady) providedGmaBanner else "") + "\"")
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
