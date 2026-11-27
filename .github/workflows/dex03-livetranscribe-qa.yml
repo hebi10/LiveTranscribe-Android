@@ -1,0 +1,125 @@
+name: DEX-03 LiveTranscribe release QA
+
+on:
+  push:
+    branches: [qa/dex03-livetranscribe]
+
+permissions:
+  contents: read
+
+jobs:
+  release-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare pinned support assets and toolchain
+        run: |
+          set -euo pipefail
+          sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+          python3 scripts/play/prepare_bundletool.py "$RUNNER_TEMP/bundletool.jar"
+          python3 scripts/prepare_speech_support.py
+          python3 scripts/prepare_language_id.py
+          python3 scripts/prepare_native_translation.py
+          python3 scripts/prepare_speech_support.py --verify-only
+          python3 scripts/prepare_language_id.py --verify-only
+          python3 scripts/audit_privacy.py
+      - name: Compile candidate and baseline release bundles with one QA signer
+        env:
+          BASE_SHA: 5c866c76492ae80aeb2c24edf459a983ebd61651
+          CANDIDATE_SHA: 61958762e26582f0f07e931468785c111da13eb8
+          ANDROID_VERSION_CODE: '32'
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD^1)" == "$CANDIDATE_SHA" ]]
+          git fetch --depth=1 origin "$BASE_SHA"
+          [[ "$(git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA")" == $'app/build.gradle.kts\nsettings.gradle.kts' ]]
+          output="$GITHUB_WORKSPACE/dex03-evidence"
+          mkdir -p "$output"
+          export ANDROID_RELEASE_KEYSTORE_PATH="$RUNNER_TEMP/dex03-live-qa.jks"
+          export ANDROID_RELEASE_KEY_ALIAS=dex03-qa
+          export ANDROID_RELEASE_STORE_PASSWORD="$(openssl rand -hex 24)"
+          export ANDROID_RELEASE_KEY_PASSWORD="$ANDROID_RELEASE_STORE_PASSWORD"
+          keytool -genkeypair -keystore "$ANDROID_RELEASE_KEYSTORE_PATH" -storetype PKCS12 \
+            -alias "$ANDROID_RELEASE_KEY_ALIAS" -storepass:env ANDROID_RELEASE_STORE_PASSWORD \
+            -keyalg RSA -keysize 2048 -validity 7 -dname 'CN=LiveTranscribe DEX-03 disposable QA'
+          ANDROID_RELEASE_CERT_SHA256="$(keytool -exportcert -keystore "$ANDROID_RELEASE_KEYSTORE_PATH" \
+            -alias "$ANDROID_RELEASE_KEY_ALIAS" -storepass:env ANDROID_RELEASE_STORE_PASSWORD | sha256sum | cut -d ' ' -f 1)"
+          export ANDROID_RELEASE_CERT_SHA256
+          gradle=(./gradlew --no-daemon --no-configuration-cache --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8')
+          "${gradle[@]}" lintRelease bundleRelease assembleRelease
+          bundle=app/build/outputs/bundle/release/app-release.aab
+          apk=app/build/outputs/apk/release/app-release.apk
+          mapping=app/build/outputs/mapping/release/mapping.txt
+          test -s "$mapping"
+          python3 scripts/release_signing.py verify-apk --apk "$apk" --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          python3 scripts/verify_apk_assets.py "$apk"
+          python3 scripts/play/verify_native.py --bundle "$bundle" --apk "$apk" --bundletool "$RUNNER_TEMP/bundletool.jar" --zipalign "$ANDROID_HOME/build-tools/36.0.0/zipalign" --report "$output/native.json"
+          cp "$mapping" "$output/mapping.txt"
+          cp "$apk" "$RUNNER_TEMP/dex03-optimized.apk"
+          cp "$bundle" "$RUNNER_TEMP/dex03-optimized.aab"
+          git show "$BASE_SHA:app/build.gradle.kts" > app/build.gradle.kts
+          git show "$BASE_SHA:settings.gradle.kts" > settings.gradle.kts
+          "${gradle[@]}" bundleRelease
+          python3 - "$bundle" "$RUNNER_TEMP/dex03-optimized.aab" "$output" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          def dex_report(path):
+              with ZipFile(path) as bundle:
+                  names = [n for n in bundle.namelist() if re.fullmatch(r'base/dex/classes(?:\d+)?\.dex', n)]
+                  markers = sorted({marker.decode() for name in names for marker in re.findall(rb'~~R8\{[^}]+\}', bundle.read(name))})
+                  return {'files': len(names), 'bytes': sum(bundle.getinfo(n).file_size for n in names), 'r8_markers': markers}
+
+          baseline, optimized = map(dex_report, sys.argv[1:3])
+          output = Path(sys.argv[3])
+          mapping = (output / 'mapping.txt').read_text(encoding='utf-8')
+          report = {
+              'baseline_sha': os.environ['BASE_SHA'], 'candidate_sha': os.environ['CANDIDATE_SHA'],
+              'abi': 'arm64-v8a', 'baseline': baseline, 'optimized': optimized,
+              'mapping_bytes': (output / 'mapping.txt').stat().st_size,
+              'reduction_pct': round((1 - optimized['bytes'] / baseline['bytes']) * 100, 2),
+          }
+          formatted = json.dumps(report, indent=2) + '\n'
+          (output / 'dex.json').write_text(formatted, encoding='utf-8')
+          print(formatted)
+          assert baseline['bytes'] > optimized['bytes'] > 0
+          assert '# compiler_version: 8.10.21' in mapping
+          bridge = re.search(r'^com\.charles\.livecaptionn\.translation\.NativeTranslationBridge -> ([^:]+):', mapping, re.M)
+          assert bridge and bridge.group(1) == 'com.charles.livecaptionn.translation.NativeTranslationBridge', 'Exported JNI bridge name changed'
+          PY
+      - name: Enable KVM on the emulator runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-dex03-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Check optimized ARM64 startup and permission surfaces
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: python3 .github/qa/dex03-live-smoke.py "$RUNNER_TEMP/dex03-optimized.apk" dex03-evidence
+      - name: Preserve build and permission evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: livetranscribe-dex03-qa
+          path: dex03-evidence/
+          retention-days: 7
+          if-no-files-found: warn
