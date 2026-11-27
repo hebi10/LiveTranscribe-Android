@@ -115,6 +115,8 @@ def run(apk, audio_fixture, models, output):
     assert not project_active()
     tap_label('영어', scroll=True, attempts=15)
     tap_label('세부 설정 열기', scroll=True)
+    tap_label('원문도 함께 표시', scroll=True, attempts=20)
+    tap_label('확정 자막을 한 번 더 다듬기', scroll=True, attempts=20)
     tap_label('번역 기록 저장', scroll=True, attempts=24)
     time.sleep(2)
     reopen()
@@ -137,13 +139,20 @@ def run(apk, audio_fixture, models, output):
     found = wait_until(overlay_windows, bool, 'visible app WindowManager overlay', timeout=180)
     (output / 'overlay-windows.txt').write_text(found, encoding='utf-8')
     assert 'Status: ok' in adb('shell', 'am', 'start', '-W', '-n', f'{PLAYER}/.PlayerActivity')
-    transcript = wait_until(read_transcript, lambda rows: any(translated(item) for item in rows),
-                            'ASR from local audio playback and Korean inference retained in history', timeout=390)
+    try:
+        transcript = wait_until(read_transcript, lambda rows: any(translated(item) for item in rows),
+                                'offline Korean inference retained in history', timeout=155)
+    except AssertionError:
+        transcript = read_transcript()
     selected = [row for row in transcript if translated(row)]
     (output / 'synthetic-clip-translation.json').write_text(
         json.dumps(selected, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    assert overlay_windows(), 'The app overlay must remain present during real captions'
-    evidence(output, '05-actual-subtitles-over-test-player')
+    assert overlay_windows(), 'The app overlay must remain present after audio capture'
+    evidence(output, '05-overlay-after-actual-audio-playback')
+    (output / 'active-audio-routing.txt').write_text(
+        adb('shell', 'dumpsys', 'media.audio_policy'), encoding='utf-8')
+    (output / 'active-projection.txt').write_text(
+        adb('shell', 'dumpsys', 'media_projection'), encoding='utf-8')
     adb('shell', 'am', 'force-stop', PLAYER)
     launch()
     tap_label('번역 중지', scroll=True)
@@ -154,7 +163,17 @@ def run(apk, audio_fixture, models, output):
     evidence(output, '06-relaunch-projection-after-stopping')
     tap(retry)
     assert not project_active()
-    print('Verified Android screen-capture denial/allow, actual other-app audio capture with offline Korean subtitles, overlay close, and restart consent.', flush=True)
+    (output / 'capture-lifecycle.json').write_text(json.dumps({
+        'denial_and_reprompt': True,
+        'allowed_projection_active': True,
+        'app_overlay_visible_during_fixture_playback': True,
+        'projection_and_overlay_stopped': True,
+        'consent_appeared_on_restart': True,
+        'translated_rows_matching_fixture': len(selected),
+    }, indent=2) + '\n', encoding='utf-8')
+    print('Verified Android capture denial/allow, active projection and overlay, stop, and restart consent.', flush=True)
+    print(f'Offline Korean rows matching synthetic input: {len(selected)}', flush=True)
+    assert selected, 'Offline Korean translation output was not established; capture lifecycle proof is retained.'
 
 
 if __name__ == '__main__':

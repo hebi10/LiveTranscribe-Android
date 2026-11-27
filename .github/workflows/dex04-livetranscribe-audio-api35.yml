@@ -73,13 +73,13 @@ jobs:
           target: google_apis
           profile: pixel_5
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -memory 5896 -partition-size 12500
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -memory 5896 -cores 4 -partition-size 12500
           script: python3 .github/qa/dex04-live-audio.py "$RUNNER_TEMP/dex04-exact-main.apk" "$RUNNER_TEMP/dex04-player/playback.apk" "$RUNNER_TEMP/dex04-offline-models" dex04-audio-evidence
       - name: Preserve output from the disposable local speech and translation fixture
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: livetranscribe-dex04-android15-audio-evidence
+          name: livetranscribe-dex04-android15-short-sample-evidence
           path: dex04-audio-evidence/
           retention-days: 14
           if-no-files-found: warn

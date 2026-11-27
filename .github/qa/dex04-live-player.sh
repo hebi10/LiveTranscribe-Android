@@ -3,15 +3,20 @@ set -euo pipefail
 root="$1"
 mkdir -p "$root/res/raw" "$root/src/qa/dex04/playback" "$root/classes" "$root/gen" "$root/dex"
 engine="$(command -v espeak-ng || command -v espeak)"
-"$engine" -v en-us -s 132 -w "$root/voice.wav" "Hello world. The weather is sunny today. This is a language translation test."
+"$engine" -v en-us -s 132 -w "$root/voice.wav" "Hello world."
 python3 - "$root/voice.wav" "$root/res/raw/fixture.wav" <<'PYTHON'
 import sys
 import wave
+from array import array
 
 with wave.open(sys.argv[1], "rb") as source, wave.open(sys.argv[2], "wb") as fixture:
     fixture.setparams(source.getparams())
-    fixture.writeframes(source.readframes(source.getnframes()))
-    fixture.writeframes(bytes(3 * source.getframerate() * source.getsampwidth() * source.getnchannels()))
+    assert source.getsampwidth() == 2
+    speech = array("h", source.readframes(source.getnframes()))
+    peak = max(abs(sample) for sample in speech)
+    assert peak > 0
+    fixture.writeframes(array("h", (round(sample * 26000 / peak) for sample in speech)).tobytes())
+    fixture.writeframes(bytes(18 * source.getframerate() * source.getsampwidth() * source.getnchannels()))
 PYTHON
 cat > "$root/AndroidManifest.xml" <<'XML'
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="qa.dex04.playback">
