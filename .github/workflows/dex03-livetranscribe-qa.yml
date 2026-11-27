@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-java@v4
         with:
@@ -24,7 +24,7 @@ jobs:
       - name: Prepare pinned support assets and toolchain
         run: |
           set -euo pipefail
-          sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
           python3 scripts/play/prepare_bundletool.py "$RUNNER_TEMP/bundletool.jar"
           python3 scripts/prepare_speech_support.py
           python3 scripts/prepare_language_id.py
@@ -39,8 +39,8 @@ jobs:
           ANDROID_VERSION_CODE: '32'
         run: |
           set -euo pipefail
-          [[ "$(git rev-parse HEAD^1)" == "$CANDIDATE_SHA" ]]
-          git fetch --depth=1 origin "$BASE_SHA"
+          git merge-base --is-ancestor "$CANDIDATE_SHA" HEAD
+          [[ "$(git diff --name-only "$CANDIDATE_SHA" HEAD)" == $'.github/qa/dex03-live-smoke.py\n.github/workflows/dex03-livetranscribe-qa.yml' ]]
           [[ "$(git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA")" == $'app/build.gradle.kts\nsettings.gradle.kts' ]]
           output="$GITHUB_WORKSPACE/dex03-evidence"
           mkdir -p "$output"
