@@ -4,7 +4,15 @@ root="$1"
 mkdir -p "$root/res/raw" "$root/src/qa/dex04/playback" "$root/classes" "$root/gen" "$root/dex"
 engine="$(command -v espeak-ng || command -v espeak)"
 "$engine" -v en-us -s 132 -w "$root/voice.wav" "Hello world. The weather is sunny today. This is a language translation test."
-ffmpeg -hide_banner -loglevel error -i "$root/voice.wav" -af 'apad=pad_dur=3' -ar 48000 "$root/res/raw/fixture.wav"
+python3 - "$root/voice.wav" "$root/res/raw/fixture.wav" <<'PYTHON'
+import sys
+import wave
+
+with wave.open(sys.argv[1], "rb") as source, wave.open(sys.argv[2], "wb") as fixture:
+    fixture.setparams(source.getparams())
+    fixture.writeframes(source.readframes(source.getnframes()))
+    fixture.writeframes(bytes(3 * source.getframerate() * source.getsampwidth() * source.getnchannels()))
+PYTHON
 cat > "$root/AndroidManifest.xml" <<'XML'
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="qa.dex04.playback">
   <application android:label="DEX-04 playback fixture" android:allowBackup="false" android:allowAudioPlaybackCapture="true">
