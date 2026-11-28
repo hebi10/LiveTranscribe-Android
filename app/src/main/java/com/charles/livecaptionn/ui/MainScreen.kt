@@ -45,6 +45,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -63,11 +64,13 @@ import com.charles.livecaptionn.monetization.AdFreeStatus
 import com.charles.livecaptionn.monetization.AdPlacementPolicy
 import com.charles.livecaptionn.monetization.HomeAdBanner
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -139,6 +142,10 @@ fun MainScreen(
         ui.canStart -> "시작 가능"
         else -> "시작 준비 필요"
     }
+    val titleStyle = MaterialTheme.typography.titleLarge
+    val titleBarHeight = with(LocalDensity.current) {
+        maxOf(TopAppBarDefaults.TopAppBarExpandedHeight, titleStyle.lineHeight.toDp() * 2 + 8.dp)
+    }
 
     Scaffold(
         modifier = modifier,
@@ -147,9 +154,10 @@ fun MainScreen(
                 title = {
                     Text(
                         "실시간 영상 번역",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = titleStyle,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
+                        textAlign = TextAlign.Center,
                         overflow = TextOverflow.Ellipsis
                     )
                 },
@@ -161,7 +169,8 @@ fun MainScreen(
                     IconButton(onClick = onHistory) {
                         Icon(Icons.Outlined.History, contentDescription = "번역 기록")
                     }
-                }
+                },
+                expandedHeight = titleBarHeight
             )
         },
         bottomBar = {
