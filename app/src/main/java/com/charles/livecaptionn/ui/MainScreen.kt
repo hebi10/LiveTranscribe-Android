@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.Button
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,7 +42,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -67,6 +68,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -141,12 +143,19 @@ fun MainScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Outlined.Subtitles, contentDescription = null)
-                        Text("실시간 영상 번역", fontWeight = FontWeight.SemiBold)
-                    }
+                    Text(
+                        "실시간 영상 번역",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                navigationIcon = {
+                    Icon(Icons.Outlined.Subtitles, contentDescription = null,
+                        modifier = Modifier.padding(horizontal = 16.dp))
                 },
                 actions = {
                     IconButton(onClick = onHistory) {
@@ -205,8 +214,14 @@ fun MainScreen(
             modifier = Modifier.fillMaxSize().padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Text(
+                "기기 내 실시간 자막",
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surfaceContainer,
@@ -217,7 +232,7 @@ fun MainScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (!setup.isVisible) {
-                        Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
+                        Text("번역 언어", style = MaterialTheme.typography.titleMedium)
                         Text(selectionLabel, fontWeight = FontWeight.Medium)
                         Text(statusLabel, style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -281,13 +296,15 @@ fun MainScreen(
                             shape = RectangleShape,
                             onClick = { viewModel.updateCaptionPlacement(placement) },
                             enabled = !sessionBusy,
-                            modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
+                            modifier = Modifier.widthIn(min = 132.dp).heightIn(min = 48.dp)
+                                .semantics { this.selected = true }
                         ) { content() }
                         else OutlinedButton(
                             shape = RectangleShape,
                             onClick = { viewModel.updateCaptionPlacement(placement) },
                             enabled = !sessionBusy,
-                            modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
+                            modifier = Modifier.widthIn(min = 132.dp).heightIn(min = 48.dp)
+                                .semantics { this.selected = false }
                         ) { content() }
                     }
                 }
@@ -878,7 +895,7 @@ private fun SetupChecklistItem(
             else MaterialTheme.colorScheme.surfaceContainer
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.Top
         ) {
