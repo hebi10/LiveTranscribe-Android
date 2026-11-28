@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.Button
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,10 +42,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -62,11 +64,14 @@ import com.charles.livecaptionn.monetization.AdFreeStatus
 import com.charles.livecaptionn.monetization.AdPlacementPolicy
 import com.charles.livecaptionn.monetization.HomeAdBanner
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -137,22 +142,35 @@ fun MainScreen(
         ui.canStart -> "시작 가능"
         else -> "시작 준비 필요"
     }
+    val titleStyle = MaterialTheme.typography.titleLarge
+    val titleBarHeight = with(LocalDensity.current) {
+        maxOf(TopAppBarDefaults.TopAppBarExpandedHeight, titleStyle.lineHeight.toDp() * 2 + 8.dp)
+    }
 
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Outlined.Subtitles, contentDescription = null)
-                        Text("실시간 영상 번역", fontWeight = FontWeight.SemiBold)
-                    }
+                    Text(
+                        "실시간 영상 번역",
+                        style = titleStyle,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        textAlign = TextAlign.Center,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                navigationIcon = {
+                    Icon(Icons.Outlined.Subtitles, contentDescription = null,
+                        modifier = Modifier.padding(horizontal = 16.dp))
                 },
                 actions = {
                     IconButton(onClick = onHistory) {
                         Icon(Icons.Outlined.History, contentDescription = "번역 기록")
                     }
-                }
+                },
+                expandedHeight = titleBarHeight
             )
         },
         bottomBar = {
@@ -205,8 +223,14 @@ fun MainScreen(
             modifier = Modifier.fillMaxSize().padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Text(
+                "기기 내 실시간 자막",
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surfaceContainer,
@@ -217,7 +241,7 @@ fun MainScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (!setup.isVisible) {
-                        Text("기기 내 실시간 자막", style = MaterialTheme.typography.titleMedium)
+                        Text("번역 언어", style = MaterialTheme.typography.titleMedium)
                         Text(selectionLabel, fontWeight = FontWeight.Medium)
                         Text(statusLabel, style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -281,13 +305,15 @@ fun MainScreen(
                             shape = RectangleShape,
                             onClick = { viewModel.updateCaptionPlacement(placement) },
                             enabled = !sessionBusy,
-                            modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = true }
+                            modifier = Modifier.widthIn(min = 132.dp).heightIn(min = 48.dp)
+                                .semantics { this.selected = true }
                         ) { content() }
                         else OutlinedButton(
                             shape = RectangleShape,
                             onClick = { viewModel.updateCaptionPlacement(placement) },
                             enabled = !sessionBusy,
-                            modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = false }
+                            modifier = Modifier.widthIn(min = 132.dp).heightIn(min = 48.dp)
+                                .semantics { this.selected = false }
                         ) { content() }
                     }
                 }
@@ -878,7 +904,7 @@ private fun SetupChecklistItem(
             else MaterialTheme.colorScheme.surfaceContainer
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.Top
         ) {
